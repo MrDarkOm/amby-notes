@@ -4,8 +4,6 @@ import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
 import { operationErrorCode, operationErrorText } from "@/lib/operation-errors"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
-import { confirm } from "@/lib/confirm"
-import { confirmations } from "@/lib/confirmations"
 import {
   Dialog,
   DialogContent,
@@ -17,21 +15,23 @@ import {
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import {
   backupCustomProperties,
+  beginMerge,
   deleteItem,
+  finishMerge,
   getDatabaseNoteContext,
   getNoteProperties,
   listDatabases,
   moveItem,
-  previewMoveRefactor,
-  previewRenameRefactor,
   readNote,
   renameItem,
+  undoMutation,
+  type UndoRecord,
   type FsMutationResult,
   type DatabaseNoteContext,
   type TreeItem,
   DatabaseOperationError,
 } from "@/lib/storage"
-import { holdLayerAutosavesInside } from "../autosave/autosave-lifecycle"
+import { flushAutosaveGeneration, holdLayerAutosavesInside } from "../autosave/autosave-lifecycle"
 import { useVaultStore } from "../use-vault-store"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
@@ -48,6 +48,7 @@ import { concatTreePatches } from "../tree-patch"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 import type { RenameOutcome } from "./rename-outcome"
+import { announceUndoable, registerUndoApplier, type UndoOutcome } from "./undo-operation"
 
 type Params = Pick<
   UseFileActionsParams,
@@ -64,6 +65,19 @@ function pathAfterMutation(result: FsMutationResult, path: string): string {
   }
   return path
 }
+
+/** A name without its folder and extension, as the person sees it. */
+function displayName(path: string): string {
+  const base = path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? ""
+  return base.replace(/\.[^.]+$/, "")
+}
+
+/** The notes an undo writes back: open ones must have nothing unsaved first. */
+function undoTouchedPaths(record: UndoRecord): string[] {
+  return record.kind === "merge" ? [record.target.path] : record.rewritten.map((note) => note.path)
+}
+
+const UNDO_REFUSALS = new Set(["undoItemMoved", "undoNoteChanged", "undoUnavailable"])
 
 /**
  * The app's own writes do not reach the open databases (the watcher skips them): after a note went into
@@ -216,17 +230,8 @@ export function useDocumentMutations({
       let newPathOf = (oldPath: string) => oldPath
       try {
         const path = item.path ?? id
-        const preview = await previewRenameRefactor(vault ?? "", path, newName)
-        if (
-          preview.replacements > 0 &&
-          !(await confirm(
-            confirmations.renameRefactor({
-              replacements: preview.replacements,
-              notes: preview.notes,
-            }),
-          ))
-        )
-          return { status: "skipped" }
+        // Links in other notes are rewritten without a question: the line under the tree undoes it
+        // exactly (docs/notices.md, section 9).
         finishLocalMutation = beginLocalTreeMutation()
         // A queued save of a canvas or sketch must not meet the old path gone (SAVE-10).
         releaseLayerSaves = await holdLayerAutosavesInside(
@@ -248,6 +253,13 @@ export function useDocumentMutations({
           ),
         )
         logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
+        announceUndoable(result, {
+          kind: "renamedWithLinks",
+          params: { name: newName },
+          titleKey: "notices.tree.renamed",
+          lineKey: "notices.tree.linksUpdated",
+          ...(result.primaryPath ? { target: result.primaryPath } : {}),
+        })
         return { status: "renamed" }
       } catch (error) {
         // The field the name was typed in shows the reason (RenameHint); the log keeps the code.
@@ -359,22 +371,6 @@ export function useDocumentMutations({
                 },
               )
             : []
-        if (sourceEntries.length === 1) {
-          const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
-          if (
-            preview.replacements > 0 &&
-            !(await confirm(
-              confirmations.moveRefactor({
-                replacements: preview.replacements,
-                notes: preview.notes,
-              }),
-            ))
-          ) {
-            restoreTree()
-            return "skipped"
-          }
-        }
-
         let currentTargetPath = targetPath
         for (const { sourcePath } of sourceEntries) {
           const result = await moveItem(vault, sourcePath, currentTargetPath)
@@ -418,6 +414,19 @@ export function useDocumentMutations({
           pathChangesCount: pathChanges.length,
         })
 
+        // Each move that rewrote links can be undone exactly from the journal; the line under the tree
+        // offers it for the last one (docs/notices.md, section 9).
+        results.forEach((result, index) => {
+          const entry = sourceEntries[index]
+          if (!entry) return
+          announceUndoable(result, {
+            kind: "movedWithLinks",
+            params: { name: entry.source.name, target: target?.name ?? displayName(vault) },
+            titleKey: "notices.tree.moved",
+            lineKey: "notices.tree.linksUpdated",
+            ...(result.primaryPath ? { target: result.primaryPath } : {}),
+          })
+        })
         await refreshOpenDatabases()
         // A single note moved: carry its properties over if it is now in a database. Not awaited for
         // the person's answer in the outcome of the move: the move itself is done.
@@ -472,8 +481,7 @@ export function useDocumentMutations({
         source?.type !== "file" ||
         source.bundleMember ||
         target?.bundleMember ||
-        target?.type !== "file" ||
-        !(await confirm(confirmations.mergeNotes({ source: source.name, target: target.name })))
+        target?.type !== "file"
       )
         return
       try {
@@ -491,6 +499,9 @@ export function useDocumentMutations({
           .filter(Boolean)
           .join("\n\n")
         const path = targetDocument?.path ?? target.path
+        // The target's text is kept as a version first, so the merge is undone exactly and is not asked
+        // about (docs/notices.md, section 9). `null` where it cannot be kept (the browser).
+        const snapshotId = await beginMerge(path)
         if (targetDocument) {
           patchDoc(targetId, {
             content,
@@ -507,10 +518,25 @@ export function useDocumentMutations({
           expectedRevision: targetDocument?.revision ?? targetRead!.revision,
         })
         await autosave.flush(autosaveKey(targetId))
+        // The merged text did not reach the disk: the source stays where it is.
+        if (useDocStore.getState().unsavedFileIds.has(targetId)) {
+          logger.warn("file.merge_kept_source", { sourceId, targetId })
+          return
+        }
         const finishLocalMutation = beginLocalTreeMutation()
         try {
-          handleApplyMutation(await deleteItem(vault, source.path))
+          const result = snapshotId
+            ? await finishMerge(vault, source.path, path, snapshotId)
+            : await deleteItem(vault, source.path)
+          handleApplyMutation(result)
           finishLocalMutation()
+          announceUndoable(result, {
+            kind: "notesMerged",
+            params: { source: source.name, target: target.name },
+            titleKey: "notices.tree.merged",
+            lineKey: "notices.tree.mergedLine",
+            target: path,
+          })
         } finally {
           finishLocalMutation()
         }
@@ -532,6 +558,64 @@ export function useDocumentMutations({
       vault,
     ],
   )
+  /**
+   * «Вернуть» of a rename, a move or a merge (undo-operation.ts). Unsaved text is saved first, and an open
+   * note the undo would write back must have nothing unsaved and no outside change; the backend refuses
+   * when anything changed since, and then nothing is touched.
+   */
+  const applyUndo = React.useCallback(
+    async (record: UndoRecord): Promise<UndoOutcome> => {
+      const saveFirst = { outcome: "refused", key: "notices.journal.undoSaveFirst" } as const
+      if (!vault) return { outcome: "refused", key: "notices.journal.undoFailed" }
+      const flushed = await flushAutosaveGeneration(useVaultStore.getState().generation)
+      if (!flushed.flushed) return saveFirst
+      const state = useDocStore.getState()
+      const touched = new Set(undoTouchedPaths(record).map((path) => path.normalize("NFC")))
+      const blocked = Object.values(state.openDocs).some(
+        (doc) =>
+          touched.has(doc.path.normalize("NFC")) &&
+          (state.unsavedFileIds.has(doc.id) || Boolean(state.externalConflicts[doc.id])),
+      )
+      if (blocked) return saveFirst
+      const finishLocalMutation = beginLocalTreeMutation()
+      try {
+        const result = await undoMutation(record)
+        handleApplyMutation(result)
+        finishLocalMutation()
+        useDatabaseStore.getState().invalidateHosts()
+        if (record.kind === "rename" && result.primaryPath) {
+          const name = displayName(result.primaryPath)
+          const docs = useDocStore.getState().openDocs
+          const renamed = Object.values(docs).find((doc) => doc.path === result.primaryPath)
+          if (renamed) {
+            patchDoc(renamed.id, { title: name })
+            setTabs((previous) =>
+              previous.map((tab) => (tab.fileId === renamed.id ? { ...tab, title: name } : tab)),
+            )
+          }
+        }
+        logger.info("file.undo", { kind: record.kind })
+        try {
+          await refreshTree()
+        } catch (error) {
+          // The undo is done; the tree catches up with the next change.
+          logger.warn("file.undo_refresh_failed", { failureCode: operationErrorCode(error) })
+        }
+        return { outcome: "restored" }
+      } catch (error) {
+        const code = operationErrorCode(error)
+        logger.warn("file.undo_failed", { kind: record.kind, failureCode: code })
+        return {
+          outcome: "refused",
+          key: UNDO_REFUSALS.has(code) ? `operationErrors.${code}` : "notices.journal.undoFailed",
+        }
+      } finally {
+        finishLocalMutation()
+      }
+    },
+    [handleApplyMutation, patchDoc, refreshTree, setTabs, vault],
+  )
+  React.useEffect(() => registerUndoApplier(applyUndo), [applyUndo])
   const propertyMigrationDialog = (
     <Dialog open={Boolean(pendingPropertyMigration)}>
       <DialogContent

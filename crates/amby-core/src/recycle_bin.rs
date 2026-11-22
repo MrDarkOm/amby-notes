@@ -65,7 +65,7 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
 }
 
 /// Is this file one of those the renderer holds open buffers of (notes, sketches, canvases)?
-pub(crate) fn markdown_like(path: &Path) -> bool {
+pub fn markdown_like(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw")))
 }
@@ -187,6 +187,7 @@ pub fn delete_permanently_scoped(
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -292,6 +293,7 @@ pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, Stri
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -452,6 +454,7 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&primary_path)),
         path_changes,
@@ -498,6 +501,7 @@ fn finish_interrupted_restore(vault: &Path, id: &str) -> Result<Option<FsMutatio
     Ok(Some(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&destination)),
         path_changes: Vec::new(),

@@ -46,21 +46,6 @@ const cases: Record<string, Case> = {
     names: ["Домашний"],
     ask: () => confirmations.removeAiConnection({ name: "Домашний" }),
   },
-  renameRefactor: {
-    destructive: false,
-    names: ["2", "5"],
-    ask: () => confirmations.renameRefactor({ replacements: 5, notes: 2 }),
-  },
-  moveRefactor: {
-    destructive: false,
-    names: ["2", "5"],
-    ask: () => confirmations.moveRefactor({ replacements: 5, notes: 2 }),
-  },
-  mergeNotes: {
-    destructive: false,
-    names: ["Черновик", "Итог"],
-    ask: () => confirmations.mergeNotes({ source: "Черновик", target: "Итог" }),
-  },
   deletePermanent: {
     destructive: true,
     names: ["План"],

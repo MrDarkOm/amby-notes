@@ -9,7 +9,7 @@ Domain services live in [amby-core](../../crates/amby-core/src/MAP.md).
 - **CLI note opening** — [cli_open.rs](cli_open.rs) validates local arguments and delivers them to the main window.
 - **The amby command on PATH** — [cli_path.rs](cli_path.rs) (tests in [cli_path_tests.rs](cli_path_tests.rs)) links the bundled CLI into `~/.local/bin` with a marked shell-profile line, or adds the app folder to the Windows user `Path`; commands in [commands/cli_path.rs](commands/cli_path.rs). It only changes or removes what it wrote.
 - **AI clients over MCP** — [mcp_clients.rs](mcp_clients.rs) registers the open vault's `amby mcp` in Claude Code, Codex and Antigravity (`agy`) through their own `mcp add`/`mcp remove`, opens Cursor's install link, and only reads their configs for status; commands in [commands/mcp_clients.rs](commands/mcp_clients.rs).
-- **Narrow IPC boundaries** — [commands/](commands/): notes, vault, mutations, history, assets, database, project, modules, debug
+- **Narrow IPC boundaries** — [commands/](commands/): notes, vault, mutations, history, assets, database, project, modules, debug; [commands/undo.rs](commands/undo.rs) undoes a rename or move that rewrote links, and a merge, exactly (records from `FsMutationResult.undo`, codes `undoItemMoved` / `undoNoteChanged` / `undoUnavailable`)
 - **Open with the system (attachment, address, vault folder by id)** — [commands/external.rs](commands/external.rs) (rules), [system_open.rs](system_open.rs) (one place that starts the system program)
 - **Title of a web page for a bookmark (the only outgoing request of a note)** — [page_info.rs](page_info.rs), command in [commands/external.rs](commands/external.rs)
 - **Filesystem events** — [watcher.rs](watcher.rs)

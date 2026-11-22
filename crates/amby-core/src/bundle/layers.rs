@@ -285,6 +285,7 @@ pub fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult, String
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&main_note)),
         path_changes,
@@ -395,6 +396,7 @@ pub fn attach_sketch_impl(sketch_path: &Path) -> Result<FsMutationResult, String
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&main_note)),
         path_changes,
@@ -457,6 +459,7 @@ pub fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResul
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: vec![layer_path.clone(), new_path.clone()],
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(note_path)),
         path_changes,

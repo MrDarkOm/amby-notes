@@ -36,6 +36,7 @@ import type {
 import type { DatabasePort } from "./database-port"
 import type { ProjectPort } from "./project-port"
 import type { NoteModulesPort } from "./note-modules-port"
+import type { UndoPort } from "./undo-port"
 
 export interface WriteNoteOptions {
   /**
@@ -45,7 +46,7 @@ export interface WriteNoteOptions {
   rewritesSource?: boolean
 }
 
-export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort {
+export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort, UndoPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>

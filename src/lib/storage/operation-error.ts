@@ -6,6 +6,9 @@ export type StorageOperationErrorCode =
   | "operationFailed"
   | "vaultBusy"
   | "vaultRecoveryRequired"
+  | "undoItemMoved"
+  | "undoNoteChanged"
+  | "undoUnavailable"
 
 /** Stable adapter-boundary category; the original diagnostic stays available. */
 export class StorageOperationError extends Error {
@@ -20,7 +23,15 @@ export class StorageOperationError extends Error {
 
 /** The code a translated command sends (`StorageErrorCode` in the bindings). */
 export function typedOperationError(error: {
-  code: "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed"
+  code:
+    | "notFound"
+    | "alreadyExists"
+    | "permissionDenied"
+    | "invalidPath"
+    | "failed"
+    | "undoItemMoved"
+    | "undoNoteChanged"
+    | "undoUnavailable"
   detail: string
 }): StorageOperationError {
   return new StorageOperationError(

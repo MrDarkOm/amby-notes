@@ -17,7 +17,16 @@ type JournalLevel = "info" | "success"
  * What happened. The text is made from the kind and the params when the journal is read, in the language
  * of the person at that time; an unknown kind (from a newer Amby) is shown with a general text.
  */
-export type JournalKind = "restored" | "conflictOutcome" | "merged" | "backupReady" | "updateFailed"
+export type JournalKind =
+  | "restored"
+  | "conflictOutcome"
+  | "merged"
+  | "backupReady"
+  | "updateFailed"
+  // A rename, a move that rewrote links, a merge of two notes: with «Вернуть» (docs/notices.md, section 9)
+  | "renamedWithLinks"
+  | "movedWithLinks"
+  | "notesMerged"
 
 export interface JournalEntry {
   id: string

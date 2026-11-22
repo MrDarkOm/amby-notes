@@ -7,7 +7,9 @@ import {
   StorageOperationError,
   type FsMutationResult,
   type TreeItem,
+  type UndoRecord,
 } from "@/lib/storage"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { confirm } from "@/lib/confirm"
 import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDatabaseStore } from "../database/database-store"
@@ -17,6 +19,11 @@ import { applyIconOverrides } from "../workspace-tree-utils"
 
 const moveItem = vi.fn()
 const renameItem = vi.fn()
+const undoMutation = vi.fn()
+const readNote = vi.fn()
+const beginMerge = vi.fn()
+const finishMerge = vi.fn()
+const deleteItem = vi.fn()
 const previewRenameRefactor = vi.fn()
 const previewMoveRefactor = vi.fn()
 const getNoteProperties = vi.fn()
@@ -29,6 +36,11 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     ...original,
     moveItem: (...args: unknown[]) => moveItem(...args),
     renameItem: (...args: unknown[]) => renameItem(...args),
+    undoMutation: (...args: unknown[]) => undoMutation(...args),
+    readNote: (...args: unknown[]) => readNote(...args),
+    beginMerge: (...args: unknown[]) => beginMerge(...args),
+    finishMerge: (...args: unknown[]) => finishMerge(...args),
+    deleteItem: (...args: unknown[]) => deleteItem(...args),
     previewRenameRefactor: (...args: unknown[]) => previewRenameRefactor(...args),
     previewMoveRefactor: (...args: unknown[]) => previewMoveRefactor(...args),
     getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
@@ -71,6 +83,18 @@ function setup() {
     }),
   )
   return { hook, handleApplyMutation, setTreeItems, refreshTree }
+}
+
+const MOVE_UNDO: UndoRecord = {
+  kind: "move",
+  sourcePath: "/v/A/Идея.md",
+  targetPath: "/v/B",
+  primaryPath: "/v/B/Идея.md",
+  pathChanges: [{ oldPath: "/v/A/Идея.md", newPath: "/v/B/Идея.md" }],
+  rewritten: [
+    { path: "/v/Один.md", snapshotId: "S1", digest: "d1" },
+    { path: "/v/Два.md", snapshotId: "S2", digest: "d2" },
+  ],
 }
 
 const moved: FsMutationResult = {
@@ -120,38 +144,32 @@ describe("handleMoveItem reports how the move ended", () => {
     expect(text).not.toContain("/secret")
   })
 
-  it("says 'skipped' when nothing was done: an unknown target, or the link rewrite declined", async () => {
+  it("says 'skipped' when nothing was done: an unknown target", async () => {
     const { hook } = setup()
     let outcome: unknown
     await act(async () => {
       outcome = await hook.result.current.handleMoveItem(["n1"], "/v/Нет")
     })
     expect(outcome).toBe("skipped")
-
-    previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
-    vi.mocked(confirm).mockResolvedValue(false)
-    await act(async () => {
-      outcome = await hook.result.current.handleMoveItem(["n1"], "/v/B")
-    })
-    expect(outcome).toBe("skipped")
     expect(moveItem).not.toHaveBeenCalled()
-    // The question names the number of links and the verb; it is an ordinary question, not a dangerous one.
-    const question = vi.mocked(confirm).mock.calls[0][0]
-    expect(question.description).toContain("2")
-    expect(question.destructive).toBeFalsy()
-    expect(question.confirmLabel).toBe("Переместить")
   })
 
-  it("moves after 'yes' to the link rewrite", async () => {
-    previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
-    vi.mocked(confirm).mockResolvedValue(true)
+  it("moves without a question when links are rewritten, and offers «Вернуть» under the tree and in the journal", async () => {
+    await i18n.changeLanguage("ru")
+    moveItem.mockResolvedValue({ ...moved, undo: MOVE_UNDO })
     const { hook } = setup()
     let outcome: unknown
     await act(async () => {
       outcome = await hook.result.current.handleMoveItem(["n1"], "/v/B")
     })
     expect(outcome).toBe("moved")
-    expect(moveItem).toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    const message = useTreeMessageStore.getState().message
+    expect(message?.action?.labelKey).toBe("notices.journal.restore")
+    expect(i18n.t(message!.lineKey!, message!.params)).toBe("Ссылки обновлены в 2 заметках.")
+    const entry = useNoticeJournalStore.getState().entries[0]
+    expect(entry.kind).toBe("movedWithLinks")
+    expect(JSON.parse(entry.params.undo)).toEqual(MOVE_UNDO)
   })
 })
 
@@ -171,16 +189,65 @@ describe("handleRenameFile reports how the rename ended", () => {
     expect(outcome).toEqual({ status: "renamed" })
   })
 
-  it("says 'skipped' when the person declined the link rewrite", async () => {
-    previewRenameRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
-    vi.mocked(confirm).mockResolvedValue(false)
-    const { hook } = setup()
-    let outcome: unknown
+  it("renames without a question when links are rewritten; «Вернуть» undoes it by the record", async () => {
+    await i18n.changeLanguage("ru")
+    const record: UndoRecord = {
+      kind: "rename",
+      originalPath: "/v/A/Идея.md",
+      primaryPath: "/v/A/Новое.md",
+      pathChanges: [{ oldPath: "/v/A/Идея.md", newPath: "/v/A/Новое.md" }],
+      extraRenames: [],
+      rewritten: [{ path: "/v/Ссылка.md", snapshotId: "S1", digest: "d1" }],
+    }
+    renameItem.mockResolvedValue({ ...moved, primaryPath: "/v/A/Новое.md", undo: record })
+    const undone = {
+      primaryPath: "/v/A/Идея.md",
+      pathChanges: [{ oldPath: "/v/A/Новое.md", newPath: "/v/A/Идея.md" }],
+      deletedPaths: [],
+    }
+    undoMutation.mockReset().mockResolvedValue(undone)
+    const { hook, handleApplyMutation } = setup()
     await act(async () => {
-      outcome = await hook.result.current.handleRenameFile("n1", "Новое")
+      await hook.result.current.handleRenameFile("n1", "Новое")
     })
-    expect(outcome).toEqual({ status: "skipped" })
-    expect(renameItem).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    const message = useTreeMessageStore.getState().message
+    expect(i18n.t(message!.titleKey, message!.params)).toBe("Переименовано в «Новое»")
+    await act(async () => {
+      await message!.action!.run()
+    })
+    expect(undoMutation).toHaveBeenCalledWith(record)
+    expect(handleApplyMutation).toHaveBeenLastCalledWith(undone)
+    const entry = useNoticeJournalStore.getState().entries[0]
+    expect(entry.kind).toBe("renamedWithLinks")
+    expect(entry.params.restored).toBe("1")
+  })
+
+  it("says under the tree why «Вернуть» was refused, and leaves the entry undoable", async () => {
+    await i18n.changeLanguage("ru")
+    const record: UndoRecord = {
+      kind: "rename",
+      originalPath: "/v/A/Идея.md",
+      primaryPath: "/v/A/Новое.md",
+      pathChanges: [],
+      extraRenames: [],
+      rewritten: [{ path: "/v/Ссылка.md", snapshotId: "S1", digest: "d1" }],
+    }
+    renameItem.mockResolvedValue({ ...moved, primaryPath: "/v/A/Новое.md", undo: record })
+    undoMutation
+      .mockReset()
+      .mockRejectedValue(new StorageOperationError("undoNoteChanged", "Changed since: /secret"))
+    const { hook } = setup()
+    await act(async () => {
+      await hook.result.current.handleRenameFile("n1", "Новое")
+    })
+    await act(async () => {
+      await useTreeMessageStore.getState().message!.action!.run()
+    })
+    const message = useTreeMessageStore.getState().message
+    expect(message?.level).toBe("warning")
+    expect(message?.lineKey).toBe("operationErrors.undoNoteChanged")
+    expect(useNoticeJournalStore.getState().entries[0].params.restored).toBeUndefined()
   })
 
   it("gives the text for the name field when the name is taken, and never the raw error", async () => {
@@ -414,21 +481,6 @@ describe("a move that does not happen puts back the raw tree, not the displayed 
     vi.mocked(confirm).mockReset().mockResolvedValue(true)
   })
 
-  it("after 'no' to the link rewrite the raw tree is the one it was", async () => {
-    previewMoveRefactor.mockResolvedValue({ replacements: 2, notes: 1 })
-    vi.mocked(confirm).mockResolvedValue(false)
-    const { hook, treeRef, displayed } = setupWithRealTree()
-    expect(displayed).not.toEqual(RAW)
-    await act(async () => {
-      await hook.result.current.handleMoveItem(["n1"], "/v/B")
-    })
-    expect(treeRef.current).toEqual(RAW)
-    // Resetting the icon now removes it from what is displayed.
-    const afterReset = applyIconOverrides(treeRef.current, {}, undefined)
-    expect(afterReset[0].children?.[0].icon).toBeUndefined()
-    expect(afterReset[0].children?.[0].type).toBe("file")
-  })
-
   it("after a failed move the raw tree is the one it was", async () => {
     moveItem.mockRejectedValue(new Error("boom"))
     const { hook, treeRef } = setupWithRealTree()
@@ -436,5 +488,64 @@ describe("a move that does not happen puts back the raw tree, not the displayed 
       await hook.result.current.handleMoveItem(["n1"], "/v/B")
     })
     expect(treeRef.current).toEqual(RAW)
+  })
+})
+
+describe("handleMergeFile", () => {
+  it("merges without a question: keeps the target's text first, archives the source, offers «Вернуть»", async () => {
+    await i18n.changeLanguage("ru")
+    const tree: TreeItem[] = [
+      { id: "s", path: "/v/Черновик.md", name: "Черновик", type: "file" },
+      { id: "t", path: "/v/Итог.md", name: "Итог", type: "file" },
+    ]
+    readNote.mockReset().mockImplementation(async (_vault: string, id: string) => ({
+      content: id === "s" ? "из черновика" : "итог",
+      revision: `r-${id}`,
+    }))
+    beginMerge.mockReset().mockResolvedValue("SNAP")
+    const record: UndoRecord = {
+      kind: "merge",
+      target: { path: "/v/Итог.md", snapshotId: "SNAP", digest: "d" },
+      sourcePath: "/v/Черновик.md",
+      archiveId: "Черновик.md",
+      sourceDigest: "s",
+    }
+    const archived = { pathChanges: [], deletedPaths: ["/v/Черновик.md"], undo: record }
+    finishMerge.mockReset().mockResolvedValue(archived)
+    deleteItem.mockReset()
+    const autosave = { flush: vi.fn().mockResolvedValue(undefined), enqueueImmediate: vi.fn() }
+    const handleApplyMutation = vi.fn()
+    const hook = renderHook(() =>
+      useDocumentMutations({
+        vault: "/v",
+        treeItems: tree,
+        setTreeItems: vi.fn(),
+        refreshTree: vi.fn().mockResolvedValue(tree),
+        backendGeneration: 1,
+        autosave: autosave as never,
+        autosaveKey: (id: string) => id as never,
+        handleApplyMutation,
+        handleContentChange: vi.fn(),
+        handleContentDirty: vi.fn(),
+        recoveryScope: {} as never,
+        releaseUnusedDocumentBuffers: vi.fn(),
+        handleSelect: vi.fn().mockResolvedValue(undefined),
+      }),
+    )
+    await act(async () => {
+      await hook.result.current.handleMergeFile("s", "t")
+    })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(beginMerge).toHaveBeenCalledWith("/v/Итог.md")
+    expect(autosave.enqueueImmediate).toHaveBeenCalledWith(
+      "t",
+      expect.objectContaining({ content: "итог\n\nиз черновика" }),
+    )
+    expect(finishMerge).toHaveBeenCalledWith("/v", "/v/Черновик.md", "/v/Итог.md", "SNAP")
+    expect(deleteItem).not.toHaveBeenCalled()
+    expect(handleApplyMutation).toHaveBeenCalledWith(archived)
+    const message = useTreeMessageStore.getState().message
+    expect(i18n.t(message!.titleKey, message!.params)).toBe("Текст «Черновик» добавлен в «Итог»")
+    expect(useNoticeJournalStore.getState().entries[0].kind).toBe("notesMerged")
   })
 })

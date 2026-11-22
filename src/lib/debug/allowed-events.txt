@@ -131,6 +131,7 @@ file.create_sketch_failed
 file.create_template
 file.delete
 file.delete_failed
+file.merge_kept_source
 file.move
 file.move_database_context_failed
 file.move_databases_refresh_failed
@@ -143,6 +144,10 @@ file.rename_failed
 file.reveal_failed
 file.set_icon
 file.toggle_favorite
+file.undo
+file.undo_failed
+file.undo_refresh_failed
+file.undo_refused
 file.wiki_link_open_failed
 file_revision.save_without_baseline
 flush_request.failed
@@ -218,6 +223,8 @@ refresh_vault.flush_failed
 refresh_vault.open_document_reload_failed
 remote_deletion_system_trash_refused
 rename_database_property
+rename_description_keep_failed
+rename_description_release_failed
 rename_item
 rename_retitle_failed
 reorder_custom_properties
@@ -266,6 +273,7 @@ storage.delete_database_view
 storage.delete_item
 storage.duplicate_database_row
 storage.ensure_plot_links
+storage.finish_merge
 storage.init_workshop
 storage.move_item
 storage.move_text_page
@@ -278,6 +286,7 @@ storage.rename_item
 storage.reorder_custom_properties
 storage.reorder_database_properties
 storage.reorder_workshop_sections
+storage.undo_mutation
 storage.update_database_property_config
 storage.update_database_property_options
 storage.update_database_relation_value
@@ -328,6 +337,8 @@ tree.view_state_save_failed
 tree_patch.shadow_mismatch
 tree_patch.shadow_ok
 tree_patch_failed
+undo_mutation
+undo_mutation_refused
 unhandled_promise_rejection
 unhandled_window_error
 update_database_property_config

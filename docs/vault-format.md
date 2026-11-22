@@ -476,10 +476,20 @@ loaded text; the request stays pending until a write that started after it has
 succeeded, and a restored recovery draft asks for it as well. The browser
 development adapter has no history and takes no such snapshot.
 
+A rename or a move that rewrites links in other notes keeps every rewritten
+note as a `link-refactor` snapshot first, a page title that follows the new name
+or a database folder description the rename changes as a `rename` snapshot, and a
+merge keeps the target's text as a `merge` snapshot. Like `note-rewrite`, these are
+taken even when history is switched off: the exact undo of the operation writes
+these bytes back (docs/notices.md, section 9). The undo record the interface keeps
+holds only paths, snapshot ids and SHA-256 digests; nothing new is written to the
+vault for it. A merged note goes to `.amby/archive/`, from where the undo brings it
+back to its exact path.
+
 History is append-only unless the person turns on automatic cleanup in the
 History settings (keep N copies and/or N days per note). Automatic cleanup never
-removes the newest `note-rewrite`, `sync-overwrite` or `restore` snapshot of a
-note, does not count them against the limit, and logs a failed removal instead of
+removes the newest `note-rewrite`, `sync-overwrite`, `restore`, `link-refactor`,
+`rename` or `merge` snapshot of a note, does not count them against the limit, and logs a failed removal instead of
 failing the save. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
 cleanup action ("clear all") previews the number of versions and bytes to

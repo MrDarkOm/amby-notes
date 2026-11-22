@@ -95,7 +95,7 @@ fn inspect_note_layers(path: &Path) -> Result<NoteLayers, String> {
 /// Register a rename/move plan before it publishes filesystem events. Each old
 /// path must become missing and each new path must retain the old path's exact
 /// fingerprint; no directory-wide marker is ever used.
-fn prepare_path_changes(
+pub(crate) fn prepare_path_changes(
     watcher_state: &WatcherState,
     changes: &[PathChange],
 ) -> crate::watcher::PreparedSelfWrite {
@@ -391,7 +391,12 @@ mod failure_tests {
         .unwrap();
 
         let changed = retitle_renamed_note(&vault, &note, "Дмитрий").unwrap();
-        assert_eq!(changed.as_deref(), Some(note.as_path()));
+        assert_eq!(
+            changed
+                .map(|changed| PathBuf::from(changed.path))
+                .as_deref(),
+            Some(note.as_path())
+        );
         let after = fs::read_to_string(&note).unwrap();
         assert!(after.contains("amby-title: Дмитрий"), "{after}");
         assert!(after.contains("amby-id: 01M4QNH4T7BJ3BNBMPAD63TZQ9"));
@@ -622,6 +627,7 @@ pub(crate) fn ensure_bundle_inner(
     let result = FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,
@@ -1016,7 +1022,11 @@ struct MovedPathsEvent {
     path_changes: Vec<PathChange>,
 }
 
-fn notify_moved_paths(app: &tauri::AppHandle, origin_window: &str, outcome: &MutationOutcome) {
+pub(crate) fn notify_moved_paths(
+    app: &tauri::AppHandle,
+    origin_window: &str,
+    outcome: &MutationOutcome,
+) {
     let Some((generation, _)) = &outcome.rewritten_notes else {
         return;
     };
@@ -1196,7 +1206,7 @@ pub(crate) fn move_item_inner(
             return Err(error);
         }
     };
-    let rewritten = apply_rewrites_or_roll_back(
+    let recorded = apply_rewrites_or_roll_back(
         watcher_state,
         &prepared_move,
         &vault_root,
@@ -1204,10 +1214,19 @@ pub(crate) fn move_item_inner(
         "move",
         || rollback_move_item(&vault, &source_path, &target_path, &result),
     )?;
+    let rewritten = recorded.iter().map(|note| note.path.clone()).collect();
+    // Undoing a move that rewrote links puts those notes' bytes back (docs/notices.md, section 9).
+    let undo = (!recorded.is_empty()).then(|| UndoRecord::Move {
+        source_path: path_string(&source_path),
+        target_path: path_string(&target_path),
+        primary_path: result.primary_path.clone().unwrap_or_default(),
+        path_changes: result.path_changes.clone(),
+        rewritten: rewritten_notes(recorded),
+    });
     // Move paths were registered before their rename. Link-refactor paths are
     // currently produced by the rewrite plan after the move and retain their
     // narrow per-file post-write records.
-    finish_path_mutation(
+    let mut outcome = finish_path_mutation(
         db,
         runtime,
         watcher_state,
@@ -1216,7 +1235,113 @@ pub(crate) fn move_item_inner(
         result,
         rewritten,
         "move",
-    )
+    )?;
+    outcome.mutation.undo = undo;
+    Ok(outcome)
+}
+
+fn rewritten_notes(recorded: Vec<vault_index::RecordedRewrite>) -> Vec<RewrittenNote> {
+    recorded
+        .into_iter()
+        .map(|note| RewrittenNote {
+            path: path_string(&note.path),
+            snapshot_id: note.snapshot_id,
+            digest: note.digest,
+        })
+        .collect()
+}
+
+/// The description files of a database folder that a rename may rewrite or rename (see
+/// `rename_item_impl`), as they are before the rename: each is kept as a version first, so the
+/// undo can put its bytes back.
+struct KeptDescription {
+    before: PathBuf,
+    bytes: Vec<u8>,
+    snapshot_id: String,
+}
+
+fn keep_descriptions(vault: &Path, dir: &Path, plain_folder: bool) -> Vec<KeptDescription> {
+    let name = dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let names = if plain_folder {
+        vec![
+            format!("{name}.json"),
+            format!("{name}.database"),
+            "ambd.json".to_string(),
+        ]
+    } else {
+        vec!["ambd.json".to_string()]
+    };
+    names
+        .into_iter()
+        .map(|name| dir.join(name))
+        .filter(|path| path.is_file())
+        .filter_map(|before| {
+            let bytes = fs::read(&before).ok()?;
+            let snapshot_id =
+                crate::history::snapshot_current(vault, &before, crate::history::RENAME_REASON)
+                    .map_err(
+                        |error| tracing::warn!(event = "rename_description_keep_failed", %error),
+                    )
+                    .ok()?;
+            Some(KeptDescription {
+                before,
+                bytes,
+                snapshot_id,
+            })
+        })
+        .collect()
+}
+
+/// After the rename: where each kept description is now, the ones the rename changed (to put
+/// back), and the ones it renamed beside the folder. An unchanged one gives its version back.
+fn settle_descriptions(
+    vault: &Path,
+    kept: Vec<KeptDescription>,
+    old_dir: &Path,
+    new_dir: &Path,
+    old_name: &str,
+    new_name: &str,
+) -> (Vec<RewrittenNote>, Vec<PathChange>) {
+    let mut rewritten = Vec::new();
+    let mut renamed = Vec::new();
+    for description in kept {
+        let Ok(relative) = description.before.strip_prefix(old_dir) else {
+            continue;
+        };
+        let moved = new_dir.join(relative);
+        let file_name = relative.to_string_lossy();
+        let renamed_to = file_name
+            .strip_prefix(old_name)
+            .filter(|rest| *rest == ".json" || *rest == ".database")
+            .map(|rest| new_dir.join(format!("{new_name}{rest}")));
+        let now = match renamed_to {
+            Some(target) if target != moved && target.is_file() && !moved.exists() => {
+                renamed.push(PathChange {
+                    old_path: path_string(&description.before),
+                    new_path: path_string(&target),
+                });
+                target
+            }
+            _ => moved,
+        };
+        match fs::read(&now) {
+            Ok(bytes) if bytes != description.bytes => rewritten.push(RewrittenNote {
+                path: path_string(&now),
+                snapshot_id: description.snapshot_id,
+                digest: amby_core::undo::digest(&bytes),
+            }),
+            _ => {
+                if let Err(error) = crate::history::delete_snapshot(vault, &description.snapshot_id)
+                {
+                    tracing::warn!(event = "rename_description_release_failed", %error);
+                }
+            }
+        }
+    }
+    (rewritten, renamed)
 }
 
 /// The part of a rename or a move that comes after the files have moved and the links were
@@ -1224,7 +1349,7 @@ pub(crate) fn move_item_inner(
 /// history and the database projection in step, and reports the notes whose sources changed.
 /// `what` is "rename" or "move", for messages only.
 #[allow(clippy::too_many_arguments)]
-fn finish_path_mutation(
+pub(crate) fn finish_path_mutation(
     db: &VaultContext,
     runtime: &DatabaseRuntimeState,
     watcher_state: &WatcherState,
@@ -1295,8 +1420,8 @@ fn apply_rewrites_or_roll_back(
     plan: &[vault_index::PlannedWikiRewrite],
     what: &str,
     rollback: impl FnOnce() -> Result<(), String>,
-) -> Result<Vec<PathBuf>, String> {
-    match vault_index::apply_planned_wiki_rewrites(vault_root, plan) {
+) -> Result<Vec<vault_index::RecordedRewrite>, String> {
+    match vault_index::apply_planned_wiki_rewrites_recorded(vault_root, plan) {
         Ok(rewritten) => Ok(rewritten),
         Err(error) => {
             watcher_state.self_writes.cancel_prepared_write(prepared);
@@ -1447,7 +1572,7 @@ fn retitle_renamed_note(
     vault: &Path,
     note_path: &Path,
     new_name: &str,
-) -> Result<Option<PathBuf>, String> {
+) -> Result<Option<RewrittenNote>, String> {
     if !crate::vault::scan::is_markdown(note_path) || !note_path.is_file() {
         return Ok(None);
     }
@@ -1469,9 +1594,19 @@ fn retitle_renamed_note(
     if next == original {
         return Ok(None);
     }
-    crate::history::snapshot_before_write(vault, note_path, next.as_bytes(), "rename")?;
+    let snapshot_id = crate::history::snapshot_before_write(
+        vault,
+        note_path,
+        next.as_bytes(),
+        crate::history::RENAME_REASON,
+    )?
+    .ok_or("The retitle kept no version")?;
     frontmatter::atomic_write_bytes(note_path, next.as_bytes())?;
-    Ok(Some(note_path.to_path_buf()))
+    Ok(Some(RewrittenNote {
+        path: path_string(note_path),
+        snapshot_id,
+        digest: amby_core::undo::digest(next.as_bytes()),
+    }))
 }
 
 #[tauri::command]
@@ -1535,6 +1670,20 @@ pub(crate) fn rename_item_inner(
     if db.generation()? != generation {
         return Err("Vault changed before rename".to_string());
     }
+    // A database folder's description may be renamed or retitled with the folder: keep it first.
+    let renamed_folder = operation_path.is_dir();
+    let description_dir = if renamed_folder {
+        Some(operation_path.clone())
+    } else {
+        operation_path
+            .parent()
+            .filter(|dir| *dir != vault.as_path() && dir.file_name() == operation_path.file_stem())
+            .map(Path::to_path_buf)
+    };
+    let kept_descriptions = description_dir
+        .as_deref()
+        .map(|dir| keep_descriptions(&vault, dir, renamed_folder))
+        .unwrap_or_default();
     let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
     let mut result = match rename_item_impl(&vault, &operation_path, &new_name) {
         Ok(result) => {
@@ -1550,7 +1699,7 @@ pub(crate) fn rename_item_inner(
             return Err(error);
         }
     };
-    let mut rewritten = apply_rewrites_or_roll_back(
+    let recorded = apply_rewrites_or_roll_back(
         watcher_state,
         &prepared_rename,
         &vault_root,
@@ -1558,15 +1707,52 @@ pub(crate) fn rename_item_inner(
         "rename",
         || rollback_rename_item(&vault, &operation_path, &result),
     )?;
+    let links_rewritten = !recorded.is_empty();
+    let mut rewritten: Vec<PathBuf> = recorded.iter().map(|note| note.path.clone()).collect();
+    let mut undo_notes = rewritten_notes(recorded);
     // The rename itself is done. Keeping the page's own title in step is best effort: a failure
     // here leaves the old title, which is what the page showed before.
     if let Some(note_path) = result.primary_path.as_deref().map(PathBuf::from) {
         match retitle_renamed_note(&vault_root, &note_path, &new_name) {
-            Ok(Some(changed)) => rewritten.push(changed),
+            Ok(Some(changed)) => {
+                rewritten.push(PathBuf::from(&changed.path));
+                undo_notes.push(changed);
+            }
             Ok(None) => {}
             Err(error) => tracing::warn!(event = "rename_retitle_failed", %error),
         }
     }
+    let (descriptions, extra_renames) = match (&description_dir, result.primary_path.as_deref()) {
+        (Some(old_dir), Some(primary)) => {
+            let primary = Path::new(primary);
+            let new_dir = if renamed_folder {
+                primary
+            } else {
+                primary.parent().unwrap_or(primary)
+            };
+            settle_descriptions(
+                &vault_root,
+                kept_descriptions,
+                old_dir,
+                new_dir,
+                &old_dir
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                new_name.trim(),
+            )
+        }
+        _ => (Vec::new(), Vec::new()),
+    };
+    undo_notes.extend(descriptions);
+    // Undoing a rename that rewrote links puts those notes' bytes back (docs/notices.md, section 9).
+    let undo = links_rewritten.then(|| UndoRecord::Rename {
+        original_path: path_string(&operation_path),
+        primary_path: result.primary_path.clone().unwrap_or_default(),
+        path_changes: result.path_changes.clone(),
+        extra_renames,
+        rewritten: undo_notes,
+    });
     if operation_path != path {
         result.primary_path = result
             .primary_path
@@ -1574,7 +1760,7 @@ pub(crate) fn rename_item_inner(
             .and_then(|primary| Path::new(primary).parent())
             .map(path_string);
     }
-    let outcome = finish_path_mutation(
+    let mut outcome = finish_path_mutation(
         db,
         runtime,
         watcher_state,
@@ -1584,6 +1770,7 @@ pub(crate) fn rename_item_inner(
         rewritten,
         "rename",
     )?;
+    outcome.mutation.undo = undo;
     tracing::info!(
         event = "rename_item",
         path = %path.display(),
@@ -1799,7 +1986,18 @@ pub(crate) fn archive_item_inner(
     path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(db, &path)?;
+    archive_item_locked(db, watcher_state, runtime, &path).map(|archived| archived.outcome)
+}
+
+/// The body of `archive_item_inner` for a caller that already holds the mutation gate (a merge).
+/// Also says what went into the archive and under which archive identifier.
+pub(crate) fn archive_item_locked(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    runtime: Option<&DatabaseRuntimeState>,
+    path: &str,
+) -> Result<ArchivedItem, String> {
+    let path = paths::guard(db, path)?;
     let vault = db.root()?;
     let scope = removal_scope(&vault, &path)?;
     let preview = recycle_bin::preview_move_to_trash_scoped(&vault, &path, scope)?;
@@ -1811,6 +2009,8 @@ pub(crate) fn archive_item_inner(
             .cloned()
             .map(|path| (path, PathFingerprint::Missing)),
     );
+    // The identifier is fixed before the move: afterwards its own name is taken.
+    let archive_id = crate::archive::planned_id(&vault, &preview.original_path).ok();
     let prepared = watcher_state.self_writes.prepare_write(writes);
     let result = match crate::archive::move_to_archive_scoped(&vault, &path, scope) {
         Ok(result) => {
@@ -1829,7 +2029,18 @@ pub(crate) fn archive_item_inner(
         refresh_removed_manifest_projection(db, runtime, &mut outcome);
     }
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
-    Ok(outcome)
+    Ok(ArchivedItem {
+        outcome,
+        original_path: preview.original_path,
+        archive_id,
+    })
+}
+
+pub(crate) struct ArchivedItem {
+    pub(crate) outcome: MutationOutcome,
+    /// The file or folder that went into the archive (the group folder of a main note).
+    pub(crate) original_path: PathBuf,
+    pub(crate) archive_id: Option<String>,
 }
 
 #[cfg(test)]

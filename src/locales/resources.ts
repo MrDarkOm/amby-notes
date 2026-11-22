@@ -654,21 +654,6 @@ const ru = {
       description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
       confirm: "Удалить",
     },
-    renameRefactor: {
-      title: "Переименовать и обновить ссылки?",
-      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
-      confirm: "Переименовать",
-    },
-    moveRefactor: {
-      title: "Переместить и обновить ссылки?",
-      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
-      confirm: "Переместить",
-    },
-    mergeNotes: {
-      title: "Добавить «{{source}}» в конец «{{target}}»?",
-      description: "Заметка «{{source}}» уйдёт в корзину системы, её можно вернуть оттуда.",
-      confirm: "Добавить",
-    },
     deletePermanent: {
       title: "Удалить «{{name}}» навсегда?",
       description: "Копии не останется, вернуть заметку будет нельзя.",
@@ -1304,6 +1289,11 @@ const ru = {
       "Нет доступа: система не разрешила изменить этот файл или папку. Ничего не изменено. Проверьте права доступа и повторите.",
     invalidPath:
       "Название не подходит: в нём недопустимые символы или оно слишком длинное. Введите другое.",
+    undoItemMoved:
+      "Не вернуть: заметку уже перенесли или переименовали, или её прежнее место занято. Ничего не изменено.",
+    undoNoteChanged:
+      "Не вернуть: заметки уже правили после этого. Ничего не изменено, правки целы.",
+    undoUnavailable: "Не вернуть: прежняя версия больше не хранится. Ничего не изменено.",
   },
   databaseErrors: {
     diagnostic: {
@@ -1915,6 +1905,15 @@ const ru = {
       propertiesKept: "Свойства «{{name}}» не перенесены в базу",
       propertiesKeptLine: "Они остались в заметке, ничего не потеряно.",
       propertiesRetry: "Перенести",
+      renamed: "Переименовано в «{{name}}»",
+      moved: "Перенесено «{{name}}» в «{{target}}»",
+      linksUpdated_one: "Ссылки обновлены в {{count}} заметке.",
+      linksUpdated_few: "Ссылки обновлены в {{count}} заметках.",
+      linksUpdated_many: "Ссылки обновлены в {{count}} заметках.",
+      linksUpdated: "Ссылки обновлены в {{count}} заметках.",
+      merged: "Текст «{{source}}» добавлен в «{{target}}»",
+      mergedLine: "Заметка «{{source}}» убрана в архив.",
+      undoFailed: "Не удалось вернуть",
       createNoteFailed: "Не удалось создать заметку",
       createFolderFailed: "Не удалось создать папку",
       createCanvasFailed: "Не удалось создать холст",
@@ -1993,6 +1992,17 @@ const ru = {
       propertiesBackup: "Свойства заметки «{{name}}» сохранены в резервной копии",
       restore: "Вернуть",
       restoredDone: "Возвращено",
+      renamedWithLinks_one: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметке",
+      renamedWithLinks_few: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      renamedWithLinks_many: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      renamedWithLinks: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks_one: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметке",
+      movedWithLinks_few: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks_many: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      notesMerged: "Текст «{{source}}» добавлен в «{{target}}»",
+      undoSaveFirst: "Сначала сохраните открытые заметки, потом верните.",
+      undoFailed: "Не удалось вернуть. Ничего не изменено.",
       restoreSaveFirst: "Сначала сохраните заметку, потом верните прежнюю версию.",
       restoreFailed: "Не удалось вернуть прежнюю версию. Она осталась в истории заметки.",
       updateFailed: "Не удалось проверить обновления, попробуем позже",
@@ -5225,22 +5235,6 @@ const en: LocaleShape<typeof ru> = {
       description: "Its key is deleted unless another connection uses it; chats are kept.",
       confirm: "Delete",
     },
-    renameRefactor: {
-      title: "Rename and update the links?",
-      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
-      confirm: "Rename",
-    },
-    moveRefactor: {
-      title: "Move and update the links?",
-      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
-      confirm: "Move",
-    },
-    mergeNotes: {
-      title: "Append “{{source}}” to the end of “{{target}}”?",
-      description:
-        "The note “{{source}}” goes to the system Recycle Bin; it can be restored from there.",
-      confirm: "Append",
-    },
     deletePermanent: {
       title: "Delete “{{name}}” permanently?",
       description: "No copy is left; the note cannot be brought back.",
@@ -5866,6 +5860,11 @@ const en: LocaleShape<typeof ru> = {
       "No access: the system did not allow changing this file or folder. Nothing was changed. Check the permissions and try again.",
     invalidPath:
       "The name is not allowed: it has forbidden characters or is too long. Enter another one.",
+    undoItemMoved:
+      "Cannot undo: the note was moved or renamed since, or its old place is taken. Nothing was changed.",
+    undoNoteChanged:
+      "Cannot undo: the notes were edited since. Nothing was changed; the edits are intact.",
+    undoUnavailable: "Cannot undo: the previous version is no longer kept. Nothing was changed.",
   },
   databaseErrors: {
     diagnostic: {
@@ -6469,6 +6468,13 @@ const en: LocaleShape<typeof ru> = {
       propertiesKept: "The properties of “{{name}}” were not moved to the database",
       propertiesKeptLine: "They stayed in the note, nothing is lost.",
       propertiesRetry: "Move them",
+      renamed: "Renamed to “{{name}}”",
+      moved: "Moved “{{name}}” to “{{target}}”",
+      linksUpdated_one: "Links updated in {{count}} note.",
+      linksUpdated: "Links updated in {{count}} notes.",
+      merged: "The text of “{{source}}” was added to “{{target}}”",
+      mergedLine: "The note “{{source}}” went to the archive.",
+      undoFailed: "Could not undo",
       createNoteFailed: "Could not create the note",
       createFolderFailed: "Could not create the folder",
       createCanvasFailed: "Could not create the canvas",
@@ -6546,6 +6552,13 @@ const en: LocaleShape<typeof ru> = {
       propertiesBackup: "The properties of the note “{{name}}” are saved in a backup",
       restore: "Restore",
       restoredDone: "Restored",
+      renamedWithLinks_one: "Renamed to “{{name}}”, links updated in {{count}} note",
+      renamedWithLinks: "Renamed to “{{name}}”, links updated in {{count}} notes",
+      movedWithLinks_one: "Moved “{{name}}”, links updated in {{count}} note",
+      movedWithLinks: "Moved “{{name}}”, links updated in {{count}} notes",
+      notesMerged: "The text of “{{source}}” was added to “{{target}}”",
+      undoSaveFirst: "Save the open notes first, then undo.",
+      undoFailed: "Could not undo. Nothing was changed.",
       restoreSaveFirst: "Save the note first, then restore the previous version.",
       restoreFailed: "Could not restore the previous version. It is still in the note's history.",
       updateFailed: "Could not check for updates; we will try later",

@@ -29,6 +29,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   HistoryCleanupPreview,
   HistoryCleanupResult,
   HistoryRetention,
@@ -1393,6 +1394,24 @@ export class WebAdapterCore implements StoragePort {
   /** The browser has no restorable archive; deleting here would be permanent, so it refuses. */
   async archiveItem(_vaultPath: string, _path: string): Promise<FsMutationResult> {
     throw new StorageOperationError("operationFailed", i18n.t("errors.archiveDesktopOnly"))
+  }
+
+  // The browser adapter keeps no history versions: nothing it does is offered for undo.
+  async undoMutation(_record: UndoRecord): Promise<FsMutationResult> {
+    throw new StorageOperationError("undoUnavailable", "Undo is desktop only")
+  }
+
+  async beginMerge(_targetPath: string): Promise<string | null> {
+    return null
+  }
+
+  async finishMerge(
+    vaultPath: string,
+    sourcePath: string,
+    _targetPath: string,
+    _snapshotId: string,
+  ): Promise<FsMutationResult> {
+    return this.deleteItem(vaultPath, sourcePath)
   }
 
   async noteLayers(notePath: string): Promise<NoteLayers> {

@@ -121,7 +121,7 @@ pub struct NoteWrittenPayload {
     pub origin_window: String,
 }
 
-#[derive(Clone, Debug, Serialize, specta::Type)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PathChange {
     pub old_path: String,
@@ -149,6 +149,59 @@ pub struct FsMutationResult {
     #[serde(skip)]
     #[specta(skip)]
     pub also_touched: Vec<std::path::PathBuf>,
+    /// How to undo this operation exactly, when it changed other notes (a rename or a move that
+    /// rewrote links, a merge). The interface keeps it with the journal entry and hands it back to
+    /// `undo_mutation` unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub undo: Option<UndoRecord>,
+}
+
+/// A file an operation rewrote: where it is now, the version with its previous bytes, and the
+/// SHA-256 of what the operation wrote (docs/notices.md, section 9).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RewrittenNote {
+    pub path: String,
+    pub snapshot_id: String,
+    pub digest: String,
+}
+
+/// What `undo_mutation` needs to put an operation back exactly. It never rewrites links back: it
+/// moves the item back as it was and writes the previous bytes of every rewritten note, after
+/// checking that nothing changed since. Paths are absolute, as in `PathChange`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum UndoRecord {
+    #[serde(rename_all = "camelCase")]
+    Rename {
+        /// The renamed file (the main note of a group), before the rename.
+        original_path: String,
+        /// Where the rename left it.
+        primary_path: String,
+        path_changes: Vec<PathChange>,
+        /// Files beside the notes that the rename renamed too (a database folder's own description).
+        extra_renames: Vec<PathChange>,
+        rewritten: Vec<RewrittenNote>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Move {
+        source_path: String,
+        target_path: String,
+        primary_path: String,
+        path_changes: Vec<PathChange>,
+        rewritten: Vec<RewrittenNote>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Merge {
+        /// The note the other was merged into, with its text from before the merge.
+        target: RewrittenNote,
+        /// Where the merged note was; it waits in the archive under `archive_id`.
+        source_path: String,
+        archive_id: String,
+        /// SHA-256 of the merged note, when it is one file.
+        source_digest: Option<String>,
+    },
 }
 
 #[derive(Serialize, specta::Type)]
