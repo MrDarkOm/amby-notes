@@ -30,6 +30,13 @@ interface FolderViewProps {
   onIconChange: (icon: string) => void
 }
 
+/** What each card is, under its name; any other kind of file reads as a note. */
+const KIND_LABELS: Partial<Record<string, string>> = {
+  canvas: "folderView.canvas",
+  sketch: "folderView.sketch",
+  database: "folderView.database",
+}
+
 function itemIcon(item: TreeItem) {
   const customIcon =
     item.icon &&
@@ -209,9 +216,7 @@ export function FolderView({
                             notes: nested.notes,
                             folders: nested.folders,
                           })
-                        : item.type === "canvas"
-                          ? t("folderView.canvas")
-                          : t("folderView.note")}
+                        : t(KIND_LABELS[item.type] ?? "folderView.note")}
                     </span>
                   </span>
                 </motion.button>

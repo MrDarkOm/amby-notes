@@ -1,5 +1,6 @@
 # Amby — Next version
 
+- Folder view: database and sketch cards are labelled as such instead of "Note".
 - AI panel and MCP: `query_database` names the database it read (as `read_database` does), so the step line says which one.
 - For developers: the Claude Code launcher tests name their scratch folders with a ULID instead of the process ID, so a reused process ID no longer finds files an earlier run left and fails a batch of tests at once.
 - For developers: a debug build honours `AMBY_APP_DATA_DIR` like the CLI, so a bundled test copy can run with its own workspace list and settings instead of the owner's.
