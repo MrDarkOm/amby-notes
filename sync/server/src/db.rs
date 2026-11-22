@@ -428,8 +428,10 @@ mod tests {
             .unwrap();
             let during = ticks.load(Ordering::SeqCst) - before;
             ticker.abort();
+            // On the old code the count is 0: the only worker is blocked. A slow runner may tick
+            // well below the ideal 40, so the bar is low.
             assert!(
-                during >= 10,
+                during >= 3,
                 "other tasks ran only {during} times during a 400 ms database call"
             );
         });

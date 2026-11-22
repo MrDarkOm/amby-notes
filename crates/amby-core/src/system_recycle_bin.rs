@@ -43,35 +43,6 @@ fn move_to_system_trash_with(
     })
 }
 
-#[cfg(test)]
-mod scope_tests {
-    use super::*;
-    use crate::recycle_bin::TrashScope;
-    use std::fs;
-
-    #[test]
-    fn exact_file_scope_sends_only_the_selected_file_to_system_trash() {
-        let vault = std::env::temp_dir().join(format!(
-            "amby-system-trash-scope-{}",
-            ulid::Ulid::generate()
-        ));
-        let bundle = vault.join("Note");
-        fs::create_dir_all(&bundle).unwrap();
-        let note = bundle.join("Note.md");
-        fs::write(&note, "note").unwrap();
-        let canonical_note = note.canonicalize().unwrap();
-        fs::write(bundle.join("Note.canvas"), "canvas").unwrap();
-        let result = move_to_system_trash_with(&vault, &note, TrashScope::ExactFile, |path| {
-            assert_eq!(path, canonical_note);
-            fs::remove_file(path).map_err(|error| error.to_string())
-        })
-        .unwrap();
-        assert_eq!(result.deleted_paths, vec![path_string(&canonical_note)]);
-        assert!(bundle.join("Note.canvas").is_file());
-        fs::remove_dir_all(vault).unwrap();
-    }
-}
-
 /// The operating system's trash as a port (docs/sync-plan.md, К3, К6): macOS Trash, Windows Recycle
 /// Bin, freedesktop `trash`. Tests inject their own so no test touches the real trash.
 pub trait SystemTrash: Send + Sync {
@@ -283,5 +254,34 @@ mod macos_tests {
         trash_with_file_manager(&file).unwrap();
         assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use crate::recycle_bin::TrashScope;
+    use std::fs;
+
+    #[test]
+    fn exact_file_scope_sends_only_the_selected_file_to_system_trash() {
+        let vault = std::env::temp_dir().join(format!(
+            "amby-system-trash-scope-{}",
+            ulid::Ulid::generate()
+        ));
+        let bundle = vault.join("Note");
+        fs::create_dir_all(&bundle).unwrap();
+        let note = bundle.join("Note.md");
+        fs::write(&note, "note").unwrap();
+        let canonical_note = note.canonicalize().unwrap();
+        fs::write(bundle.join("Note.canvas"), "canvas").unwrap();
+        let result = move_to_system_trash_with(&vault, &note, TrashScope::ExactFile, |path| {
+            assert_eq!(path, canonical_note);
+            fs::remove_file(path).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert_eq!(result.deleted_paths, vec![path_string(&canonical_note)]);
+        assert!(bundle.join("Note.canvas").is_file());
+        fs::remove_dir_all(vault).unwrap();
     }
 }

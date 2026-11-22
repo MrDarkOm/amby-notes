@@ -18,6 +18,9 @@ test("AI panel selects and removes note context in a browser workspace", async (
   await expect(attached.getByRole("button", { name: "Убрать заметку из контекста" })).toHaveCount(2)
   await attached.getByRole("button", { name: "Убрать заметку из контекста" }).first().click()
   await page.mouse.move(5, 5)
+  // The current note comes back from the attach menu: "Note or folder" → "Add the current note".
+  await page.getByRole("button", { name: "Прикрепить" }).click()
+  await page.getByText("Заметка или папка", { exact: true }).click()
   await expect(page.getByRole("button", { name: "Добавить текущую заметку" })).toBeVisible()
   await page.getByRole("button", { name: "Добавить текущую заметку" }).click()
   await expect(page.locator("[data-context-group]")).toBeVisible()

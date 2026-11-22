@@ -6,7 +6,13 @@ const updates = localeResources.ru.translation.settings.updates
 
 test("update channel defaults to Stable and survives a browser reload", async ({ page }) => {
   await seedVault(page, { Note: "Text\n" })
-  const openSettings = () => page.locator("[data-activity-button='settings']").first().click()
+  // Updates live in the About section of Settings.
+  const openSettings = async () => {
+    await page.locator("[data-activity-button='settings']").first().click()
+    await page
+      .getByRole("tab", { name: localeResources.ru.translation.settings.tabs.about })
+      .click()
+  }
   await openSettings()
   const channel = page.getByRole("combobox", { name: updates.channel, exact: true })
   await expect(channel).toHaveText(updates.channelStable)
