@@ -594,3 +594,5 @@
 - Updated native contract fixtures for mandatory cell revisions and restricted app-data names. Fault cases use only the disposable harness vault; production allowlists remain unchanged.
 
 - Prepared the 0.1.9 beta 8 notes for the bundled CLI and MCP, and enabled installer smoke checks on relevant pushes to dev. The watcher regression test waits for the poll callbacks before checking that the next refresh has no pending work.
+
+- For developers: sidebar layout tests unmount before restoring the window width, so resize events cannot schedule React updates during test teardown.

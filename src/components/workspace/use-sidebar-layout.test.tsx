@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, renderHook } from "@testing-library/react"
+import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { useSidebarLayout } from "./use-sidebar-layout"
@@ -36,7 +36,10 @@ function renderLayout(options?: {
 
 describe("useSidebarLayout compact layout", () => {
   const initialWidth = window.innerWidth
-  afterEach(() => setWindowWidth(initialWidth))
+  afterEach(() => {
+    cleanup()
+    setWindowWidth(initialWidth)
+  })
 
   it("closes both panels in a narrow window and restores them when it grows back", () => {
     setWindowWidth(1280)
