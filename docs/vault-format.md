@@ -503,7 +503,8 @@ than falling back to permanent deletion.
 
 Archive (sync plan, appendix К) moves items to `.amby/archive/<path in the vault>` by renaming:
 the path inside repeats the path of the vault, so "Restore" puts the file back, to a free name
-(`Name 2.md`) when its place is taken. The archive is synchronised like ordinary files. Each file
+(`Name 2.md`) when its place is taken. Restore requires the workspace shown when the archive
+entry was selected to still be active. The archive is synchronised like ordinary files. Each file
 has a record `.amby/archive/.meta/<id>.json` `{path, archivedAtMs}` (unknown fields are kept; no
 record means the time of the file). After a successful delete/archive, queued saves for affected
 open documents are discarded so they cannot recreate the removed files. Unsaved editor text is

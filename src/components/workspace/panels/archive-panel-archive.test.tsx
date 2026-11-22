@@ -190,7 +190,7 @@ describe("К6: «Вернуть»", () => {
     render(<ArchivePanel {...props} />)
     await screen.findByText("Черновик", {}, FAST)
     fireEvent.click(screen.getByRole("button", { name: /Восстановить .*Черновик/ }))
-    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith("arch-1"), FAST)
+    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith("arch-1", props.vault), FAST)
   })
 
   it("says the final name when the place was taken and the file came back as «Name 2»", async () => {

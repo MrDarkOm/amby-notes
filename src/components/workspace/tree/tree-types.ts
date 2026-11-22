@@ -127,6 +127,7 @@ export interface SidebarTreeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   canvasEnabled?: boolean
@@ -218,6 +219,7 @@ export interface TreeNodeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   canvasEnabled?: boolean

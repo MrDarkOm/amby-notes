@@ -94,6 +94,7 @@ function sameItem(left: TreeItem, right: TreeItem): boolean {
       left.icon === right.icon &&
       left.created === right.created &&
       left.modified === right.modified &&
+      sameChildren(left.bundleMembers, right.bundleMembers) &&
       sameChildren(left.children, right.children))
   )
 }

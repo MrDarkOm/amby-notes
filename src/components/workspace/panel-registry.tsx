@@ -128,6 +128,7 @@ export interface PanelRenderProps {
   // Layer attachment from tree
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
   /** Enabled when the durable beta database creator is available. */
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   databaseRuntimeEnabled?: boolean

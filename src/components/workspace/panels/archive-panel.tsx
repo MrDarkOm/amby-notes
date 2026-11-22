@@ -27,10 +27,10 @@ import { archiveEntryLabel, groupArchiveEntries, isServicePath } from "./archive
 import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function ArchivePanel({ vault }: PanelRenderProps) {
-  return <ArchiveContents key={vault ?? ""} />
+  return vault ? <ArchiveContents key={vault} vault={vault} /> : null
 }
 
-function ArchiveContents() {
+function ArchiveContents({ vault }: { vault: string }) {
   const { t, i18n } = useTranslation()
   const [entries, setEntries] = React.useState<ArchiveEntry[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -81,7 +81,7 @@ function ArchiveContents() {
   const refresh = React.useCallback(async () => {
     const sequence = ++request.current.sequence
     try {
-      const next = await listArchive()
+      const next = await listArchive(vault)
       if (sequence === request.current.sequence) {
         setEntries(next)
         setError(null)
@@ -91,7 +91,7 @@ function ArchiveContents() {
     } finally {
       if (sequence === request.current.sequence) setLoading(false)
     }
-  }, [t])
+  }, [t, vault])
   React.useEffect(() => {
     refreshRef.current = refresh
   }, [refresh])
@@ -145,7 +145,7 @@ function ArchiveContents() {
       )
         return
       if (action === "restore") {
-        const restored = await restoreArchive(entry.id)
+        const restored = await restoreArchive(entry.id, vault)
         // The note is back: the tree shows it without reloading the vault.
         dispatchArchiveChanged({ paths: mutationPaths(restored) })
         // К6: a taken place gives a free name; the person is told the final one.

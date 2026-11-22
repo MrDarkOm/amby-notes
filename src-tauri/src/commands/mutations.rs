@@ -14,6 +14,7 @@ use crate::system_recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, PathFingerprint, WatcherState};
+use amby_core::vault_tools::modules::{Module, Modules};
 
 enum PreparedWikiPlan {
     Cached(Vec<vault_index::PlannedWikiRewrite>),
@@ -607,6 +608,7 @@ pub(crate) fn ensure_bundle_inner(
     path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
+    Modules::require(&db.root()?, Module::Supernotes)?;
     let path = paths::guard(db, &path)?;
     // Synchronisation learns that this is a move, before the file moves (Д70а): a pass that starts
     // between the move and a later hint would read it as a deletion and a new file.
@@ -703,6 +705,9 @@ pub(crate) fn create_note_with_body(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let parent_path = paths::guard(db, &parent_path)?;
+    if parent_path.is_file() {
+        Modules::require(&db.root()?, Module::Supernotes)?;
+    }
     let mut plan = crate::bundle::prepare_create_note_impl(&parent_path, &name)?;
     if let Some(body) = body {
         plan = plan.with_body(body)?;
@@ -737,12 +742,28 @@ pub fn create_layer(
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
     note_path: String,
     kind: String,
 ) -> Result<LayerResult, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&scope, &note_path)?;
-    let result = create_layer_impl(&note_path, &kind)?;
+    let (result, paths) = create_layer_inner(&db, &watcher_state, &runtime, &note_path, &kind)?;
+    watcher::notify_published_files(&app, &scope.get()?, db.generation()?, &paths, None);
+    Ok(result)
+}
+
+pub(crate) fn create_layer_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    runtime: &DatabaseRuntimeState,
+    note_path: &Path,
+    kind: &str,
+) -> Result<(LayerResult, Vec<PathBuf>), String> {
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    let vault = db.root()?;
+    let note_path = paths::confine(&vault, note_path)?;
+    Modules::require(&vault, Module::Supernotes)?;
+    let result = create_layer_impl(&note_path, kind)?;
     let mut paths = vec![PathBuf::from(&result.layer_path)];
     for change in &result.path_changes {
         if !change.old_path.is_empty() {
@@ -753,17 +774,40 @@ pub fn create_layer(
         }
     }
     watcher_state.self_writes.mark_write(&paths);
-    let vault = scope.get()?;
     let mut changes = result.path_changes.clone();
-    if crate::vault::scan::is_markdown(Path::new(&result.layer_path)) {
+    let creates_text = crate::vault::scan::is_markdown(Path::new(&result.layer_path));
+    if creates_text {
         changes.push(PathChange {
             old_path: String::new(),
             new_path: result.layer_path.clone(),
         });
     }
-    sync_path_changes(&db, &vault, &changes)?;
-    watcher::notify_published_files(&app, &vault, db.generation()?, &paths, None);
-    Ok(result)
+    sync_path_changes(db, &vault, &changes)?;
+    if creates_text && touches_database(&vault, &paths) {
+        let guard = db.conn.lock_or_recover();
+        if let Some(active) = guard.as_ref() {
+            if runtime.state(Some(active.generation)).enabled {
+                match crate::database::projection::rebuild_database_projection(
+                    &active.connection,
+                    &active.root,
+                ) {
+                    Ok(report) => {
+                        runtime.set_projection(
+                            active.generation,
+                            Some(crate::database::model::ProjectionVersion {
+                                epoch: report.epoch,
+                                seq: report.seq,
+                            }),
+                        );
+                    }
+                    Err(error) => {
+                        tracing::warn!(event = "database_projection_rebuild_failed", %error);
+                    }
+                }
+            }
+        }
+    }
+    Ok((result, paths))
 }
 
 #[tauri::command]
@@ -799,11 +843,15 @@ pub fn attach_canvas_to_note(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let canvas_path = paths::guard(&db, &canvas_path)?;
+    let vault = db.root()?;
+    Modules::require(&vault, Module::Supernotes)?;
+    if resolve_item_root(&vault, &canvas_path) != canvas_path {
+        return Err("Canvas already belongs to a bundle".into());
+    }
     let result = attach_canvas_impl(&canvas_path)?;
     watcher_state
         .self_writes
         .mark_write(mutation_paths(&result));
-    let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     notify_structural_mutation(&app, &db, &outcome);
@@ -843,11 +891,15 @@ pub fn attach_sketch_to_note(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let sketch_path = paths::guard(&db, &sketch_path)?;
+    let vault = db.root()?;
+    Modules::require(&vault, Module::Supernotes)?;
+    if resolve_item_root(&vault, &sketch_path) != sketch_path {
+        return Err("Sketch already belongs to a bundle".into());
+    }
     let result = attach_sketch_impl(&sketch_path)?;
     watcher_state
         .self_writes
         .mark_write(mutation_paths(&result));
-    let vault = db.root()?;
     let mut outcome = sync_mutation_result(&db, &vault, result);
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     notify_structural_mutation(&app, &db, &outcome);
@@ -865,6 +917,7 @@ pub fn unlink_layer(
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
+    Modules::require(&db.root()?, Module::Supernotes)?;
     let result = unlink_layer_impl(&note_path, &kind)?;
     watcher_state
         .self_writes
@@ -888,6 +941,7 @@ pub fn delete_layer(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let note_path = paths::guard(&db, &note_path)?;
     let vault = db.root()?;
+    Modules::require(&vault, Module::Supernotes)?;
     let result = delete_layer_impl(&vault, &note_path, &kind)?;
     watcher_state
         .self_writes
@@ -1024,6 +1078,44 @@ pub fn move_item(
     Ok(outcome)
 }
 
+pub(crate) fn require_supernotes_move_target(vault: &Path, target: &Path) -> Result<(), String> {
+    if target.is_file() && !crate::database::discovery::is_manifest_file_candidate(target) {
+        Modules::require(vault, Module::Supernotes)?;
+    }
+    Ok(())
+}
+
+/// When Supernotes is disabled a file row must not silently operate on its parent folder.
+/// Explicit folder operations continue to use the existing bundle-aware behavior.
+pub(crate) fn require_supernotes_item_root(vault: &Path, path: &Path) -> Result<(), String> {
+    if resolve_item_root(vault, path) != path {
+        Modules::require(vault, Module::Supernotes)?;
+    }
+    Ok(())
+}
+
+/// The tree projects a disabled Supernote as a folder. Keep its group intact when
+/// that explicit folder is renamed, using the same main-document precedence as the tree.
+pub(crate) fn rename_operation_path(vault: &Path, path: &Path) -> Result<PathBuf, String> {
+    if path.is_dir() && path != vault && !Modules::read(vault)?.includes(Module::Supernotes) {
+        if let Some(name) = path.file_name() {
+            for ext in ["md", "canvas", "excalidraw"] {
+                let candidate = path.join(format!("{}.{ext}", name.to_string_lossy()));
+                match std::fs::symlink_metadata(&candidate) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        return Err("Refusing to rename a bundle through a symbolic link".into());
+                    }
+                    Ok(metadata) if metadata.is_file() => return Ok(candidate),
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+        }
+    }
+    Ok(path.to_path_buf())
+}
+
 /// The body of `move_item` without the Tauri state wrappers (see `rename_item_inner`).
 pub(crate) fn move_item_inner(
     db: &VaultContext,
@@ -1037,6 +1129,8 @@ pub(crate) fn move_item_inner(
     let source_path = paths::guard(db, &source_path)?;
     let target_path = paths::guard(db, &target_path)?;
     let vault = db.root()?;
+    require_supernotes_move_target(&vault, &target_path)?;
+    require_supernotes_item_root(&vault, &source_path)?;
     let preview = preview_move_item(&vault, &source_path, &target_path)?;
     // Synchronisation learns that this is a move, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
@@ -1419,7 +1513,9 @@ pub(crate) fn rename_item_inner(
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(db, &path)?;
     let vault = db.root()?;
-    let preview = preview_rename_item(&vault, &path, &new_name)?;
+    require_supernotes_item_root(&vault, &path)?;
+    let operation_path = rename_operation_path(&vault, &path)?;
+    let preview = preview_rename_item(&vault, &operation_path, &new_name)?;
     // Synchronisation learns that this is a rename, before the change reaches the disk (Д70).
     if let Ok(root) = db.root() {
         note_renames(&root, &preview.path_changes);
@@ -1440,7 +1536,7 @@ pub(crate) fn rename_item_inner(
         return Err("Vault changed before rename".to_string());
     }
     let prepared_rename = prepare_path_changes(watcher_state, &preview.path_changes);
-    let result = match rename_item_impl(&vault, &path, &new_name) {
+    let mut result = match rename_item_impl(&vault, &operation_path, &new_name) {
         Ok(result) => {
             watcher_state
                 .self_writes
@@ -1460,7 +1556,7 @@ pub(crate) fn rename_item_inner(
         &vault_root,
         &plan,
         "rename",
-        || rollback_rename_item(&vault, &path, &result),
+        || rollback_rename_item(&vault, &operation_path, &result),
     )?;
     // The rename itself is done. Keeping the page's own title in step is best effort: a failure
     // here leaves the old title, which is what the page showed before.
@@ -1470,6 +1566,13 @@ pub(crate) fn rename_item_inner(
             Ok(None) => {}
             Err(error) => tracing::warn!(event = "rename_retitle_failed", %error),
         }
+    }
+    if operation_path != path {
+        result.primary_path = result
+            .primary_path
+            .as_deref()
+            .and_then(|primary| Path::new(primary).parent())
+            .map(path_string);
     }
     let outcome = finish_path_mutation(
         db,
@@ -1494,14 +1597,65 @@ pub(crate) fn rename_item_inner(
 pub fn delete_item(
     app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, StorageError> {
-    let outcome = delete_item_inner(&db, &watcher_state, path, mode)?;
+    let outcome = delete_item_inner(&db, &watcher_state, Some(&runtime), path, mode)?;
     notify_structural_mutation(&app, &db, &outcome);
     notify_project_removal(&app, &db, &outcome);
     Ok(outcome)
+}
+
+fn removal_scope(vault: &Path, path: &Path) -> Result<recycle_bin::TrashScope, String> {
+    if path.is_file()
+        && resolve_item_root(vault, path) != path
+        && !Modules::read(vault)?.includes(Module::Supernotes)
+    {
+        Ok(recycle_bin::TrashScope::ExactFile)
+    } else {
+        Ok(recycle_bin::TrashScope::Item)
+    }
+}
+
+/// Self-written removals do not trigger the watcher projection rebuild. A removed
+/// manifest changes database ownership even though its neighboring files remain.
+fn refresh_removed_manifest_projection(
+    db: &VaultContext,
+    runtime: &DatabaseRuntimeState,
+    outcome: &mut MutationOutcome,
+) {
+    if !outcome
+        .mutation
+        .also_touched
+        .iter()
+        .any(|path| !path.exists() && crate::database::discovery::is_manifest_file_candidate(path))
+    {
+        return;
+    }
+    let guard = db.conn.lock_or_recover();
+    let Some(conn) = guard.as_ref() else { return };
+    if !runtime.state(Some(conn.generation)).enabled {
+        return;
+    }
+    match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root) {
+        Ok(report) => {
+            runtime.set_projection(
+                conn.generation,
+                Some(crate::database::model::ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            outcome
+                .warnings
+                .push(OperationWarning::IndexRebuildRequired);
+        }
+    }
 }
 
 /// A removal reports the notes and layers it took (`deleted_paths`), and a folder with none of
@@ -1568,6 +1722,7 @@ pub(crate) fn forget_removed_workshops_in(
 pub(crate) fn delete_item_inner(
     db: &VaultContext,
     watcher_state: &WatcherState,
+    runtime: Option<&DatabaseRuntimeState>,
     path: String,
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
@@ -1577,7 +1732,8 @@ pub(crate) fn delete_item_inner(
     }
     let path = paths::guard(db, &path)?;
     let vault = db.root()?;
-    let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
+    let scope = removal_scope(&vault, &path)?;
+    let preview = recycle_bin::preview_move_to_trash_scoped(&vault, &path, scope)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
     writes.extend(
         preview
@@ -1588,10 +1744,16 @@ pub(crate) fn delete_item_inner(
     );
     let prepared = watcher_state.self_writes.prepare_write(writes);
     let removal = match mode {
-        recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
+        recycle_bin::DeleteMode::System => {
+            system_recycle_bin::move_to_system_trash_scoped(&vault, &path, scope)
+        }
         // К4: the setting «Переносить в архив» does what «В архив» does.
-        recycle_bin::DeleteMode::Archive => crate::archive::move_to_archive(&vault, &path),
-        recycle_bin::DeleteMode::Permanent => recycle_bin::delete_permanently(&vault, &path),
+        recycle_bin::DeleteMode::Archive => {
+            crate::archive::move_to_archive_scoped(&vault, &path, scope)
+        }
+        recycle_bin::DeleteMode::Permanent => {
+            recycle_bin::delete_permanently_scoped(&vault, &path, scope)
+        }
     };
     let result = match removal {
         Ok(result) => {
@@ -1606,6 +1768,9 @@ pub(crate) fn delete_item_inner(
     let vault = db.root()?;
     forget_removed_workshops(db, &vault, &preview.original_path);
     let mut outcome = sync_mutation_result(db, &vault, with_removed_root(result, &preview));
+    if let Some(runtime) = runtime {
+        refresh_removed_manifest_projection(db, runtime, &mut outcome);
+    }
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     Ok(outcome)
 }
@@ -1615,10 +1780,11 @@ pub(crate) fn delete_item_inner(
 pub fn archive_item(
     app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<MutationOutcome, StorageError> {
-    let outcome = archive_item_inner(&db, &watcher_state, path)?;
+    let outcome = archive_item_inner(&db, &watcher_state, Some(&runtime), path)?;
     notify_structural_mutation(&app, &db, &outcome);
     notify_project_removal(&app, &db, &outcome);
     Ok(outcome)
@@ -1629,12 +1795,14 @@ pub fn archive_item(
 pub(crate) fn archive_item_inner(
     db: &VaultContext,
     watcher_state: &WatcherState,
+    runtime: Option<&DatabaseRuntimeState>,
     path: String,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
     let path = paths::guard(db, &path)?;
     let vault = db.root()?;
-    let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
+    let scope = removal_scope(&vault, &path)?;
+    let preview = recycle_bin::preview_move_to_trash_scoped(&vault, &path, scope)?;
     let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
     writes.extend(
         preview
@@ -1644,7 +1812,7 @@ pub(crate) fn archive_item_inner(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.self_writes.prepare_write(writes);
-    let result = match crate::archive::move_to_archive(&vault, &path) {
+    let result = match crate::archive::move_to_archive_scoped(&vault, &path, scope) {
         Ok(result) => {
             watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
@@ -1657,6 +1825,9 @@ pub(crate) fn archive_item_inner(
     let vault = db.root()?;
     forget_removed_workshops(db, &vault, &preview.original_path);
     let mut outcome = sync_mutation_result(db, &vault, with_removed_root(result, &preview));
+    if let Some(runtime) = runtime {
+        refresh_removed_manifest_projection(db, runtime, &mut outcome);
+    }
     outcome.rewritten_notes = Some((db.generation()?, Vec::new()));
     Ok(outcome)
 }

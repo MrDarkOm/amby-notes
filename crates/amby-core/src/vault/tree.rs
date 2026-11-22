@@ -21,6 +21,10 @@ pub struct TreeItem {
     pub modified: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<TreeItem>>,
+    /// Physical siblings of the main document, projected as document rows when Supernotes is off.
+    /// For a database container this also includes its manifest, even when it is the only file.
+    #[serde(rename = "bundleMembers", skip_serializing_if = "Option::is_none")]
+    pub bundle_members: Option<Vec<TreeItem>>,
 }
 
 pub fn filesystem_timestamps(path: &Path) -> (Option<u64>, Option<u64>) {
@@ -96,6 +100,7 @@ fn tree_item_for_note(
         icon: "file".to_string(),
         created,
         modified: note.1.or(filesystem_modified),
+        bundle_members: None,
         children: if children.is_empty() {
             None
         } else {
@@ -145,6 +150,58 @@ pub fn is_standalone_database_dir(path: &Path) -> bool {
         }
     }
     true
+}
+
+fn bundle_members(dir: &Path, primary: &Path) -> Vec<TreeItem> {
+    let stem = file_name(dir);
+    let mut members: Vec<_> = [("canvas", "canvas"), ("excalidraw", "sketch")]
+        .into_iter()
+        .filter_map(|(extension, kind)| {
+            let path = dir.join(format!("{stem}.{extension}"));
+            if path == primary || !path.is_file() {
+                return None;
+            }
+            let (created, modified) = filesystem_timestamps(&path);
+            Some(TreeItem {
+                id: format!("{kind}:{}", path_string(&path)),
+                path: path_string(&path),
+                name: stem.clone(),
+                item_type: kind.to_string(),
+                icon: kind.to_string(),
+                created,
+                modified,
+                children: None,
+                bundle_members: None,
+            })
+        })
+        .collect();
+
+    members.extend(database_member(dir));
+    members
+}
+
+fn database_member(dir: &Path) -> Option<TreeItem> {
+    use crate::database::{discovery::find_manifest_path, format::parse_manifest};
+
+    let path = find_manifest_path(dir)?;
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > crate::database::format::MAX_JSON_BYTES as u64 {
+        return None;
+    }
+    let bytes = fs::read(&path).ok()?;
+    let manifest = parse_manifest(&bytes).ok()?.value;
+    let (created, modified) = filesystem_timestamps(&path);
+    Some(TreeItem {
+        id: manifest.database_id,
+        path: path_string(&path),
+        name: manifest.name,
+        item_type: "database".to_string(),
+        icon: manifest.icon.unwrap_or_else(|| "database".to_string()),
+        created,
+        modified,
+        children: None,
+        bundle_members: None,
+    })
 }
 
 fn scan_tree_dir(
@@ -234,9 +291,20 @@ pub fn tree_item_for_entry(
                 let (created, modified) = filesystem_timestamps(&manifest_path);
                 let (folder_created, folder_modified) = filesystem_timestamps(&path);
                 let stem = file_name(&path);
-                let has_layers = path.join(format!("{stem}.md")).is_file()
+                let note_path = path.join(format!("{stem}.md"));
+                let has_layers = note_path.is_file()
                     || path.join(format!("{stem}.canvas")).is_file()
                     || path.join(format!("{stem}.excalidraw")).is_file();
+                let mut bundle_members = bundle_members(&path, &manifest_path);
+                if note_path.is_file() {
+                    let relative = note_path
+                        .strip_prefix(vault)
+                        .map(normalize_rel_path)
+                        .map_err(|error| error.to_string())?;
+                    if let Some(note) = notes.find(&relative) {
+                        bundle_members.push(tree_item_for_note(&note_path, note, Vec::new()));
+                    }
+                }
                 items.push(TreeItem {
                     id: database_id,
                     path: path_string(&path),
@@ -251,6 +319,7 @@ pub fn tree_item_for_entry(
                     }),
                     created: created.or(folder_created),
                     modified: modified.or(folder_modified),
+                    bundle_members: Some(bundle_members),
                     children: if children.is_empty() {
                         None
                     } else {
@@ -270,7 +339,9 @@ pub fn tree_item_for_entry(
                         .map_err(|e| e.to_string())?;
                     if let Some(note) = notes.find(&rel) {
                         let children = scan_children(&path, true)?;
-                        items.push(tree_item_for_note(&main_md, note, children));
+                        let mut item = tree_item_for_note(&main_md, note, children);
+                        item.bundle_members = Some(bundle_members(&path, &main_md));
+                        items.push(item);
                     }
                 } else if main_canvas.is_file() {
                     let children = scan_children(&path, true)?;
@@ -283,6 +354,7 @@ pub fn tree_item_for_entry(
                         icon: "supercanvas".to_string(),
                         created,
                         modified,
+                        bundle_members: Some(bundle_members(&path, &main_canvas)),
                         children: if children.is_empty() {
                             None
                         } else {
@@ -300,6 +372,7 @@ pub fn tree_item_for_entry(
                         icon: "supersketch".to_string(),
                         created,
                         modified,
+                        bundle_members: Some(bundle_members(&path, &main_sketch)),
                         children: if children.is_empty() {
                             None
                         } else {
@@ -353,6 +426,7 @@ pub fn tree_item_for_entry(
                     icon: database_icon.unwrap_or_else(|| "database".to_string()),
                     created: created.or(folder_created),
                     modified: modified.or(folder_modified),
+                    bundle_members: database_member(&path).map(|member| vec![member]),
                     children: if children.is_empty() {
                         None
                     } else {
@@ -370,6 +444,7 @@ pub fn tree_item_for_entry(
                     icon: "folder".to_string(),
                     created,
                     modified,
+                    bundle_members: None,
                     children: Some(children),
                 });
             }
@@ -393,6 +468,7 @@ pub fn tree_item_for_entry(
                     icon: "canvas".to_string(),
                     created,
                     modified,
+                    bundle_members: None,
                     children: None,
                 });
             }
@@ -408,6 +484,7 @@ pub fn tree_item_for_entry(
                     icon: "sketch".to_string(),
                     created,
                     modified,
+                    bundle_members: None,
                     children: None,
                 });
             }

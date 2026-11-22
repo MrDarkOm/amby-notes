@@ -252,12 +252,96 @@ fn an_append_starts_a_new_paragraph_instead_of_continuing_a_quote() {
     apply(&root, &scope(), &proposal).unwrap();
     assert_eq!(
         fs::read_to_string(root.join("chosen/r.md")).unwrap(),
-        "# R\ntext\n\nmore"
+        "# R\ntext\n\nmore\n"
     );
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn list_items_appended_to_a_list_continue_it_and_the_final_line_break_stays() {
+    let root = vault("prop-list");
+    let append = |path: &str, text: &str| ProposalOp::Append {
+        path: path.into(),
+        content: text.into(),
+    };
+    let cases = [
+        (
+            "# S\n\n- Milk\n- Bread\n",
+            "- Eggs",
+            "# S\n\n- Milk\n- Bread\n- Eggs\n",
+        ),
+        (
+            "# S\n\n- Milk\n- Bread",
+            "- Eggs",
+            "# S\n\n- Milk\n- Bread\n- Eggs",
+        ),
+        ("1. One\n", "2. Two", "1. One\n2. Two\n"),
+        // Another kind of list, or a paragraph, still starts a new block.
+        ("- Milk\n", "1. First", "- Milk\n\n1. First\n"),
+        ("- Milk\n", "Plain text", "- Milk\n\nPlain text\n"),
+        (
+            "# S\r\n\r\n- Milk\r\n",
+            "- Eggs",
+            "# S\r\n\r\n- Milk\r\n- Eggs\r\n",
+        ),
+    ];
+    for (index, (before, added, after)) in cases.into_iter().enumerate() {
+        let path = format!("chosen/l{index}.md");
+        fs::write(root.join(&path), before).unwrap();
+        let proposal = propose(&root, &scope(), None, append(&path, added)).unwrap();
+        apply(&root, &scope(), &proposal).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join(&path)).unwrap(),
+            after,
+            "{before:?}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 // ----- property proposals -----
+
+#[test]
+fn a_note_named_without_its_extension_is_found_for_text_and_property_changes() {
+    let (root, conn) = property_vault("prop-no-extension");
+    // The note in the context is `chosen/meeting.md`; the model names it without `.md`.
+    let narrow = WriteScope {
+        vault: false,
+        notes: vec!["chosen/meeting.md".into()],
+        folders: vec![],
+    };
+    let set = ProposalOp::SetProperty {
+        path: "chosen/meeting".into(),
+        name: "status".into(),
+        value: serde_json::json!("done"),
+        property_type: None,
+    };
+    let proposal = propose(&root, &narrow, Some(&conn), set).unwrap();
+    assert_eq!(proposal.path, "chosen/meeting.md");
+    // Applying it finds the note as well (the change itself carries the found path).
+    apply(&root, &narrow, &proposal).unwrap();
+    assert!(fs::read_to_string(root.join("chosen/meeting.md"))
+        .unwrap()
+        .contains("status: done"));
+    let append = ProposalOp::Append {
+        path: "chosen/meeting".into(),
+        content: "More".into(),
+    };
+    assert_eq!(
+        propose(&root, &narrow, None, append).unwrap().path,
+        "chosen/meeting.md"
+    );
+    // A name that is not a note stays as it is and is refused as before.
+    let missing = ProposalOp::Append {
+        path: "chosen/nothing".into(),
+        content: "More".into(),
+    };
+    assert_eq!(
+        propose(&root, &narrow, None, missing).unwrap_err(),
+        "outsideWriteScope"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
 
 const MEETING: &str = "---\r\namby-id: 01JC0000000000000000000001\r\nstatus: active\r\ntags: [work, meeting]\r\n---\r\n# Meeting\r\n\r\nAgenda\r\n";
 

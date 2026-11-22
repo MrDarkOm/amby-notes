@@ -37,3 +37,8 @@ Archive and history share the isolated [snapshot reader](../common/snapshot-prev
 [snapshot Read surface](../common/snapshot-read-preview.tsx) and [extensions](../common/snapshot-extensions.ts).
 They reuse the Live schema/parser, reject document-changing transactions and never join autosave.
 The [read-only image view](../common/snapshot-image.tsx) uses [snapshot asset paths](../common/snapshot-assets.ts) to resolve attachments from an explicit preview path (archived payload for Archive, original note for History); historical image bytes are not versioned. Live external blocks remain inert; Source mode keeps the full original text.
+
+Database layers in open notes resolve their document identity and attached
+manifest through [document-database-layer.ts](../database/document-database-layer.ts).
+The tree's manifest entry is available while the database catalog refreshes.
+[layer-documents.ts](../layer-documents.ts) resolves the visible editor from the physical file and active modules, including when a cached pane loses an attached layer.

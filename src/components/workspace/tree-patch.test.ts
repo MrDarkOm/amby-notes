@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { TreeItem, TreePatch } from "@/lib/storage"
+import { projectBundleFolders } from "./tree/bundle-folders"
 import { applyTreePatchOps, concatTreePatches, patchedItems, removePaths } from "./tree-patch"
 
 const V = "/vault"
@@ -62,6 +63,49 @@ describe("applyTreePatchOps", () => {
       applyTreePatchOps(tree, { ops: [upsert("C:\\vault\\F", inserted)] }, "C:\\vault")?.[0]
         ?.children,
     ).toHaveLength(2)
+  })
+
+  it("keeps layer membership changes even when main-note timestamps stay the same", () => {
+    const main = { ...bundle(`${V}/Project`), bundleMembers: [] }
+    const canvas: TreeItem = {
+      id: "canvas",
+      path: `${V}/Project/Project.canvas`,
+      name: "Project",
+      type: "canvas",
+    }
+    const withCanvas = { ...main, bundleMembers: [canvas] }
+    expect(applyTreePatchOps([main], { ops: [upsert(null, withCanvas, false)] }, V)).toEqual([
+      withCanvas,
+    ])
+    expect(applyTreePatchOps([withCanvas], { ops: [upsert(null, main, false)] }, V)).toEqual([main])
+  })
+
+  it("keeps the folder and manifest row when the main note is removed", () => {
+    const dir = `${V}/Project`
+    const child = note(`${dir}/Child.md`)
+    const manifest: TreeItem = {
+      id: "db",
+      path: `${dir}/Project.json`,
+      name: "Project",
+      type: "database",
+    }
+    const main = { ...bundle(dir, [child]), bundleMembers: [manifest] }
+    const remaining = { ...manifest, path: dir, children: [child], bundleMembers: [manifest] }
+    const next = applyTreePatchOps(
+      [main],
+      {
+        ops: [{ kind: "remove", parentPath: null, paths: [main.path] }, upsert(null, remaining)],
+      },
+      V,
+    )!
+    expect(projectBundleFolders(next)).toEqual([
+      expect.objectContaining({
+        id: `folder:${dir}`,
+        path: dir,
+        type: "folder",
+        children: [child, { ...manifest, bundleMember: true }],
+      }),
+    ])
   })
 
   it("puts a new file in its sorted place: case-insensitive, folders and bundles first", () => {

@@ -1093,16 +1093,16 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.purgeTrash(trashId))
   }
 
-  async listArchive(): Promise<ArchiveEntry[]> {
-    return unwrapCommand(commands.listArchive())
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return unwrapCommand(commands.listArchive(vaultPath))
   }
 
   async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
     return unwrapCommand(commands.readArchivePreview(archiveId, relativePath))
   }
 
-  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
-    return unwrapMutation(commands.restoreArchive(archiveId))
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.restoreArchive(archiveId, vaultPath))
   }
 
   async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {

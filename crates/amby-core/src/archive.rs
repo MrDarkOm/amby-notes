@@ -199,7 +199,15 @@ pub(crate) fn files_below(base: &Path, dir: &Path, out: &mut Vec<String>) {
 /// archive is taken, the item goes next to it under a free name and nothing in the archive is
 /// replaced.
 pub fn move_to_archive(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
-    let preview = crate::recycle_bin::preview_move_to_trash(vault, path)?;
+    move_to_archive_scoped(vault, path, crate::recycle_bin::TrashScope::Item)
+}
+
+pub fn move_to_archive_scoped(
+    vault: &Path,
+    path: &Path,
+    scope: crate::recycle_bin::TrashScope,
+) -> Result<FsMutationResult, String> {
+    let preview = crate::recycle_bin::preview_move_to_trash_scoped(vault, path, scope)?;
     let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
     let relative = preview
         .original_path

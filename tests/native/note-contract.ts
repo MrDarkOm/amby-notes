@@ -375,7 +375,7 @@ export const nativeNoteCases: Array<{
           "The desktop updated the inbound link",
         )
         check(
-          !(await adapter.listArchive()).some((entry) => entry.id.includes("CLI renamed")),
+          !(await adapter.listArchive(vaultPath)).some((entry) => entry.id.includes("CLI renamed")),
           "Restore cleared the archive entry",
         )
       } finally {
@@ -559,8 +559,8 @@ export const nativeNoteCases: Array<{
         await waitForPath(copy)
         seen.length = 0
         await adapter.deleteItem(vaultPath, source.primaryPath!, "archive")
-        const trash = await adapter.listArchive()
-        await adapter.restoreArchive(trash[0].id)
+        const trash = await adapter.listArchive(vaultPath)
+        await adapter.restoreArchive(trash[0].id, vaultPath)
         await waitForPath(source.primaryPath!)
       } finally {
         stopMoved()
@@ -636,7 +636,7 @@ export const nativeNoteCases: Array<{
       check(snapshots.length > 0, "History recorded pre-write bytes")
       await adapter.readSnapshotText(snapshots[0].id)
       await adapter.deleteItem(vaultPath, note.primaryPath!, "archive")
-      const trash = await adapter.listArchive()
+      const trash = await adapter.listArchive(vaultPath)
       check(trash.length === 1, "Delete entered the vault archive")
       const rootPreview = await adapter.readArchivePreview(trash[0].id, "")
       const preview = rootPreview.directory
@@ -646,7 +646,10 @@ export const nativeNoteCases: Array<{
           )
         : rootPreview
       check(preview.text === original, "Archive preview reads the exact archived bytes")
-      check((await adapter.listArchive()).length === 1, "Preview leaves the item in the archive")
+      check(
+        (await adapter.listArchive(vaultPath)).length === 1,
+        "Preview leaves the item in the archive",
+      )
       let escaped = false
       try {
         await adapter.readArchivePreview(trash[0].id, "../outside.md")
@@ -654,7 +657,7 @@ export const nativeNoteCases: Array<{
         escaped = true
       }
       check(escaped, "Archive preview rejects paths outside its payload")
-      const restored = await adapter.restoreArchive(trash[0].id)
+      const restored = await adapter.restoreArchive(trash[0].id, vaultPath)
       check(
         (await adapter.readFile(restored.primaryPath!)) === original,
         "Restored bytes are intact",

@@ -88,13 +88,14 @@ describe("layer switching", () => {
     })
   })
 
-  function setup() {
+  function setup(supernotesEnabled = true) {
     const refreshTreePaths = vi.fn().mockResolvedValue([])
     const applyMutationResult = vi.fn()
     const hook = renderHook(() =>
       useLayers({
         vault: "/vault",
         databasesEnabled: false,
+        supernotesEnabled,
         backendGeneration: 1,
         currentDoc: doc,
         treeItems: [],
@@ -104,6 +105,16 @@ describe("layer switching", () => {
     )
     return { ...hook, refreshTreePaths, applyMutationResult }
   }
+
+  it("opens existing layers with Supernotes off and leaves missing layers absent", async () => {
+    useViewStateStore.getState().setLinkedLayers(doc.id, { ...layers, sketch: false })
+    const { result } = setup(false)
+    await act(() => result.current.handleLayerChange("canvas"))
+    expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("canvas")
+    await act(() => result.current.handleLayerChange("sketch"))
+    expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("canvas")
+    expect(storage.createLayer).not.toHaveBeenCalled()
+  })
 
   it("switches repeatedly to cached sketch and canvas layers without rebuilding the tree", async () => {
     useViewStateStore.getState().setLinkedLayers(doc.id, layers)
@@ -292,6 +303,69 @@ describe("deleting a layer asks in the application", () => {
     await act(() => result.current.handleDeleteLayer("canvas"))
     expect(storage.deleteLayer).toHaveBeenCalledWith("/vault", doc.path, "canvas")
   })
+
+  it("returns to the database after deleting its text and opens the reattached note", async () => {
+    const container = { ...doc, id: "database-id", path: "/vault/Plan" }
+    const notePath = "/vault/Plan/Plan.md"
+    const row = { id: container.id, path: container.path, name: "Plan", type: "database" as const }
+    const remaining = { note: false, sketch: false, canvas: false, database: true }
+    const linked = { ...remaining, note: true }
+    useDocStore.getState().setDoc(container.id, container)
+    useViewStateStore.setState({
+      activeLayers: { [container.id]: "editor" },
+      linkedLayersByDoc: { [container.id]: linked },
+    })
+    vi.mocked(confirm).mockResolvedValue(true)
+    vi.spyOn(storage, "noteLayers").mockResolvedValue(remaining)
+    vi.spyOn(storage, "deleteLayer").mockResolvedValue({
+      primaryId: null,
+      primaryPath: container.path,
+      pathChanges: [],
+      deletedPaths: [notePath],
+      deletedIds: [],
+    })
+    vi.spyOn(storage, "readFile").mockResolvedValue("")
+    vi.spyOn(storage, "readNote").mockResolvedValue({
+      content: "",
+      source: "",
+      revision: "new-revision",
+    })
+    const create = vi.spyOn(storage, "createLayer").mockResolvedValue({
+      notePath: container.path,
+      layerPath: notePath,
+      kind: "note",
+      pathChanges: [],
+    })
+    const { result } = renderHook(() =>
+      useLayers({
+        vault: "/vault",
+        databasesEnabled: true,
+        backendGeneration: 1,
+        currentDoc: container,
+        treeItems: [row],
+        refreshTreePaths: vi.fn().mockResolvedValue([
+          {
+            ...row,
+            bundleMembers: [{ id: "replacement", path: notePath, name: "Plan", type: "file" }],
+          },
+        ]),
+        applyMutationResult: vi.fn().mockReturnValue(true),
+      }),
+    )
+
+    await act(() => result.current.handleDeleteLayer("note"))
+    expect(useViewStateStore.getState().activeLayers[container.id]).toBe("database")
+    expect(useViewStateStore.getState().linkedLayersByDoc[container.id]).toEqual(remaining)
+
+    vi.mocked(storage.noteLayers).mockResolvedValue(linked)
+    await act(() => result.current.handleAttachLayerToFile(container.id, "note"))
+    expect(create).toHaveBeenCalledWith(container.path, "note")
+    expect(useViewStateStore.getState().activeLayers[container.id]).toBe("editor")
+    expect(useDocStore.getState().openDocs[container.id]).toMatchObject({
+      noteId: "replacement",
+      revision: "new-revision",
+    })
+  })
 })
 
 describe("remote database attachment", () => {
@@ -359,6 +433,13 @@ describe("remote database attachment", () => {
     )
     const item = { id: doc.id, path: doc.path, name: doc.title, type: "file" as const }
     const refreshTreePaths = vi.fn().mockResolvedValue([])
+    let finishCatalog: () => void = () => {}
+    const refreshDatabaseCatalog = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCatalog = resolve
+        }),
+    )
     const { result } = renderHook(() =>
       useLayers({
         vault: "/vault",
@@ -367,6 +448,7 @@ describe("remote database attachment", () => {
         currentDoc: doc,
         treeItems: [item],
         refreshTreePaths,
+        refreshDatabaseCatalog,
         applyMutationResult: vi.fn(),
       }),
     )
@@ -390,6 +472,11 @@ describe("remote database attachment", () => {
         notePath: "/vault/Remote/Remote.md",
         warnings: [],
       })
+    })
+    await waitFor(() => expect(refreshDatabaseCatalog).toHaveBeenCalled())
+    expect(useViewStateStore.getState().activeLayers[doc.id]).toBe("database")
+    await act(async () => {
+      finishCatalog()
       await attached!
     })
     expect(refreshTreePaths).toHaveBeenCalledWith([

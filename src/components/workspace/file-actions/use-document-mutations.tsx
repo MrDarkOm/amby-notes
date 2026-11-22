@@ -202,7 +202,7 @@ export function useDocumentMutations({
   const handleRenameFile = React.useCallback(
     async (id: string, newName: string): Promise<RenameOutcome> => {
       const item = findTreeItem(treeItems, id)
-      if (!item) return { status: "skipped" }
+      if (!item || item.bundleMember) return { status: "skipped" }
       let finishLocalMutation: (() => void) | null = null
       let releaseLayerSaves: ((newPathOf: (oldPath: string) => string) => void) | null = null
       let newPathOf = (oldPath: string) => oldPath
@@ -232,8 +232,12 @@ export function useDocumentMutations({
         useDatabaseStore.getState().invalidateHosts()
         finishLocalMutation()
         patchDoc(id, { title: newName, path: result.primaryPath ?? item.path ?? id })
+        const renamedFolderId =
+          id.startsWith("folder:") && result.primaryPath ? `folder:${result.primaryPath}` : null
         setTabs((previous) =>
-          previous.map((tab) => (tab.fileId === id ? { ...tab, title: newName } : tab)),
+          previous.map((tab) =>
+            tab.fileId === id || tab.fileId === renamedFolderId ? { ...tab, title: newName } : tab,
+          ),
         )
         logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
         return { status: "renamed" }
@@ -254,7 +258,7 @@ export function useDocumentMutations({
       const uniqueSourceIds = [...new Set(sourceIds)]
       const selectedSources = uniqueSourceIds
         .map((id) => findTreeItem(treeItems, id))
-        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .filter((item): item is NonNullable<typeof item> => Boolean(item && !item.bundleMember))
       if (!selectedSources.length) return "skipped"
       const target = targetId ? findTreeItem(treeItems, targetId) : null
       // A standalone database is a folder of its own; moving a page into it adds the page to it.
@@ -458,6 +462,8 @@ export function useDocumentMutations({
       const target = findTreeItem(treeItems, targetId)
       if (
         source?.type !== "file" ||
+        source.bundleMember ||
+        target?.bundleMember ||
         target?.type !== "file" ||
         !(await confirm(confirmations.mergeNotes({ source: source.name, target: target.name })))
       )

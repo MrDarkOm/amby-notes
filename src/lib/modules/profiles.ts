@@ -9,7 +9,8 @@ import {
 } from "./types"
 
 export const STANDARD_PROFILE_VERSION = "1.0.0"
-export const STANDARD_CATALOG_REVISION = "2026-11-20"
+export const SUPERNOTES_REVISION = "2026-11-21"
+export const STANDARD_CATALOG_REVISION = "2026-11-21"
 /**
  * The revision that added Templates to the Standard modules: a module list saved before it gets it
  * once (`readWorkspaceModuleConfig`; Rust: `vault_tools::modules`). Daily notes are opt-in.
@@ -31,6 +32,7 @@ export const STANDARD_MODULES: string[] = [
   "amby.ai",
   "amby.excalidraw",
   "amby.templates",
+  "amby.supernotes",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {

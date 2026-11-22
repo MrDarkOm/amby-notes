@@ -25,7 +25,7 @@ describe("resetting the settings", () => {
     setPrefs.mockReset()
     useSettingsStore.setState({ setPrefs } as never)
   })
-  const press = () => fireEvent.click(screen.getByRole("button", { name: "Сбросить настройки" }))
+  const press = () => fireEvent.click(screen.getByRole("button", { name: "Сбросить" }))
 
   it("is a dangerous question; Cancel resets nothing", async () => {
     vi.mocked(confirm).mockResolvedValue(false)

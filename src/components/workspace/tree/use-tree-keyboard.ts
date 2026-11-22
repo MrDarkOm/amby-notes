@@ -131,7 +131,7 @@ export function useTreeKeyboard({
           onSelect(current.item.id)
           break
         case "F2":
-          if (!current) break
+          if (!current || current.item.bundleMember) break
           event.preventDefault()
           setEditingId(current.item.id)
           break

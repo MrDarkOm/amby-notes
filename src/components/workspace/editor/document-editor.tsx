@@ -80,6 +80,7 @@ export interface DocumentEditorProps {
   activeLayer?: EditorLayer
   onLayerChange?: (layer: EditorLayer) => void
   databasesEnabled?: boolean
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   viewMode?: DocumentViewMode
   onViewModeChange?: (mode: DocumentViewMode) => void
@@ -166,6 +167,7 @@ export function DocumentEditor({
   activeLayer = "editor",
   onLayerChange,
   databasesEnabled = false,
+  supernotesEnabled = true,
   canCreateDatabaseLayer = false,
   viewMode = "live",
   onViewModeChange,
@@ -452,6 +454,7 @@ export function DocumentEditor({
       databasesEnabled={databasesEnabled}
       canvasEnabled={canvasEnabled}
       sketchEnabled={sketchEnabled}
+      supernotesEnabled={supernotesEnabled}
       canCreateDatabaseLayer={canCreateDatabaseLayer}
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}
@@ -470,21 +473,29 @@ export function DocumentEditor({
       nestedNotesPlacement={nestedNotesPlacement}
       onNestedNotesPlacementChange={onNestedNotesPlacementChange}
       onRequestAttachLayer={setLayerConfirm}
-      onRequestMove={() => {
-        setFilePickerQuery("")
-        setFilePickerMode("move")
-      }}
-      onRequestMerge={() => {
-        setFilePickerQuery("")
-        setFilePickerMode("merge")
-      }}
+      onRequestMove={
+        onMoveFile
+          ? () => {
+              setFilePickerQuery("")
+              setFilePickerMode("move")
+            }
+          : undefined
+      }
+      onRequestMerge={
+        onMergeFile
+          ? () => {
+              setFilePickerQuery("")
+              setFilePickerMode("merge")
+            }
+          : undefined
+      }
       onCopyPath={copyPath}
       onExportPdf={requestPdfExport}
       onExportCsv={onExportCsv}
       onExportSqlite={onExportSqlite}
       onExportImage={onExportImage}
       onShowInExplorer={onShowInExplorer}
-      onRequestRename={() => setEditingTitle(true)}
+      onRequestRename={onRenameTitle ? () => setEditingTitle(true) : undefined}
       onDeleteFile={onDeleteFile}
       moreActionsOpen={moreActionsOpen}
       onMoreActionsOpenChange={(open) => setExclusiveMenu("actions", open)}
@@ -608,7 +619,7 @@ export function DocumentEditor({
       </div>
 
       <LayerConfirmDialog
-        layerConfirm={layerConfirm}
+        layerConfirm={supernotesEnabled ? layerConfirm : null}
         onClose={() => setLayerConfirm(null)}
         onConfirm={(layer) => {
           onLayerChange?.(layer)

@@ -8,6 +8,7 @@ import type { RecoveryScope } from "@/lib/recovery-drafts"
 export interface UseFileActionsParams {
   vault: string | null
   treeItems: TreeItem[]
+  findNavigationFallback?: (id: string) => TreeItem | undefined
   setTreeItems: React.Dispatch<React.SetStateAction<TreeItem[]>>
   refreshTree: (path?: string | null) => Promise<TreeItem[]>
   refreshTreePaths: (paths: string[]) => Promise<TreeItem[]>

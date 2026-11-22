@@ -156,7 +156,9 @@ describe("archive panel", () => {
     vi.mocked(listArchive).mockResolvedValueOnce([entry]).mockResolvedValue([])
     render(<ArchivePanel {...props} />)
     fireEvent.click(await screen.findByRole("button", { name: "Восстановить «Черновик»" }))
-    await waitFor(() => expect(restoreArchive).toHaveBeenCalledExactlyOnceWith(entry.id))
+    await waitFor(() =>
+      expect(restoreArchive).toHaveBeenCalledExactlyOnceWith(entry.id, props.vault),
+    )
     expect(await screen.findByText("Архив пуст")).toBeTruthy()
     expect(purgeArchive).not.toHaveBeenCalled()
   })

@@ -5,6 +5,7 @@ import {
   PROFILES,
   STANDARD_CATALOG_REVISION,
   STANDARD_MODULES,
+  SUPERNOTES_REVISION,
 } from "./profiles"
 import { toCanonicalModuleId, type ProfileId, type WorkspaceModuleConfig } from "./types"
 
@@ -92,23 +93,20 @@ export function readWorkspaceModuleConfig(raw: {
     const profileId = profile.id as ProfileId
     const enabledModules = (raw.enabledModules as string[]).map(toCanonicalModuleId)
     const saved = typeof profile.catalogRevision === "string" ? profile.catalogRevision : null
-    // A list saved before Templates and Daily notes existed gets them once; the revision moves
-    // on, so the next save records the list and a later switch-off stays off.
-    if (profileId !== "minimal" && (saved === null || saved < NOTE_MODULES_REVISION)) {
+    // Each built-in added to Standard is inherited once by older non-Minimal workspaces.
+    const predates = (revision: string) =>
+      profileId !== "minimal" && (saved === null || saved < revision)
+    const addSupernotes = predates(SUPERNOTES_REVISION)
+    if (predates(NOTE_MODULES_REVISION)) {
       for (const id of NOTE_MODULES) if (!enabledModules.includes(id)) enabledModules.push(id)
-      return {
-        profile: {
-          id: PROFILES[profileId] ? profileId : "custom",
-          catalogRevision: NOTE_MODULES_REVISION,
-        },
-        enabledModules,
-        moduleSettings,
-      }
+    }
+    if (addSupernotes && !enabledModules.includes("amby.supernotes")) {
+      enabledModules.push("amby.supernotes")
     }
     return {
       profile: {
         id: PROFILES[profileId] ? profileId : "custom",
-        catalogRevision: saved ?? STANDARD_CATALOG_REVISION,
+        catalogRevision: addSupernotes ? SUPERNOTES_REVISION : (saved ?? STANDARD_CATALOG_REVISION),
       },
       enabledModules,
       moduleSettings,

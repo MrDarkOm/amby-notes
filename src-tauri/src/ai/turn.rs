@@ -26,6 +26,26 @@ pub struct AiTurnRequest {
     pub search_enabled: bool,
     pub supports_tools: bool,
     pub stream_id: String,
+    /// The conversation's approval mode, so the write tools tell the model what happens next.
+    pub approval_mode: Option<AiApprovalMode>,
+}
+
+/// How the panel applies the AI's proposals (see `autoApplies` in the panel).
+#[derive(Clone, Copy, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AiApprovalMode {
+    Manual,
+    Auto,
+    Turbo,
+}
+
+fn approval(request: &AiTurnRequest) -> amby_core::ai_tools::Approval {
+    use amby_core::ai_tools::Approval;
+    match request.approval_mode {
+        Some(AiApprovalMode::Auto) => Approval::Auto,
+        Some(AiApprovalMode::Turbo) => Approval::Turbo,
+        Some(AiApprovalMode::Manual) | None => Approval::Manual,
+    }
 }
 
 #[derive(Serialize, specta::Type)]
@@ -627,6 +647,7 @@ async fn cli_agent_turn(
                 let mut engine =
                     TurnEngine::new(provider, Vec::new(), request.initial_sources.clone());
                 engine.proposal_sink = Some(proposal_sink(&app, request.generation));
+                engine.budget.approval = approval(request);
                 engine
             }),
             events: events.clone(),
@@ -814,6 +835,7 @@ pub async fn ai_run_turn(
         request.initial_sources.clone(),
     );
     engine.proposal_sink = Some(proposal_sink(&app, request.generation));
+    engine.budget.approval = approval(&request);
     let result: Result<(), &'static str> = async {
         loop {
             let allow_tools = request.supports_tools && !engine.budget.exhausted();
@@ -1131,6 +1153,7 @@ mod tests {
             search_enabled,
             supports_tools,
             stream_id: "s".into(),
+            approval_mode: None,
         };
         assert_eq!(write_mode(&request(true, false, &[])), Writes::Context);
         assert_eq!(write_mode(&request(true, false, &["n"])), Writes::Context);

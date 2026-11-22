@@ -13,6 +13,10 @@ export interface TreeItem {
   created?: number
   modified?: number
   children?: TreeItem[]
+  /** Other documents named as part of this on-disk bundle. An empty array marks a bundle. */
+  bundleMembers?: TreeItem[]
+  /** Display only. The containing folder owns rename and move for these files. */
+  bundleMember?: true
 }
 
 export interface FileMetadata {

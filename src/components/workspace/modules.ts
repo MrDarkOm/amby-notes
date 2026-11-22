@@ -142,6 +142,13 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
   },
   {
+    id: "supernotes",
+    labelKey: "settings.modules.supernotes",
+    descriptionKey: "settings.modules.descriptions.supernotes",
+    status: "ready",
+    manifest: { permissions: ["read-notes", "write-notes"] },
+  },
+  {
     id: "templates",
     labelKey: "settings.modules.templates",
     descriptionKey: "settings.modules.descriptions.templates",

@@ -42,6 +42,7 @@ const everything = new Set(
     "ai",
     "excalidraw",
     "creative",
+    "supernotes",
   ].map((id) => `amby.${id}`),
 )
 
@@ -95,6 +96,17 @@ describe("usePresets", () => {
     })
     expect(result.current.activePresetId).toBe("custom-1")
     expect(result.current.presets.some((preset) => preset.id === "custom-1")).toBe(true)
+  })
+
+  it("honors an explicit Supernotes switch-off when reopening a Standard workspace", async () => {
+    vi.mocked(config.loadLayout).mockResolvedValue({ activePresetId: "standard" } as never)
+    vi.mocked(config.loadWorkspaceConfig).mockResolvedValue({
+      customPresets: [],
+      layout: { activePresetId: "standard" },
+      enabledModules: ["amby.tags"],
+    } as never)
+    const { result } = renderHook(() => usePresets("/vault"))
+    await waitFor(() => expect(result.current.activeModules).toEqual(["tags"]))
   })
 
   it("keeps the docks when switching to a preset that stores no dock", async () => {

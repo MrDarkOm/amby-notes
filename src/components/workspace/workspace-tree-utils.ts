@@ -2,6 +2,7 @@
 // unit-tested without React or Tauri imports.
 
 import i18n from "@/lib/i18n"
+import type { NoteLayers } from "@/lib/storage"
 import type { TreeItem } from "./sidebar-tree"
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -95,6 +96,27 @@ export function isSuperSketchItem(item: Pick<TreeItem, "path" | "type">): boolea
   if (item.type !== "sketch") return false
   const parent = wsPathDir(item.path).replace(/[\\/]+$/u, "")
   return wsPathBase(parent) === wsPathStem(item.path)
+}
+
+/** Resolve physical layers even when a primary-layer preference changed the displayed row type. */
+export function treeItemLayers(item: TreeItem, cached?: NoteLayers): NoteLayers {
+  const path = item.path.toLowerCase()
+  const note = path.endsWith(".md")
+  const canvas = path.endsWith(".canvas")
+  const sketch = path.endsWith(".excalidraw")
+  const members = item.bundleMembers ?? []
+  const fallback = item.bundleMembers ? undefined : cached
+  return {
+    note: note || Boolean(fallback?.note) || members.some((member) => member.type === "file"),
+    canvas:
+      canvas || Boolean(fallback?.canvas) || members.some((member) => member.type === "canvas"),
+    sketch:
+      sketch || Boolean(fallback?.sketch) || members.some((member) => member.type === "sketch"),
+    database:
+      (!note && !canvas && !sketch && (item.type === "database" || !!item.bundleMembers)) ||
+      Boolean(fallback?.database) ||
+      members.some((member) => member.type === "database"),
+  }
 }
 
 function isContainerPath(path: string): boolean {

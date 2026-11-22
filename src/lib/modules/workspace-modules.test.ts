@@ -64,7 +64,7 @@ describe("Reading the workspace module configuration", () => {
       moduleSettings: { tags: { a: 1 } },
     })
     expect(config.profile.id).toBe("standard")
-    expect(config.enabledModules).toEqual(["amby.tags", "amby.favorites"])
+    expect(config.enabledModules).toEqual(["amby.tags", "amby.favorites", "amby.supernotes"])
     expect(config.moduleSettings).toEqual({ tags: { a: 1 } })
   })
 
@@ -73,8 +73,8 @@ describe("Reading the workspace module configuration", () => {
       profile: { id: "custom", catalogRevision: "2026-09-20" },
       enabledModules: ["tags"],
     })
-    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates"])
-    expect(old.profile.catalogRevision).toBe("2026-11-20")
+    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates", "amby.supernotes"])
+    expect(old.profile.catalogRevision).toBe("2026-11-21")
     // Saved again with the new revision, a switched-off module stays off.
     const current = readWorkspaceModuleConfig({
       profile: { id: "custom", catalogRevision: old.profile.catalogRevision },

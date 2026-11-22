@@ -126,6 +126,8 @@ export interface AiTurnOptions extends AiChatOptions {
   initialSources: ChatSource[]
   searchEnabled: boolean
   supportsTools: boolean
+  /** The conversation's approval mode; the write tools tell the model what happens next. */
+  approvalMode?: "manual" | "auto" | "turbo"
   onEvent?: (event: AiTurnEvent) => void
 }
 
@@ -257,6 +259,7 @@ export async function aiRunTurn(
       searchEnabled: opts.searchEnabled,
       supportsTools: opts.supportsTools,
       streamId,
+      approvalMode: opts.approvalMode ?? null,
     })
     if (opts.signal?.aborted) throw new Error("Request cancelled")
     if (result.status === "ok") return result.data

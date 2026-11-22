@@ -117,6 +117,18 @@ pub enum ProposalOp {
 }
 
 impl ProposalOp {
+    /// The path of an existing note a text or property change names; `None` for other changes.
+    fn existing_note_path(&mut self) -> Option<&mut String> {
+        match self {
+            Self::Append { path, .. }
+            | Self::Replace { path, .. }
+            | Self::SetProperty { path, .. }
+            | Self::DeleteProperty { path, .. }
+            | Self::RenameProperty { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
     fn path(&self) -> &str {
         match self {
             Self::New { path, .. }
@@ -349,8 +361,23 @@ fn digest(text: &str) -> String {
 
 const DIFF_LIMIT: usize = 20_000;
 
+/// The vault-relative path of an existing note the AI named, with `.md` added when it named the
+/// note by its path without the extension (as models often do) and only that note exists.
+fn note_path(root: &Path, named: &str) -> String {
+    let path = named.replace('\\', "/");
+    if path.to_lowercase().ends_with(".md") || root.join(&path).is_file() {
+        return path;
+    }
+    let with_extension = format!("{path}.md");
+    if root.join(&with_extension).is_file() {
+        with_extension
+    } else {
+        path
+    }
+}
+
 fn prepare(root: &Path, scope: &WriteScope, op: &ProposalOp) -> Result<Edit, &'static str> {
-    let mut path = op.path().replace('\\', "/");
+    let mut path = note_path(root, op.path());
     if matches!(op, ProposalOp::New { .. }) && !path.to_lowercase().ends_with(".md") {
         path.push_str(".md");
     }
@@ -380,21 +407,53 @@ fn prepare(root: &Path, scope: &WriteScope, op: &ProposalOp) -> Result<Edit, &'s
 
 /// Appended text begins a new paragraph: a bare line break after a quote, list or table would
 /// continue it instead. A note that already ends with a blank line, or is empty, gets nothing extra.
+/// Two exceptions keep the note as it was written: list items appended to a note that ends with a
+/// list of the same kind continue that list, and a note that ended with a line break still does.
 fn as_paragraph(root: &Path, relative: &str, content: &str) -> String {
     let current = crate::index::read_only::visible_note(root, relative)
         .ok()
         .and_then(|file| std::fs::read_to_string(file).ok());
-    match current {
-        Some(text)
-            if !text.is_empty()
-                && !content.is_empty()
-                && !content.starts_with('\n')
-                && !text.ends_with("\n\n")
-                && !text.ends_with("\r\n\r\n") =>
-        {
-            format!("\n{content}")
-        }
-        _ => content.to_owned(),
+    let Some(text) = current.filter(|text| !text.is_empty()) else {
+        return content.to_owned();
+    };
+    if content.is_empty() {
+        return content.to_owned();
+    }
+    // `Edit` itself ends an unterminated last line and writes the note's own line endings, so
+    // only the extra blank line is added here.
+    let blank = !content.starts_with('\n')
+        && !continues_list(&text, content)
+        && !text.ends_with("\n\n")
+        && !text.ends_with("\r\n\r\n");
+    let after = text.ends_with('\n') && !content.ends_with('\n');
+    format!(
+        "{}{content}{}",
+        if blank { "\n" } else { "" },
+        if after { "\n" } else { "" }
+    )
+}
+
+/// The list marker of a Markdown list line (`-`, `*`, `+`, or a number with `.` or `)`), or
+/// `None` for any other line; task boxes count as the same list.
+fn list_marker(line: &str) -> Option<char> {
+    let line = line.trim_start();
+    let mut chars = line.chars();
+    let first = chars.next()?;
+    if matches!(first, '-' | '*' | '+') {
+        return chars.next().filter(|c| *c == ' ').map(|_| first);
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    let rest = &line[digits..];
+    (digits > 0 && (rest.starts_with(". ") || rest.starts_with(") "))).then_some('1')
+}
+
+/// Whether appended `content` is more items of the list the note ends with.
+fn continues_list(text: &str, content: &str) -> bool {
+    let last = text.lines().rev().find(|line| !line.trim().is_empty());
+    let first = content.lines().find(|line| !line.trim().is_empty());
+    match (last.and_then(list_marker), first.and_then(list_marker)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
     }
 }
 
@@ -405,8 +464,12 @@ pub fn propose(
     root: &Path,
     scope: &WriteScope,
     conn: Option<&Connection>,
-    op: ProposalOp,
+    mut op: ProposalOp,
 ) -> Result<Proposal, &'static str> {
+    // The change itself carries the found note's path, so applying it later finds the note too.
+    if let Some(path) = op.existing_note_path() {
+        *path = note_path(root, path);
+    }
     if matches!(
         op,
         ProposalOp::CreateDatabaseRow { .. } | ProposalOp::SetDatabaseValue { .. }
@@ -496,7 +559,7 @@ fn propose_property(
     conn: &Connection,
     op: ProposalOp,
 ) -> Result<Proposal, &'static str> {
-    let path = op.path().replace('\\', "/");
+    let path = note_path(root, op.path());
     if !scope.allows(&path) {
         return Err("outsideWriteScope");
     }

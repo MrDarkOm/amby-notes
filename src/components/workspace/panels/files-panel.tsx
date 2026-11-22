@@ -204,6 +204,7 @@ export function FilesPanel(props: PanelRenderProps) {
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    supernotesEnabled,
     canCreateDatabaseLayer,
     databaseRuntimeEnabled,
     linkedLayersByDoc,
@@ -546,6 +547,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
+                  supernotesEnabled={supernotesEnabled}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}

@@ -68,6 +68,7 @@ export interface DocumentHeaderProps {
   databasesEnabled?: boolean
   canvasEnabled?: boolean
   sketchEnabled?: boolean
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   onUnlinkLayer?: (layer: LayerKind) => void
   onDeleteLayer?: (layer: LayerKind) => void
@@ -86,15 +87,15 @@ export interface DocumentHeaderProps {
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   onRequestAttachLayer: (layer: EditorLayer) => void
-  onRequestMove: () => void
-  onRequestMerge: () => void
+  onRequestMove?: () => void
+  onRequestMerge?: () => void
   onCopyPath: (kind: "app" | "vault" | "absolute") => void
   onExportPdf: () => void
   onExportCsv?: () => void
   onExportSqlite?: () => void
   onExportImage?: (format: "png" | "jpg") => void
   onShowInExplorer?: () => void
-  onRequestRename: () => void
+  onRequestRename?: () => void
   onDeleteFile?: (mode?: "archive") => void
   moreActionsOpen: boolean
   onMoreActionsOpenChange: (open: boolean) => void
@@ -128,6 +129,7 @@ export function DocumentHeader({
   databasesEnabled = false,
   canvasEnabled = true,
   sketchEnabled = true,
+  supernotesEnabled = true,
   canCreateDatabaseLayer = false,
   onUnlinkLayer,
   onDeleteLayer,
@@ -167,7 +169,7 @@ export function DocumentHeader({
   const hasNote = Boolean(
     activeLayer === "editor" ||
     linkedLayers?.note ||
-    (!linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database),
+    (!activeLayer && !linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database),
   )
   const hasDatabase = Boolean(
     databasesEnabled && (linkedLayers?.database || activeLayer === "database"),
@@ -267,6 +269,7 @@ export function DocumentHeader({
     nestedNotesPlacement,
     onNestedNotesPlacementChange,
     linkedLayers,
+    supernotesEnabled,
     canCreateDatabaseLayer,
     onRequestAttachLayer,
     isFavorite,
@@ -289,7 +292,7 @@ export function DocumentHeader({
   if (hideNavigation) return null
 
   const layerSwitcher = (isUltraNarrow: boolean) => {
-    if (!hasDocument || totalLayersCount <= 1) return null
+    if (!supernotesEnabled || !hasDocument || totalLayersCount <= 1) return null
     return isUltraNarrow ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

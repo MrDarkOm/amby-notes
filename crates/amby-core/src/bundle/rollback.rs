@@ -5,7 +5,7 @@ use crate::model::FsMutationResult;
 
 use super::path_ops::{file_name, file_stem, rename_path_case_safe};
 use super::path_string;
-use super::scan::{is_bundle_main_note, is_bundle_main_path_in, is_markdown, is_vault_root};
+use super::scan::{is_bundle_main_note, is_bundle_main_path_in, is_markdown};
 
 pub fn rollback_rename_item(
     vault: &Path,
@@ -18,28 +18,21 @@ pub fn rollback_rename_item(
         .map(Path::new)
         .ok_or("Rename result has no primary path")?;
     // A root note named like the vault was renamed as a plain file (CORE-01).
-    if is_markdown(original_path)
-        && original_path.parent().and_then(|parent| parent.file_name()) == original_path.file_stem()
-        && !original_path
-            .parent()
-            .is_some_and(|parent| is_vault_root(vault, parent))
-    {
+    if is_bundle_main_path_in(vault, original_path) {
         let old_dir = original_path.parent().ok_or("Bundle note has no parent")?;
-        let old_stem = file_stem(original_path)?;
         let new_dir = current
             .parent()
             .ok_or("Renamed bundle note has no parent")?;
-        let new_stem = file_stem(current)?;
-        for ext in ["canvas", "excalidraw"] {
-            let current_sidecar = new_dir.join(format!("{new_stem}.{ext}"));
-            let old_sidecar = new_dir.join(format!("{old_stem}.{ext}"));
-            if current_sidecar.exists() {
-                rename_path_case_safe(&current_sidecar, &old_sidecar)?;
+        for change in &result.path_changes {
+            let previous = Path::new(&change.old_path);
+            let renamed = Path::new(&change.new_path);
+            if previous.parent() == Some(old_dir) && renamed.parent() == Some(new_dir) {
+                let old_name = previous.file_name().ok_or("Bundle file has no name")?;
+                let new_name = renamed.file_name().ok_or("Bundle file has no name")?;
+                if old_name != new_name {
+                    rename_path_case_safe(renamed, &new_dir.join(old_name))?;
+                }
             }
-        }
-        let restored_main = new_dir.join(format!("{old_stem}.md"));
-        if current != restored_main {
-            rename_path_case_safe(current, &restored_main)?;
         }
         rename_path_case_safe(new_dir, old_dir)
     } else {

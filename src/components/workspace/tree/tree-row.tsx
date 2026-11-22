@@ -48,6 +48,7 @@ import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
 import { treeItemHasChildren, type AttachableLayer, type TreeNodeProps } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
 import { useNoteModulesStore } from "../note-modules/note-modules-store"
+import { treeItemLayers } from "../workspace-tree-utils"
 
 export const TreeNode = React.memo(
   function TreeNode({
@@ -85,6 +86,7 @@ export const TreeNode = React.memo(
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    supernotesEnabled = true,
     canCreateDatabaseLayer = false,
     linkedLayersByDoc,
     canvasEnabled = true,
@@ -104,13 +106,14 @@ export const TreeNode = React.memo(
     const contextSelectionIds = isSelected ? [...selectedIds] : [item.id]
     const isMultiSelection = contextSelectionIds.length > 1
     const isDragSource = isPtrDragSource
+    const isDirectoryTarget =
+      item.type === "folder" || (item.type === "database" && !item.bundleMember)
     const canReceiveDrop =
-      item.type === "folder" ||
-      item.type === "file" ||
-      item.type === "canvas" ||
-      item.type === "sketch" ||
-      item.type === "database"
-    const canReceiveMove = item.type === "folder" || hasChildren
+      isDirectoryTarget ||
+      (supernotesEnabled &&
+        (item.type === "file" || item.type === "canvas" || item.type === "sketch"))
+    const canNest = !item.bundleMember && (supernotesEnabled || isDirectoryTarget)
+    const canReceiveMove = item.type === "folder" || (canReceiveDrop && hasChildren)
     const isDragTarget = isPtrDragTarget && canReceiveDrop
     // Keep the tree content close to the panel edge while preserving one
     // icon-sized branch step per nested level. Expandable rows do not need a
@@ -169,7 +172,7 @@ export const TreeNode = React.memo(
     }
 
     function handlePointerDown(e: React.PointerEvent) {
-      if (e.button !== 0 || isEditing) return
+      if (e.button !== 0 || isEditing || item.bundleMember) return
       onPtrDragStart(item.id, item.name, item.path ?? item.id, e.clientX, e.clientY)
     }
 
@@ -235,22 +238,25 @@ export const TreeNode = React.memo(
     )
 
     const defaultIcon = item.type === "folder" ? "folder" : "file"
-    const layers = linkedLayersByDoc?.[item.id]
-    const noteAvailable = (item.type === "canvas" || item.type === "sketch") && !layers?.note
-    const canvasAvailable = Boolean(
-      canvasEnabled && item.type !== "canvas" && item.type !== "folder" && !layers?.canvas,
-    )
-    const databaseAvailable = Boolean(
-      canCreateDatabaseLayer && item.type !== "folder" && !layers?.database,
-    )
-    const sketchAvailable = Boolean(
-      sketchEnabled && item.type !== "sketch" && item.type !== "folder" && !layers?.sketch,
-    )
+    const layers = treeItemLayers(item, linkedLayersByDoc?.[item.id])
+    const canAddLayers = supernotesEnabled && item.type !== "folder" && !item.bundleMember
+    const attachLooseVisual =
+      !item.bundleMembers && !layers.note && !layers.database
+        ? item.path.endsWith(".canvas")
+          ? onAttachCanvas
+          : item.path.endsWith(".excalidraw")
+            ? onAttachSketch
+            : undefined
+        : undefined
+    const noteAvailable = !layers.note && !attachLooseVisual
+    const canvasAvailable = canvasEnabled && !layers.canvas
+    const databaseAvailable = canCreateDatabaseLayer && !layers.database
+    const sketchAvailable = sketchEnabled && !layers.sketch
     const canAttach =
-      (item.type === "canvas" && !!onAttachCanvas) ||
-      (item.type === "sketch" && !!onAttachSketch) ||
-      (!!onAttachLayer &&
-        (noteAvailable || canvasAvailable || databaseAvailable || sketchAvailable))
+      canAddLayers &&
+      (Boolean(attachLooseVisual) ||
+        (Boolean(onAttachLayer) &&
+          (noteAvailable || canvasAvailable || databaseAvailable || sketchAvailable)))
 
     const ctxItems = (
       <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
@@ -307,7 +313,7 @@ export const TreeNode = React.memo(
         {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
         {/* Zone 2: nest, attach, bookmark. */}
-        {!isMultiSelection && (
+        {!isMultiSelection && canNest && (
           <ContextMenuSub>
             <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
               <FilePlus className="size-3.5 text-muted-foreground" />
@@ -381,7 +387,7 @@ export const TreeNode = React.memo(
               {t("tree.attach")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-52 border-border bg-popover text-foreground">
-              {noteAvailable && (
+              {onAttachLayer && noteAvailable && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => setPendingAttach("note")}
@@ -390,25 +396,16 @@ export const TreeNode = React.memo(
                   {t("tree.attachNote")}
                 </ContextMenuItem>
               )}
-              {item.type === "canvas" && onAttachCanvas && (
+              {attachLooseVisual && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                  onSelect={() => onAttachCanvas(item.id)}
+                  onSelect={() => attachLooseVisual(item.id)}
                 >
                   <FileText className="size-3.5 text-muted-foreground" />
                   {t("tree.attachToNote")}
                 </ContextMenuItem>
               )}
-              {item.type === "sketch" && onAttachSketch && (
-                <ContextMenuItem
-                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                  onSelect={() => onAttachSketch(item.id)}
-                >
-                  <FileText className="size-3.5 text-muted-foreground" />
-                  {t("tree.attachToNote")}
-                </ContextMenuItem>
-              )}
-              {canvasAvailable && (
+              {onAttachLayer && canvasAvailable && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => setPendingAttach("canvas")}
@@ -417,7 +414,7 @@ export const TreeNode = React.memo(
                   {t("tree.attachCanvas")}
                 </ContextMenuItem>
               )}
-              {databaseAvailable && (
+              {onAttachLayer && databaseAvailable && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => setPendingAttach("database")}
@@ -426,7 +423,7 @@ export const TreeNode = React.memo(
                   {t("tree.attachDatabase")}
                 </ContextMenuItem>
               )}
-              {sketchAvailable && (
+              {onAttachLayer && sketchAvailable && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => setPendingAttach("sketch")}
@@ -482,7 +479,7 @@ export const TreeNode = React.memo(
             {t("tree.clone")}
           </ContextMenuItem>
         )}
-        {!isMultiSelection && (
+        {!isMultiSelection && !item.bundleMember && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => setTimeout(() => onStartEdit(item.id), 80)}
@@ -622,7 +619,7 @@ export const TreeNode = React.memo(
       return (
         <>
           <div
-            data-drag-target={canReceiveDrop ? item.id : undefined}
+            data-drag-target={item.id}
             data-drag-target-path={canReceiveDrop ? item.path : undefined}
             data-tree-reorder-target={item.id}
             data-tree-reorder-target-path={item.path}
@@ -704,7 +701,7 @@ export const TreeNode = React.memo(
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              data-drag-target={canReceiveDrop ? item.id : undefined}
+              data-drag-target={item.id}
               data-drag-target-path={canReceiveDrop ? item.path : undefined}
               data-tree-reorder-target={item.id}
               data-tree-reorder-target-path={item.path}
@@ -805,6 +802,7 @@ export const TreeNode = React.memo(
     prev.onToggleFavorite === next.onToggleFavorite &&
     prev.linkedLayersByDoc === next.linkedLayersByDoc &&
     prev.onAttachLayer === next.onAttachLayer &&
+    prev.supernotesEnabled === next.supernotesEnabled &&
     prev.canCreateDatabaseLayer === next.canCreateDatabaseLayer &&
     prev.canvasEnabled === next.canvasEnabled &&
     prev.sketchEnabled === next.sketchEnabled,

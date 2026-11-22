@@ -19,6 +19,7 @@ import {
   vaultFileMissing,
 } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
+import { FONT_SIZE, FONT_SIZE_OF_SCALE } from "@/themes/preferences"
 import type { VaultRecord } from "./workspace-picker"
 import { useVaultStore } from "./use-vault-store"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
@@ -368,7 +369,10 @@ export interface WindowPreferences {
 export interface AppPreferences {
   theme: ThemePref
   accent: AccentId
+  /** Kept in step with `fontSize` for older builds; `fontSize` is what applies. */
   fontScale: FontScale
+  /** Interface font size in percent (see `FONT_SIZE`). */
+  fontSize: number
   fontFamily: FontFamily
   rainbowTree: boolean
   treeGuides: boolean
@@ -395,6 +399,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   theme: "dark",
   accent: "violet",
   fontScale: "md",
+  fontSize: FONT_SIZE.default,
   fontFamily: "system",
   rainbowTree: false,
   treeGuides: true,
@@ -460,11 +465,19 @@ export function normalizeAppPreferences(
       : Number.isFinite(legacyTooltipDelay) && legacyTooltipDelay >= -1
         ? legacyTooltipDelay
         : DEFAULT_PREFS.tooltipDelayMs
+  const fontScale = oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale)
   return {
     // Migrate pre-prefs `defaultTheme` if no explicit theme was stored yet.
     theme: isThemeId(migratedTheme) || migratedTheme === "system" ? migratedTheme : "dark",
     accent: oneOf<AccentId>(d.accent, ACCENTS, DEFAULT_PREFS.accent),
-    fontScale: oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale),
+    fontScale,
+    // Settings saved before the percent slider keep the size their three-step value stood for.
+    fontSize: boundedNumber(
+      d.fontSize,
+      FONT_SIZE.min,
+      FONT_SIZE.max,
+      FONT_SIZE_OF_SCALE[fontScale],
+    ),
     fontFamily: oneOf<FontFamily>(
       d.fontFamily,
       ["system", "sans", "serif", "mono"],
@@ -866,6 +879,12 @@ export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promi
       {
         ...cur,
         ...patch,
+        profile: patch.profile
+          ? {
+              ...patch.profile,
+              catalogRevision: patch.profile.catalogRevision ?? cur.profile?.catalogRevision,
+            }
+          : cur.profile,
         schemaVersion: WORKSPACE_SCHEMA_VERSION,
       },
       generation,

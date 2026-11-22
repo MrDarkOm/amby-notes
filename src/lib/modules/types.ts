@@ -131,6 +131,7 @@ export const MODULE_ID_MAP: Record<string, string> = {
   canvas: "amby.canvas",
   creative: "amby.creative",
   templates: "amby.templates",
+  supernotes: "amby.supernotes",
   daily: "amby.daily",
 }
 

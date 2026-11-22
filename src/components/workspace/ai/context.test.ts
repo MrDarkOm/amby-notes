@@ -79,6 +79,27 @@ describe("AI attached context", () => {
     expect(result.sources).toEqual([{ id: "a", title: "A" }])
   })
 
+  it("names the note open now and how proposed changes are applied", async () => {
+    vi.mocked(storage.readNote).mockResolvedValue({ content: "Other text" } as Awaited<
+      ReturnType<typeof storage.readNote>
+    >)
+    const result = await buildAttachedContext({
+      context: [
+        { kind: "current", id: "a" },
+        { kind: "note", id: "b" },
+      ],
+      items,
+      openDocs: { a: { ...doc, content: "Open text" } },
+      vault: "/vault",
+      generation: 9,
+      language: "English",
+      approvalMode: "auto",
+    })
+    expect(result.system).toContain('(id: a) — the note open in the editor now; "this note"')
+    expect(result.system).not.toContain("(id: b) — the note open")
+    expect(result.system).toContain("applied at once")
+  })
+
   it("does not return text read after the vault changes", async () => {
     let finish!: (value: Awaited<ReturnType<typeof storage.readNote>>) => void
     vi.mocked(storage.readNote).mockImplementation(

@@ -360,6 +360,7 @@ export function AiPanel({
       }
       runRef.current = run
       try {
+        const mode = useProposalStore.getState().modes[next.id] ?? "manual"
         const attached = await buildAttachedContext({
           context: next.context,
           items: treeItems,
@@ -368,6 +369,7 @@ export function AiPanel({
           generation,
           language: i18n.language === "ru" ? "Russian" : "English",
           files,
+          approvalMode: mode,
         })
         if (run.controller.signal.aborted || run.finalized) return
         run.sources = attached.sources
@@ -387,6 +389,7 @@ export function AiPanel({
           initialSources: attached.sources,
           supportsTools: modelSupportsTools(selected),
           searchEnabled,
+          approvalMode: mode,
           signal: run.controller.signal,
           onToken: (delta) => {
             if (!run.finalized) {

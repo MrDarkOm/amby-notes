@@ -7,13 +7,30 @@ use std::path::Path;
 /// implementation so bundles and their Markdown index entries are handled in
 /// exactly the same way.
 pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
-    let preview = crate::recycle_bin::preview_move_to_trash(vault, path)?;
+    move_to_system_trash_scoped(vault, path, crate::recycle_bin::TrashScope::Item)
+}
+
+pub fn move_to_system_trash_scoped(
+    vault: &Path,
+    path: &Path,
+    scope: crate::recycle_bin::TrashScope,
+) -> Result<FsMutationResult, String> {
+    move_to_system_trash_with(vault, path, scope, move_path)
+}
+
+fn move_to_system_trash_with(
+    vault: &Path,
+    path: &Path,
+    scope: crate::recycle_bin::TrashScope,
+    trash: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<FsMutationResult, String> {
+    let preview = crate::recycle_bin::preview_move_to_trash_scoped(vault, path, scope)?;
     let deleted_paths = preview
         .deleted_paths
         .iter()
         .map(|path| path_string(path))
         .collect();
-    move_path(&preview.original_path)?;
+    trash(&preview.original_path)?;
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
@@ -23,6 +40,35 @@ pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResul
         deleted_paths,
         deleted_ids: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use crate::recycle_bin::TrashScope;
+    use std::fs;
+
+    #[test]
+    fn exact_file_scope_sends_only_the_selected_file_to_system_trash() {
+        let vault = std::env::temp_dir().join(format!(
+            "amby-system-trash-scope-{}",
+            ulid::Ulid::generate()
+        ));
+        let bundle = vault.join("Note");
+        fs::create_dir_all(&bundle).unwrap();
+        let note = bundle.join("Note.md");
+        fs::write(&note, "note").unwrap();
+        let canonical_note = note.canonicalize().unwrap();
+        fs::write(bundle.join("Note.canvas"), "canvas").unwrap();
+        let result = move_to_system_trash_with(&vault, &note, TrashScope::ExactFile, |path| {
+            assert_eq!(path, canonical_note);
+            fs::remove_file(path).map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert_eq!(result.deleted_paths, vec![path_string(&canonical_note)]);
+        assert!(bundle.join("Note.canvas").is_file());
+        fs::remove_dir_all(vault).unwrap();
+    }
 }
 
 /// The operating system's trash as a port (docs/sync-plan.md, К3, К6): macOS Trash, Windows Recycle

@@ -217,12 +217,41 @@ fn database_tools() -> Vec<Value> {
     ]
 }
 
+/// How the panel applies the changes the AI proposes; the same rule as `autoApplies` there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Approval {
+    /// Every change waits for Apply on its card.
+    #[default]
+    Manual,
+    /// Text, property and database changes apply at once; structural ones wait.
+    Auto,
+    /// Everything applies at once except a deletion.
+    Turbo,
+}
+
+impl Approval {
+    /// Whether the panel applies this change as soon as it is proposed (with Undo on its card).
+    /// A deletion cannot be undone from the card, so it waits in every mode.
+    pub fn applies_at_once(self, op: &crate::ai_proposals::ProposalOp) -> bool {
+        use crate::ai_proposals::ProposalOp;
+        match op {
+            ProposalOp::Delete { .. } => false,
+            ProposalOp::Move { .. } | ProposalOp::Rename { .. } | ProposalOp::Archive { .. } => {
+                self == Approval::Turbo
+            }
+            _ => self != Approval::Manual,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct ToolBudget {
     calls: usize,
     result_chars: usize,
     proposals: Vec<crate::ai_proposals::Proposal>,
     proposed: usize,
+    /// Tells the model what happens to its proposals, so it does not promise a wait that won't come.
+    pub approval: Approval,
 }
 
 impl ToolBudget {
@@ -376,10 +405,17 @@ impl ToolBudget {
         };
         let proposal = propose(root, &write, Some(conn), op)?;
         self.proposed += 1;
-        let reply = json!({
-            "status": "pending", "proposalId": proposal.id, "path": proposal.path,
-            "message": "Proposed. It is applied when the user approves it, or at once if they chose an automatic mode; do not repeat it."
-        });
+        let reply = if self.approval.applies_at_once(&proposal.op) {
+            json!({
+                "status": "applied", "proposalId": proposal.id, "path": proposal.path,
+                "message": "Applied at once by the user's approval mode (if the note has unsaved edits, as soon as they are saved); the user can undo it from its card. Do not repeat it."
+            })
+        } else {
+            json!({
+                "status": "pending", "proposalId": proposal.id, "path": proposal.path,
+                "message": "Proposed; it waits until the user applies it from its card. Do not repeat it."
+            })
+        };
         self.proposals.push(proposal);
         Ok(reply)
     }
@@ -1118,6 +1154,27 @@ mod tests {
             budget.execute(&conn, &root, &wide, "delete_item", &out_delete)["status"],
             "pending"
         );
+        assert_eq!(tree(&root), before);
+        // The reply follows the approval mode: what applies at once is said to be applied.
+        let rename = json!({"path":"folder/a.md","name":"x"});
+        let append = json!({"path":"folder/a.md","content":"More"});
+        for (approval, renamed, appended, deleted) in [
+            (Approval::Manual, "pending", "pending", "pending"),
+            (Approval::Auto, "pending", "applied", "pending"),
+            (Approval::Turbo, "applied", "applied", "pending"),
+        ] {
+            let mut budget = ToolBudget {
+                approval,
+                ..ToolBudget::default()
+            };
+            let status = |budget: &mut ToolBudget, tool: &str, args: &Value| {
+                budget.execute(&conn, &root, &wide, tool, args)["status"].clone()
+            };
+            assert_eq!(status(&mut budget, "rename_item", &rename), renamed);
+            assert_eq!(status(&mut budget, "append_note", &append), appended);
+            assert_eq!(status(&mut budget, "delete_item", &out_delete), deleted);
+        }
+        // Proposing still changes nothing on disk.
         assert_eq!(tree(&root), before);
         fs::remove_dir_all(root).unwrap();
     }

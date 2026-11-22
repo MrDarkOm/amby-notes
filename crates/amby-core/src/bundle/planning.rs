@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::model::{FsMutationResult, PathChange};
@@ -65,9 +66,13 @@ pub(super) fn bundle_rename_path_changes(
                 PathBuf::from(format!("{new_stem}.canvas"))
             } else if relative == Path::new(&format!("{old_stem}.excalidraw")) {
                 PathBuf::from(format!("{new_stem}.excalidraw"))
-            } else if relative == Path::new(&format!("{old_stem}.json")) {
+            } else if relative == Path::new(&format!("{old_stem}.json"))
+                && is_valid_named_manifest(old_path)
+            {
                 PathBuf::from(format!("{new_stem}.json"))
-            } else if relative == Path::new(&format!("{old_stem}.database")) {
+            } else if relative == Path::new(&format!("{old_stem}.database"))
+                && is_valid_named_manifest(old_path)
+            {
                 PathBuf::from(format!("{new_stem}.database"))
             } else {
                 relative.to_path_buf()
@@ -78,6 +83,19 @@ pub(super) fn bundle_rename_path_changes(
             })
         })
         .collect()
+}
+
+fn is_valid_named_manifest(path: &Path) -> bool {
+    let limit = crate::database::format::MAX_JSON_BYTES;
+    if !fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= limit as u64) {
+        return false;
+    }
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    file.take(limit as u64 + 1).read_to_end(&mut bytes).is_ok()
+        && crate::database::format::parse_manifest(&bytes).is_ok()
 }
 
 pub fn preview_rename_item(
@@ -99,7 +117,8 @@ pub fn preview_rename_item(
             .ok_or_else(|| "Bundle has no parent".to_string())?;
         let old_stem = file_stem(path)?;
         let new_dir = parent.join(trimmed);
-        let new_main = new_dir.join(format!("{trimmed}.md"));
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
+        let new_main = new_dir.join(format!("{trimmed}.{ext}"));
         ensure_rename_target_available(bundle_dir, &new_dir)?;
         let old_paths = collect_refactor_paths(bundle_dir)?;
         let path_changes =

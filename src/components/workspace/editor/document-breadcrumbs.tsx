@@ -23,9 +23,12 @@ export function documentCrumbs(
         )
       : undefined
   const rowTrail = rowId && treeItems ? findBreadcrumbTrail(treeItems, rowId) : null
-  const rowType = rowTrail?.[rowTrail.length - 1]?.type
+  const row = rowTrail?.[rowTrail.length - 1]
+  const rowType = row?.type
   const trail = buildBreadcrumb(treeItems, rowId ?? docId)
-  const isSuperNote = Boolean(docPath && isSuperNoteItem({ path: docPath, type: "file" }))
+  const isSuperNote = Boolean(
+    !row?.bundleMember && docPath && isSuperNoteItem({ path: docPath, type: "file" }),
+  )
   return trail.map((segment, index) => {
     const isLast = index === trail.length - 1
     return {

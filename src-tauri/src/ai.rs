@@ -43,6 +43,19 @@ pub const MAX_TOKENS_LIMIT: u32 = 8192;
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024; // 4 MB
 pub const MAX_ERROR_PREVIEW_CHARS: usize = 500;
 
+/// What goes between two parts of an answer that a tool call or a new message separated, so
+/// the reader sees paragraphs rather than "first part.Second part": nothing before the first
+/// part, and only what is missing of a blank line after text that already ends a line.
+pub fn part_gap(text: &str) -> Option<&'static str> {
+    if text.trim().is_empty() || text.ends_with("\n\n") {
+        None
+    } else if text.ends_with('\n') {
+        Some("\n")
+    } else {
+        Some("\n\n")
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct AiStreamState(pub Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>);
 
@@ -1175,6 +1188,15 @@ pub async fn ai_chat(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parts_of_an_answer_are_kept_apart_by_one_blank_line() {
+        assert_eq!(super::part_gap(""), None);
+        assert_eq!(super::part_gap("  \n"), None);
+        assert_eq!(super::part_gap("First."), Some("\n\n"));
+        assert_eq!(super::part_gap("First.\n"), Some("\n"));
+        assert_eq!(super::part_gap("First.\n\n"), None);
+    }
+
     #[test]
     fn openai_reasoning_models_use_the_supported_token_limit_field() {
         let mut config = super::AiConfig {

@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/select"
 import { isTauri } from "@/lib/storage"
 import { ACCENT_HEX } from "@/lib/themes"
-import { SUPPORTED_LANGUAGES } from "@/lib/i18n"
+import i18n, { SUPPORTED_LANGUAGES } from "@/lib/i18n"
 import { useSettingsStore } from "./use-settings-store"
 import { useVaultStore } from "./use-vault-store"
 import {
@@ -64,7 +64,6 @@ import {
   SETTINGS_SAVE_ERROR_EVENT,
   type ContentWidth,
   type Density,
-  type FontScale,
   type FontFamily,
   type Language,
   type ThemePref,
@@ -88,21 +87,14 @@ import {
   SearchResults,
   DebugSettings,
 } from "./settings"
-import { StopSlider } from "./database/stop-slider"
+import { SmoothSlider } from "./settings/smooth-slider"
+import { FONT_SIZE, fontScaleOf } from "@/themes/preferences"
 import { SyncSettings } from "./sync/sync-settings"
 
-const FONT_SCALES = ["sm", "md", "lg"] as const satisfies readonly FontScale[]
-const TOOLTIP_DELAY_STOPS = ["0", "500", "1000", "1500", "2000", "-1"] as const
-type TooltipDelayStop = (typeof TOOLTIP_DELAY_STOPS)[number]
-
-function resolveTooltipDelayStop(ms: number): TooltipDelayStop {
-  if (ms < 0) return "-1"
-  if (ms <= 250) return "0"
-  if (ms <= 750) return "500"
-  if (ms <= 1250) return "1000"
-  if (ms <= 1750) return "1500"
-  return "2000"
-}
+/** Tooltip delay on the slider: 0–2 s, and the far right end turns tooltips off (stored as -1). */
+const TOOLTIP_DELAY_MAX = 2000
+const TOOLTIP_DELAY_STEP = 100
+const TOOLTIP_OFF = TOOLTIP_DELAY_MAX + TOOLTIP_DELAY_STEP
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 const SETTINGS_WINDOW_LABEL = "settings"
@@ -747,29 +739,25 @@ export function SettingsDialog({
                     </Select>
                   </Row>
                   <Row label={t("settings.appearance.fontScale")}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[12px] tabular-nums text-muted-foreground">
-                        {prefs.fontScale === "sm"
-                          ? t("settings.appearance.fontSm")
-                          : prefs.fontScale === "lg"
-                            ? t("settings.appearance.fontLg")
-                            : t("settings.appearance.fontMd")}
-                      </span>
-                      <StopSlider
-                        stops={FONT_SCALES}
-                        value={prefs.fontScale}
-                        ariaLabel={t("settings.appearance.fontScale")}
-                        label={(scale) =>
-                          scale === "sm"
-                            ? t("settings.appearance.fontSm")
-                            : scale === "lg"
-                              ? t("settings.appearance.fontLg")
-                              : t("settings.appearance.fontMd")
-                        }
-                        onChange={(fontScale) => setPrefs({ fontScale })}
-                        className="w-28"
-                      />
-                    </div>
+                    <SmoothSlider
+                      value={prefs.fontSize}
+                      min={FONT_SIZE.min}
+                      max={FONT_SIZE.max}
+                      snap={FONT_SIZE.default}
+                      format={(size) => `${size}%`}
+                      ariaLabel={t("settings.appearance.fontScale")}
+                      // The whole interface follows the thumb while it moves; the size is saved
+                      // once it is let go.
+                      onPreview={(size) =>
+                        document.documentElement.style.setProperty(
+                          "--app-font-scale",
+                          String(size / 100),
+                        )
+                      }
+                      onChange={(fontSize) =>
+                        setPrefs({ fontSize, fontScale: fontScaleOf(fontSize) })
+                      }
+                    />
                   </Row>
                 </SettingsGroup>
               </TabsContent>
@@ -818,40 +806,31 @@ export function SettingsDialog({
                     />
                   </Row>
                   <Row label={t("settings.interface.tooltipDelay")}>
-                    {(() => {
-                      const currentStop = resolveTooltipDelayStop(prefs.tooltipDelayMs)
-                      const labelForStop = (stop: TooltipDelayStop) => {
-                        switch (stop) {
-                          case "0":
-                            return t("settings.interface.tooltipNone")
-                          case "500":
-                            return t("settings.interface.tooltipHalfSecond")
-                          case "1000":
-                            return t("settings.interface.tooltipOneSecond")
-                          case "1500":
-                            return t("settings.interface.tooltipOneHalfSeconds")
-                          case "2000":
-                            return t("settings.interface.tooltipTwoSeconds")
-                          case "-1":
-                            return t("settings.interface.tooltipDisabled")
-                        }
+                    <SmoothSlider
+                      value={
+                        prefs.tooltipDelayMs < 0
+                          ? TOOLTIP_OFF
+                          : Math.min(TOOLTIP_DELAY_MAX, prefs.tooltipDelayMs)
                       }
-                      return (
-                        <div className="flex items-center gap-3">
-                          <span className="text-[12px] tabular-nums text-muted-foreground">
-                            {labelForStop(currentStop)}
-                          </span>
-                          <StopSlider
-                            stops={TOOLTIP_DELAY_STOPS}
-                            value={currentStop}
-                            ariaLabel={t("settings.interface.tooltipDelay")}
-                            label={labelForStop}
-                            onChange={(stop) => setPrefs({ tooltipDelayMs: Number(stop) })}
-                            className="w-36"
-                          />
-                        </div>
-                      )
-                    })()}
+                      min={0}
+                      max={TOOLTIP_OFF}
+                      step={TOOLTIP_DELAY_STEP}
+                      bigStep={500}
+                      valueClassName="w-24 text-left"
+                      format={(ms) =>
+                        ms >= TOOLTIP_OFF
+                          ? t("settings.interface.tooltipDisabled")
+                          : ms === 0
+                            ? t("settings.interface.tooltipNone")
+                            : t("settings.interface.tooltipSeconds", {
+                                seconds: new Intl.NumberFormat(i18n.language, {
+                                  maximumFractionDigits: 1,
+                                }).format(ms / 1000),
+                              })
+                      }
+                      ariaLabel={t("settings.interface.tooltipDelay")}
+                      onChange={(ms) => setPrefs({ tooltipDelayMs: ms >= TOOLTIP_OFF ? -1 : ms })}
+                    />
                   </Row>
                 </SettingsGroup>
               </TabsContent>

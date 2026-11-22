@@ -12,6 +12,7 @@ import {
   DAILY_MODULE_DEFINITION,
   TEMPLATES_MODULE_DEFINITION,
 } from "@/components/workspace/note-modules/note-modules"
+import { SUPERNOTES_MODULE_DEFINITION } from "@/components/workspace/supernotes-module"
 import { moduleHost } from "./module-host"
 
 export function registerBuiltinModules(): void {
@@ -25,6 +26,7 @@ export function registerBuiltinModules(): void {
   moduleHost.registerModule(CANVAS_MODULE_DEFINITION)
   moduleHost.registerModule(SKETCH_MODULE_DEFINITION)
   moduleHost.registerModule(CREATIVE_MODULE_DEFINITION)
+  moduleHost.registerModule(SUPERNOTES_MODULE_DEFINITION)
   moduleHost.registerModule(TEMPLATES_MODULE_DEFINITION)
   moduleHost.registerModule(DAILY_MODULE_DEFINITION)
 }

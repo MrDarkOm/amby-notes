@@ -55,6 +55,7 @@ interface UsePanelRenderPropsParams {
     layer: "canvas" | "database" | "sketch" | "note",
   ) => Promise<void>
   linkedLayersByDoc: Record<string, NoteLayers>
+  supernotesEnabled: boolean
   databasesEnabled: boolean
   canvasEnabled: boolean
   sketchEnabled: boolean
@@ -143,6 +144,7 @@ export function usePanelRenderProps({
   handleToggleFavorite,
   handleAttachLayerToFile,
   linkedLayersByDoc,
+  supernotesEnabled,
   databasesEnabled,
   canvasEnabled,
   sketchEnabled,
@@ -194,14 +196,14 @@ export function usePanelRenderProps({
       onNewCanvas: handleNewCanvasIn,
       onNewSketch: handleNewSketchIn,
       onNewDatabase: handleNewDatabase,
-      onAttachCanvas: handleAttachCanvasToNote,
-      onAttachSketch: handleAttachSketchToNote,
+      onAttachCanvas: supernotesEnabled ? handleAttachCanvasToNote : undefined,
+      onAttachSketch: supernotesEnabled ? handleAttachSketchToNote : undefined,
       onOpenInNewTab: handleOpenInNewTab,
       onOpenSplitRight: handleOpenSplitRight,
       onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
-      onConvertFolderToNote: handleConvertFolderToNote,
+      onConvertFolderToNote: supernotesEnabled ? handleConvertFolderToNote : undefined,
       onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
@@ -210,8 +212,9 @@ export function usePanelRenderProps({
       readFile: async (id: string) => (vault ? (await readNote(vault, id)).content : readFile(id)),
       favorites,
       onToggleFavorite: handleToggleFavorite,
-      onAttachLayer: handleAttachLayerToFile,
+      onAttachLayer: supernotesEnabled ? handleAttachLayerToFile : undefined,
       linkedLayersByDoc,
+      supernotesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       databaseRuntimeEnabled: databasesEnabled,
       canvasEnabled,
@@ -315,6 +318,7 @@ export function usePanelRenderProps({
       handleToggleFavorite,
       handleAttachLayerToFile,
       linkedLayersByDoc,
+      supernotesEnabled,
       currentProperties,
       propertyError,
       attachments,

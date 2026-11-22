@@ -16,6 +16,11 @@ Feature UI lives under [workspace](../../components/workspace/MAP.md).
 | Native package boundary and disk publication | [commands/modules.rs](../../../src-tauri/src/commands/modules.rs), [package_manager.rs](../../../src-tauri/src/package_manager.rs)                                                                                                                                                                                                 |
 | User settings                                | [settings-modules.tsx](../../components/workspace/settings/settings-modules.tsx), [use-module-install-flow.ts](../../components/workspace/settings/use-module-install-flow.ts) (the download dialogs, progress and failure text), [settings-package-manager.tsx](../../components/workspace/settings/settings-package-manager.tsx) |
 
+[Supernotes](../../components/workspace/supernotes-module.ts) controls the user-facing bundle
+actions. With the module off, the workspace projects [bundle folders](../../components/workspace/tree/bundle-folders.ts) and opens existing layers from their file rows.
+The [bundle format](../../../docs/bundle-system.md#workspace-module) is shared by the workspace,
+filesystem operations and Creative Studio.
+
 A disabled module must not retain active capabilities or duplicate core persistence.
 Keep crash recovery available independently of optional history UI. Validate
 packages at both boundaries; a valid version is not an execution permission.

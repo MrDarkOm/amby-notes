@@ -65,6 +65,7 @@ export const nativeAiCases: Array<{
           searchEnabled: true,
           supportsTools: true,
           streamId: "native-ai-turn",
+          approvalMode: null,
         })
         check(result.status === "ok", "AI turn succeeded")
         check(result.data.content === "Found mercury [1].", "Provider received the tool results")
@@ -142,6 +143,7 @@ export const nativeAiCases: Array<{
           searchEnabled: false,
           supportsTools: true,
           streamId: "native-ai-proposal",
+          approvalMode: null,
         })
         check(turn.status === "ok", "AI turn succeeded")
         const deadline = Date.now() + 2000
@@ -218,6 +220,7 @@ export const nativeAiCases: Array<{
           searchEnabled: false,
           supportsTools: true,
           streamId: "native-ai-property",
+          approvalMode: null,
         })
         check(turn.status === "ok", "AI turn succeeded")
         const deadline = Date.now() + 2000
@@ -312,6 +315,7 @@ export const nativeAiCases: Array<{
           searchEnabled: true,
           supportsTools: true,
           streamId: "native-ai-cell",
+          approvalMode: null,
         })
         check(turn.status === "ok", "AI turn succeeded")
         const deadline = Date.now() + 2000
@@ -436,6 +440,7 @@ export const nativeAiCases: Array<{
           searchEnabled,
           supportsTools: false,
           streamId: `native-codex-gate-${searchEnabled}`,
+          approvalMode: null,
         })
         check(
           result.status === "error" && result.error.code === "privacyConsentRequired",
@@ -481,6 +486,7 @@ export const nativeAiCases: Array<{
           searchEnabled: false,
           supportsTools: false,
           streamId: "native-codex-turn",
+          approvalMode: null,
         })
         check(result.status === "ok", "Codex turn succeeded")
         check(result.data.content.trim().length > 0, "Codex returned text")
@@ -540,6 +546,7 @@ export const nativeAiCases: Array<{
           searchEnabled,
           supportsTools: false,
           streamId: `native-claude-gate-${searchEnabled}`,
+          approvalMode: null,
         })
         check(
           result.status === "error" && result.error.code === "privacyConsentRequired",
@@ -580,6 +587,7 @@ export const nativeAiCases: Array<{
           searchEnabled: false,
           supportsTools: false,
           streamId: "native-claude-turn",
+          approvalMode: null,
         })
         check(result.status === "ok", "Claude Code turn succeeded")
         check(result.data.content.trim().length > 0, "Claude Code returned text")

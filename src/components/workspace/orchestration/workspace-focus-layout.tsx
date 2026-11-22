@@ -47,7 +47,7 @@ interface WorkspaceFocusLayoutProps {
     initialContent?: string,
   ) => Promise<void>
   handleNewFolderIn: (parentId: string | null, requestedName?: string) => Promise<void>
-  handleConvertFolderToNote: (folderId: string) => Promise<void>
+  handleConvertFolderToNote?: (folderId: string) => Promise<void>
   handleSetIcon: (id: string, icon: string) => void
   renderCachedTabSurfaces: (
     isFocusMode: boolean,

@@ -436,7 +436,7 @@ Request: "In the project section, create a note with a plan, a task database wit
 a board, a sketch in Excalidraw with links to the notes; turn on a large font".
 
 1. The grant covers the project section, its database/board objects, and the specific
-   global key `prefs.fontScale`. The user sees that the font will change globally.
+   global key `prefs.fontSize`. The user sees that the font will change globally.
 2. The agent reads the available catalog. If the requested database layout does not exist yet,
    it reports the limitation; it does not save an unknown discriminant.
 3. The preview fixes the database schema, properties, two views, texts, and scene elements;

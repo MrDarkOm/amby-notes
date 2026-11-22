@@ -1,8 +1,9 @@
 //! Connects the open vault to the person's AI clients as an MCP server (`amby mcp`), from Settings.
 //!
-//! Amby never edits another program's configuration file itself: Claude Code and Codex are asked
-//! through their own `mcp add` / `mcp remove` commands, and Cursor through its install link, which
-//! asks the person in Cursor. Their files are only read, to show what is connected.
+//! Amby never edits another program's configuration file itself: Claude Code, Codex and
+//! Antigravity are asked through their own `mcp add` / `mcp remove` commands, and Cursor through its
+//! install link, which asks the person in Cursor. Their files are only read, to show what is
+//! connected. Each client keeps its own access (read only or with writes).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -22,9 +23,16 @@ pub enum McpClient {
     ClaudeCode,
     Codex,
     Cursor,
+    /// Google Antigravity, through its `agy` command.
+    Antigravity,
 }
 
-pub const CLIENTS: [McpClient; 3] = [McpClient::ClaudeCode, McpClient::Codex, McpClient::Cursor];
+pub const CLIENTS: [McpClient; 4] = [
+    McpClient::ClaudeCode,
+    McpClient::Codex,
+    McpClient::Cursor,
+    McpClient::Antigravity,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -102,7 +110,8 @@ fn served(args: &[String]) -> (Option<String>, Option<bool>) {
     (vault, Some(write))
 }
 
-/// `mcpServers.amby` of a JSON configuration (Claude Code's `~/.claude.json`, Cursor's `mcp.json`).
+/// `mcpServers.amby` of a JSON configuration (Claude Code's `~/.claude.json`, Cursor's `mcp.json`,
+/// Antigravity's `mcp_config.json`).
 pub fn status_from_json(text: &str) -> Option<(Option<String>, Option<bool>)> {
     let value: Value = serde_json::from_str(text).ok()?;
     let server = value.get("mcpServers")?.get(SERVER_NAME)?;
@@ -175,10 +184,38 @@ fn cursor_dir() -> Option<PathBuf> {
     home().map(|home| home.join(".cursor"))
 }
 
+/// Antigravity's own configuration of MCP servers, written by `agy mcp add`.
+fn antigravity_config() -> Option<PathBuf> {
+    home().map(|home| home.join(".gemini").join("config").join("mcp_config.json"))
+}
+
+/// The first `name` in `dirs` that is a file.
+fn find_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+    dirs.iter()
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file() && candidate.is_absolute())
+}
+
+/// `agy`: `PATH`, `~/.local/bin` (where its installer puts it) and the one inside the app.
+fn antigravity_binary() -> Option<PathBuf> {
+    let name = if cfg!(windows) { "agy.exe" } else { "agy" };
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    if let Some(home) = home() {
+        dirs.push(home.join(".local").join("bin"));
+    }
+    if cfg!(target_os = "macos") {
+        dirs.push(PathBuf::from("/Applications/Gemini.app/Contents/Helpers"));
+    }
+    find_in(&dirs, name)
+}
+
 fn binary(client: McpClient) -> Option<PathBuf> {
     match client {
         McpClient::ClaudeCode => crate::ai::claude_code::launch::find_binary(),
         McpClient::Codex => crate::ai::codex::launch::find_binary(),
+        McpClient::Antigravity => antigravity_binary(),
         McpClient::Cursor => None,
     }
 }
@@ -194,6 +231,10 @@ pub fn status(client: McpClient) -> McpClientStatus {
         McpClient::Codex => (
             binary(client).is_some(),
             read(codex_config()).and_then(|text| status_from_toml(&text)),
+        ),
+        McpClient::Antigravity => (
+            binary(client).is_some(),
+            read(antigravity_config()).and_then(|text| status_from_json(&text)),
         ),
         McpClient::Cursor => (
             cursor_dir().is_some_and(|dir| dir.is_dir()),
@@ -346,6 +387,26 @@ mod tests {
         assert_eq!(
             remove_args(McpClient::ClaudeCode),
             ["mcp", "remove", "amby", "--scope", "user"]
+        );
+    }
+
+    #[test]
+    fn antigravity_is_asked_through_agy_and_read_back_from_its_configuration() {
+        let add = add_args(McpClient::Antigravity, &sample());
+        assert_eq!(&add[..4], ["mcp", "add", "amby", "--"]);
+        assert_eq!(
+            &add[5..],
+            ["--vault", "/Users/p/Notes", "mcp", "--allow-write"]
+        );
+        assert_eq!(
+            remove_args(McpClient::Antigravity),
+            ["mcp", "remove", "amby"]
+        );
+        // As `agy mcp add` writes it.
+        let config = r#"{"mcpServers":{"amby":{"args":["--vault","/Users/p/Notes","mcp"],"command":"/a/amby","disabled":false}}}"#;
+        assert_eq!(
+            status_from_json(config),
+            Some((Some("/Users/p/Notes".into()), Some(false)))
         );
     }
 

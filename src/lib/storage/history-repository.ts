@@ -66,16 +66,16 @@ export class HistoryRepository {
     return this.port().purgeTrash(trashId)
   }
 
-  async listArchive(): Promise<ArchiveEntry[]> {
-    return this.port().listArchive()
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return this.port().listArchive(vaultPath)
   }
 
   async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
     return this.port().readArchivePreview(archiveId, relativePath)
   }
 
-  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
-    return this.port().restoreArchive(archiveId)
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return this.port().restoreArchive(archiveId, vaultPath)
   }
 
   async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {

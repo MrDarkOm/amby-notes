@@ -80,7 +80,9 @@ pub fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerResult, St
         }
     }
 
-    if crate::vault::scan::is_database_dir(bundle_dir) {
+    if crate::database::discovery::find_manifest_path(bundle_dir).as_deref()
+        == Some(main_note.as_path())
+    {
         if let Ok(bytes) = fs::read(&main_note) {
             if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
                 if value.get("containerKind").is_none() {
@@ -469,6 +471,17 @@ pub fn delete_layer_impl(
     note_path: &Path,
     kind: &str,
 ) -> Result<FsMutationResult, String> {
+    delete_layer_with(vault, note_path, kind, |vault, path, scope| {
+        crate::system_recycle_bin::move_to_system_trash_scoped(vault, path, scope)
+    })
+}
+
+pub(super) fn delete_layer_with(
+    vault: &Path,
+    note_path: &Path,
+    kind: &str,
+    trash: impl FnOnce(&Path, &Path, crate::recycle_bin::TrashScope) -> Result<FsMutationResult, String>,
+) -> Result<FsMutationResult, String> {
     if kind == "database" {
         return Err("Legacy database layers are read-only until DB-10".to_string());
     }
@@ -479,7 +492,16 @@ pub fn delete_layer_impl(
             path_string(&layer_path)
         ));
     }
-    let mut result = crate::system_recycle_bin::move_to_system_trash(vault, &layer_path)?;
-    result.primary_path = Some(path_string(note_path));
+    let mut result = trash(
+        vault,
+        &layer_path,
+        crate::recycle_bin::TrashScope::ExactFile,
+    )?;
+    let remaining = if layer_path == note_path {
+        layer_path.parent().unwrap_or(note_path)
+    } else {
+        note_path
+    };
+    result.primary_path = Some(path_string(remaining));
     Ok(result)
 }

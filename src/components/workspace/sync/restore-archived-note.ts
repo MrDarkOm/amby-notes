@@ -11,7 +11,7 @@ import { useVaultStore } from "../use-vault-store"
  */
 export async function findArchivedCopy(vaultPath: string, path: string) {
   const relative = relativeToVault(path, vaultPath).normalize("NFC")
-  const entries = await listArchive()
+  const entries = await listArchive(vaultPath)
   return entries
     .filter((entry) => entry.originalPath.normalize("NFC") === relative)
     .sort((a, b) => b.archivedAtMs - a.archivedAtMs)[0]
@@ -33,12 +33,13 @@ export async function restoreArchivedNote(vaultPath: string, docId: string): Pro
   if (!open) return
   const entry = await findArchivedCopy(vaultPath, open.path)
   if (!entry) throw new Error("not_in_archive")
-  const restored = await restoreArchive(entry.id)
+  const restored = await restoreArchive(entry.id, vaultPath)
   const finalPath = restored.primaryPath ?? open.path
   dispatchArchiveChanged({ paths: mutationPaths(restored) })
   if (useVaultStore.getState().vault !== vaultPath) return
   try {
     const note = await readNote(vaultPath, open.noteId ?? open.id)
+    if (useVaultStore.getState().vault !== vaultPath) return
     const latest = useDocStore.getState().openDocs[docId]
     if (!latest) return
     const { patchDoc, markSaved, clearExternalConflict, setExternalConflict } =
@@ -60,6 +61,7 @@ export async function restoreArchivedNote(vaultPath: string, docId: string): Pro
     }
   } catch {
     // The file is back on disk; the watcher or the next read reconciles the buffer.
+    if (useVaultStore.getState().vault !== vaultPath) return
     useDocStore
       .getState()
       .patchDoc(docId, { path: finalPath, externallyDeleted: false, externallyArchived: false })

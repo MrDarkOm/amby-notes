@@ -288,9 +288,9 @@ async purgeTrash(trashId: string) : Promise<Result<null, string>> {
 /**
  * The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
  */
-async listArchive() : Promise<Result<ArchiveEntry[], string>> {
+async listArchive(vaultPath: string) : Promise<Result<ArchiveEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("list_archive") };
+    return { status: "ok", data: await TAURI_INVOKE("list_archive", { vaultPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -311,9 +311,9 @@ async readArchivePreview(archiveId: string, relativePath: string) : Promise<Resu
  * «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
  * final path is `primary_path` of the mutation.
  */
-async restoreArchive(archiveId: string) : Promise<Result<MutationOutcome, string>> {
+async restoreArchive(archiveId: string, vaultPath: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId }) };
+    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId, vaultPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2390,6 +2390,10 @@ export type AddedStoryLinks = { operationId: string; workshopId: string; section
  */
 link: string; propertyId: string; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type AddedTextStatus = { operationId: string; storyId: string; propertyId: string; storyRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
+/**
+ * How the panel applies the AI's proposals (see `autoApplies` in the panel).
+ */
+export type AiApprovalMode = "manual" | "auto" | "turbo"
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
@@ -2422,7 +2426,11 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string }
+export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string; 
+/**
+ * The conversation's approval mode, so the write tools tell the model what happens next.
+ */
+approvalMode: AiApprovalMode | null }
 export type AiTurnResult = { content: string; steps: ChatStep[]; sources: ChatSource[] }
 /**
  * Webview-owned Tauri updater resource; signed download details stay on the native side.
@@ -3156,7 +3164,11 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
-export type McpClient = "claudeCode" | "codex" | "cursor"
+export type McpClient = "claudeCode" | "codex" | "cursor" | 
+/**
+ * Google Antigravity, through its `agy` command.
+ */
+"antigravity"
 export type McpClientError = 
 /**
  * No vault is open, or the request named another one.
@@ -4162,7 +4174,12 @@ device: VersionDevice;
 deviceName: string | null }
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
-export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null; 
+/**
+ * Physical siblings of the main document, projected as document rows when Supernotes is off.
+ * For a database container this also includes its manifest, even when it is the only file.
+ */
+bundleMembers?: TreeItem[] | null }
 export type TreePatch = { ops: TreePatchOp[] }
 /**
  * One change of the tree. Operations are applied in order: removals first, then insertions of

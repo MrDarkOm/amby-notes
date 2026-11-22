@@ -180,12 +180,14 @@ export function usePresets(
         DEFAULT_PRESET_ID
       const preset = all.find((p) => p.id === activeId) ?? getPreset(activeId)
       const rawStored =
-        activeId === "standard"
+        wsConfig?.enabledModules ??
+        (activeId === "standard"
           ? STANDARD_MODULES.map(toShortModuleId)
           : activeId === "minimal" || activeId === "simple"
             ? []
-            : (wsConfig?.enabledModules ??
-              (Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules))
+            : Array.isArray(layout.activeModules)
+              ? layout.activeModules
+              : preset.activeModules)
       const installedSet = await getInstalledModuleIds()
       const storedModules = rawStored
         .filter((id) => installedSet.has(toCanonicalModuleId(id)))

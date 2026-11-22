@@ -54,11 +54,13 @@ function pathName(path: string): string {
 // directly in the vault root is never a bundle's main note, even when the vault folder has its name
 // (`/Notes/Notes.md`): its "bundle" would be the whole vault (CORE-01, the same rule as in Rust).
 function deletionRoot(
-  item: { path: string; type: TreeItem["type"] },
+  item: Pick<TreeItem, "path" | "type" | "bundleMember">,
   vault: string | null,
 ): string {
   const path = normalizeFsPath(item.path)
-  if (item.type !== "file") return path
+  if (item.bundleMember || item.type === "folder" || !/\.(md|canvas|excalidraw)$/u.test(path)) {
+    return path
+  }
   const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")))
   if (vault && parent === normalizeFsPath(vault)) return path
   const stem = pathName(path).replace(/\.[^.]+$/u, "")
@@ -73,12 +75,7 @@ function isPathInside(path: string, root: string): boolean {
 
 function deleteTargets(
   vault: string | null,
-  items: Array<{
-    id: string
-    name: string
-    path: string
-    type: TreeItem["type"]
-  }>,
+  items: Array<Pick<TreeItem, "id" | "name" | "path" | "type" | "bundleMember">>,
 ) {
   const candidates = items.map((item) => ({ ...item, root: deletionRoot(item, vault) }))
   const uniqueCandidates = candidates.filter(
@@ -264,6 +261,7 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
+      const removedTargets: typeof targets = []
       try {
         for (const target of targets) {
           const targetDocuments = affected.filter(
@@ -274,9 +272,18 @@ export function useDocumentCrud({
               resolution === "archive"
                 ? await archiveItem(vault ?? "", target.path)
                 : await deleteItem(vault ?? "", target.path, deleteMode)
+            removedTargets.push(target)
             const treeUpdated = handleApplyMutation(result)
             if (resolution === "archive") {
               dispatchArchiveChanged({ paths: mutationPaths(result), treeUpdated })
+            } else if (!treeUpdated && target.bundleMember) {
+              try {
+                await refreshTreePaths(mutationPaths(result))
+              } catch (error) {
+                logger.warn("refresh_vault.failed", {
+                  failureCode: operationErrorCode(error),
+                })
+              }
             }
             for (const document of targetDocuments) {
               autosave.discard(autosaveKey(document.id))
@@ -312,7 +319,7 @@ export function useDocumentCrud({
         const tabsStore = useTabsStore.getState()
         const currentOpenDocs = useDocStore.getState().openDocs
         const survivingTabs = tabsStore.tabs.filter(
-          (tab) => !isTabAffectedByTargets(tab, targets, currentOpenDocs),
+          (tab) => !isTabAffectedByTargets(tab, removedTargets, currentOpenDocs),
         )
         if (survivingTabs.length !== tabsStore.tabs.length) {
           tabsStore.setTabs(survivingTabs)
@@ -326,7 +333,7 @@ export function useDocumentCrud({
         const docsToDrop: string[] = []
         for (const [docId, document] of Object.entries(docStore.openDocs)) {
           const cleanDocId = docId.startsWith("database:") ? docId.slice("database:".length) : docId
-          const isAffected = targets.some(
+          const isAffected = removedTargets.some(
             (target) =>
               docId === target.id ||
               document.id === target.id ||
@@ -386,6 +393,7 @@ export function useDocumentCrud({
       handleApplyMutation,
       recoveryScope,
       refreshDatabaseCatalog,
+      refreshTreePaths,
       requestDeleteConfirmation,
       treeItems,
       vault,
@@ -526,17 +534,23 @@ export function useDocumentCrud({
           icon: "folder",
           children: [],
         }
-        if (parentId)
+        let folderId = item.id
+        if (parentId && (!parent || parent.children?.some((child) => child.bundleMember))) {
+          const refreshed = await refreshTreePaths([path])
+          folderId = findTreeItem(refreshed, path)?.id ?? folderId
+        } else if (parentId) {
           setTreeItems((previous) =>
             updateInTree(previous, parentId, (folder) => ({
               ...folder,
               children: [...(folder.children ?? []), item],
             })),
           )
-        else setTreeItems((previous) => [...previous, item])
-        setPendingRenameId(item.id)
+        } else {
+          setTreeItems((previous) => [...previous, item])
+        }
+        setPendingRenameId(folderId)
         setTimeout(
-          () => setPendingRenameId((current) => (current === item.id ? null : current)),
+          () => setPendingRenameId((current) => (current === folderId ? null : current)),
           500,
         )
       } catch (error) {
@@ -546,7 +560,7 @@ export function useDocumentCrud({
         finishLocalMutation()
       }
     },
-    [setPendingRenameId, setTreeItems, t, treeItems, vault],
+    [refreshTreePaths, setPendingRenameId, setTreeItems, t, treeItems, vault],
   )
   const handleNewCanvasIn = React.useCallback(
     async (parentId: string | null) => {

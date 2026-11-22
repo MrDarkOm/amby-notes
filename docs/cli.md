@@ -318,12 +318,14 @@ environment.
 
 ## MCP
 
-**Settings → General → Command line** connects the open vault to Claude Code,
-Codex or Cursor in one step, read only or with writes for the whole vault. Amby
-asks Claude Code and Codex through their own `mcp add` / `mcp remove` commands
-(user scope) and Cursor through its install link, which Cursor confirms; it never
-edits their configuration files itself. Cursor servers are removed in Cursor's
-settings.
+**Settings → General → Command line** shows Claude Code, Codex, Cursor and
+Antigravity as a row of tiles and connects the open vault to each in one step. Each
+client has its own access: read only, or with edits for the whole vault (the
+Editing switch; changing it on a connected client connects it again). Amby asks
+Claude Code, Codex and Antigravity through their own `mcp add` / `mcp remove`
+commands (Claude Code in user scope, Antigravity through `agy`) and Cursor through
+its install link, which Cursor confirms; it never edits their configuration files
+itself. Cursor servers are removed in Cursor's settings.
 
 To configure a client by hand, add a local stdio MCP server with command `amby` and arguments
 `["--vault", "/path/to/vault", "mcp"]`. For example, a client configuration

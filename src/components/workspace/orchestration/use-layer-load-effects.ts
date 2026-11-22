@@ -6,8 +6,7 @@ import type { TreeItem } from "../sidebar-tree"
 interface UseLayerLoadEffectsParams {
   currentDocId: string | null
   currentDocPath: string | null
-  activeLayers: Record<string, EditorLayer>
-  currentDocDefaultLayer: EditorLayer
+  currentLayer: EditorLayer
   openCanvases: Record<string, string>
   loadCanvasBuffer: (path: string) => Promise<string>
   setOpenCanvases: (
@@ -25,8 +24,7 @@ interface UseLayerLoadEffectsParams {
 export function useLayerLoadEffects({
   currentDocId,
   currentDocPath,
-  activeLayers,
-  currentDocDefaultLayer,
+  currentLayer,
   openCanvases,
   loadCanvasBuffer,
   setOpenCanvases,
@@ -39,7 +37,6 @@ export function useLayerLoadEffects({
   // Lazily load the canvas layer file when the canvas layer becomes active.
   React.useEffect(() => {
     if (!currentDocId || !currentDocPath) return
-    const currentLayer = activeLayers[currentDocId] ?? currentDocDefaultLayer
     if (currentLayer !== "canvas") return
     const path = currentDocPath.endsWith(".canvas")
       ? currentDocPath
@@ -54,20 +51,11 @@ export function useLayerLoadEffects({
     return () => {
       cancelled = true
     }
-  }, [
-    currentDocId,
-    currentDocPath,
-    activeLayers,
-    currentDocDefaultLayer,
-    loadCanvasBuffer,
-    openCanvases,
-    setOpenCanvases,
-  ])
+  }, [currentDocId, currentDocPath, currentLayer, loadCanvasBuffer, openCanvases, setOpenCanvases])
 
   // Lazily load the sketch layer file when the sketch layer becomes active.
   React.useEffect(() => {
     if (!currentDocId || !currentDocPath) return
-    const currentLayer = activeLayers[currentDocId] ?? currentDocDefaultLayer
     if (currentLayer !== "sketch") return
     const path = currentDocPath.endsWith(".excalidraw")
       ? currentDocPath
@@ -82,15 +70,7 @@ export function useLayerLoadEffects({
     return () => {
       cancelled = true
     }
-  }, [
-    currentDocId,
-    currentDocPath,
-    activeLayers,
-    currentDocDefaultLayer,
-    loadSketchBuffer,
-    openSketches,
-    setOpenSketches,
-  ])
+  }, [currentDocId, currentDocPath, currentLayer, loadSketchBuffer, openSketches, setOpenSketches])
 
   // Resolve an Obsidian vault-relative file ref to a tree item and open it in a new tab.
   const handleOpenCanvasNote = React.useCallback(

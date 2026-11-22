@@ -92,6 +92,17 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(session.tabs).toEqual([])
   })
 
+  it("reads the font size in percent, from the earlier three sizes when it is missing", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontScale: "lg" } }))
+    expect((await loadSettings()).prefs).toMatchObject({ fontScale: "lg", fontSize: 113 })
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontScale: "sm" } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(88)
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontSize: 250 } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(130)
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontSize: 117.4 } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(117)
+  })
+
   it("reads settings with a UTF-8 BOM without treating them as corrupt", async () => {
     const raw = "\uFEFF" + JSON.stringify({ defaultTheme: "dark" })
     store.set("amby:g:" + SETTINGS_FILE, raw)

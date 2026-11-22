@@ -61,6 +61,7 @@ export interface DocumentMenuArgs {
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   linkedLayers?: { note?: boolean; canvas: boolean; sketch: boolean; database: boolean }
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   onRequestAttachLayer: (layer: EditorLayer) => void
   isFavorite?: boolean
@@ -68,15 +69,15 @@ export interface DocumentMenuArgs {
   onOpenInNewTab?: () => void
   onSplitRight?: () => void
   onSplitDown?: () => void
-  onRequestMove: () => void
-  onRequestMerge: () => void
+  onRequestMove?: () => void
+  onRequestMerge?: () => void
   onCopyPath: (kind: "app" | "vault" | "absolute") => void
   onExportPdf: () => void
   onExportCsv?: () => void
   onExportSqlite?: () => void
   onExportImage?: (format: "png" | "jpg") => void
   onShowInExplorer?: () => void
-  onRequestRename: () => void
+  onRequestRename?: () => void
   onDeleteFile?: (mode?: "archive") => void
 }
 
@@ -106,6 +107,7 @@ export function useDocumentMenuGroups({
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
   linkedLayers,
+  supernotesEnabled = true,
   canCreateDatabaseLayer = false,
   onRequestAttachLayer,
   isFavorite,
@@ -127,11 +129,7 @@ export function useDocumentMenuGroups({
   const { t } = useTranslation()
   const showAreaControls = useSettingsStore((s) => s.prefs.editor.showAreaControls ?? true)
 
-  const hasNote = Boolean(
-    linkedLayers?.note ||
-    activeLayer === "editor" ||
-    (!linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database),
-  )
+  const hasNote = Boolean(linkedLayers?.note || activeLayer === "editor")
   const hasDatabase = Boolean(
     databasesEnabled && (linkedLayers?.database || activeLayer === "database"),
   )
@@ -141,10 +139,10 @@ export function useDocumentMenuGroups({
   const totalLayersCount =
     (hasNote ? 1 : 0) + (hasDatabase ? 1 : 0) + (hasCanvas ? 1 : 0) + (hasSketch ? 1 : 0)
 
-  const canAttachNote = !hasNote
-  const canAttachDatabase = canCreateDatabaseLayer && !hasDatabase
-  const canAttachCanvas = Boolean(canvasEnabled && !hasCanvas)
-  const canAttachSketch = Boolean(sketchEnabled && !hasSketch)
+  const canAttachNote = supernotesEnabled && !hasNote
+  const canAttachDatabase = supernotesEnabled && canCreateDatabaseLayer && !hasDatabase
+  const canAttachCanvas = Boolean(supernotesEnabled && canvasEnabled && !hasCanvas)
+  const canAttachSketch = Boolean(supernotesEnabled && sketchEnabled && !hasSketch)
   const hasAttachableLayers =
     canAttachNote || canAttachDatabase || canAttachCanvas || canAttachSketch
 
@@ -308,13 +306,15 @@ export function useDocumentMenuGroups({
   const layerGroup: PageMenuItem[] = []
   if (hasLayerActions) {
     if (totalLayersCount > 1) {
-      layerGroup.push({
-        id: "primary-layer",
-        label: t("docEditor.primaryLayer"),
-        icon: icon(Layers),
-        submenuWidth: "w-48",
-        submenu: [layerChoice("primary", effectivePrimaryLayer, onSetPrimaryLayer)],
-      })
+      if (supernotesEnabled) {
+        layerGroup.push({
+          id: "primary-layer",
+          label: t("docEditor.primaryLayer"),
+          icon: icon(Layers),
+          submenuWidth: "w-48",
+          submenu: [layerChoice("primary", effectivePrimaryLayer, onSetPrimaryLayer)],
+        })
+      }
       layerGroup.push({
         id: "switch-layer",
         label: t("docEditor.switchLayer"),
@@ -347,7 +347,7 @@ export function useDocumentMenuGroups({
         ],
       })
     }
-    if (totalLayersCount > 1 && detachableLayers.length > 0) {
+    if (supernotesEnabled && totalLayersCount > 1 && detachableLayers.length > 0) {
       layerGroup.push({
         id: "remove-layer",
         label: t("docEditor.removeLayer"),
@@ -467,12 +467,14 @@ export function useDocumentMenuGroups({
       id: "move",
       label: t("docEditor.moveFile"),
       icon: icon(FolderInput),
+      disabled: off || !onRequestMove,
       onSelect: onRequestMove,
     },
     {
       id: "merge",
       label: t("docEditor.mergeWith"),
       icon: icon(GitMerge),
+      disabled: off || !onRequestMerge,
       onSelect: onRequestMerge,
     },
     {
@@ -504,7 +506,7 @@ export function useDocumentMenuGroups({
       id: "rename",
       label: t("tree.rename"),
       icon: icon(PenLine),
-      disabled: off,
+      disabled: off || !onRequestRename,
       onSelect: onRequestRename,
     },
     {

@@ -162,7 +162,7 @@ export const storageContractCases: Array<{
         check(error instanceof StorageOperationError, `Typed refusal expected: ${String(error)}`)
       }
       if (archived) {
-        check((await adapter.listArchive()).length > 0, "Archived item is restorable")
+        check((await adapter.listArchive(vaultPath)).length > 0, "Archived item is restorable")
       } else {
         check(
           (await adapter.readFile(note.primaryPath!)) === "archived bytes",

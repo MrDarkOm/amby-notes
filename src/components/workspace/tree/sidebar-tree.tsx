@@ -54,6 +54,7 @@ export function SidebarTree({
   favorites,
   onToggleFavorite,
   onAttachLayer,
+  supernotesEnabled,
   canCreateDatabaseLayer,
   linkedLayersByDoc,
   canvasEnabled,
@@ -400,6 +401,7 @@ export function SidebarTree({
                   favorites={favorites}
                   onToggleFavorite={stableOnToggleFavorite}
                   onAttachLayer={stableOnAttachLayer}
+                  supernotesEnabled={supernotesEnabled}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}

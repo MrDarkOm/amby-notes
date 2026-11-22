@@ -175,7 +175,7 @@ in `settings.json`. Workspace override support is not assumed automatically.
 | --------------------------------------------------- | ----------------------------------------------------------------- | ------------------------ |
 | `prefs.theme`                                       | `system` or an existing valid theme ID                            | Global appearance; H-44  |
 | `prefs.accent`                                      | `violet`, `sky`, `teal`, `emerald`, `amber`, `rose`               | Global appearance; H-44  |
-| `prefs.fontScale`                                   | `sm`, `md`, `lg`                                                  | Global appearance; H-44  |
+| `prefs.fontSize`                                    | Percent, 80–130 (`fontScale` follows it for older builds)         | Global appearance; H-44  |
 | `prefs.fontFamily`                                  | `system`, `sans`, `serif`, `mono`                                 | Global appearance; H-44  |
 | `prefs.density`                                     | `comfortable`, `compact`                                          | Global appearance; H-44  |
 | `prefs.rainbowTree`, `prefs.treeGuides`             | Boolean                                                           | Global appearance; H-44  |

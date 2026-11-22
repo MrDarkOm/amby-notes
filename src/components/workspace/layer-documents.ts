@@ -34,3 +34,21 @@ export function naturalDocumentLayer(
   if (tab?.kind === "database") return "database"
   return "editor"
 }
+
+/** Ignore an attached layer preference when the feature that exposes it is switched off. */
+export function visibleDocumentLayer(
+  tab: Pick<Tab, "kind"> | null | undefined,
+  path: string | null | undefined,
+  preferred: EditorLayer | undefined,
+  supernotesEnabled: boolean,
+  databasesEnabled: boolean,
+): EditorLayer {
+  const selected = preferred ?? naturalDocumentLayer(tab, path)
+  if (supernotesEnabled && (databasesEnabled || selected !== "database")) return selected
+
+  // A primary-layer preference can also have changed the tab kind. Prefer the actual file.
+  if (path?.endsWith(".md")) return "editor"
+  if (path?.endsWith(CANVAS_EXTENSION)) return "canvas"
+  if (path?.endsWith(SKETCH_EXTENSION)) return "sketch"
+  return naturalDocumentLayer(tab, path)
+}

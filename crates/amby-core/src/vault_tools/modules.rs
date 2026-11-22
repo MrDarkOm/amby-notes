@@ -9,11 +9,14 @@ use serde_json::Value;
 
 use crate::note_templates::NOTE_MODULES_REVISION;
 
+const SUPERNOTES_REVISION: &str = "2026-11-21";
+
 #[derive(Clone, Copy)]
 pub enum Module {
     Databases,
     Creative,
     Templates,
+    Supernotes,
     Daily,
 }
 
@@ -22,6 +25,7 @@ pub struct Modules {
     databases: bool,
     creative: bool,
     templates: bool,
+    supernotes: bool,
     daily: bool,
 }
 
@@ -78,14 +82,23 @@ impl Modules {
             // A list saved before Templates existed gets it, as the renderer does when it reads
             // the file (`readWorkspaceModuleConfig`); a current one is as written. Daily notes
             // are opt-in: only a list that names them has them.
-            let predates = !minimal(&workspace)
-                && workspace["profile"]["catalogRevision"]
-                    .as_str()
-                    .is_none_or(|revision| revision < NOTE_MODULES_REVISION);
+            let predates = |introduced| {
+                !minimal(&workspace)
+                    && workspace["profile"]["catalogRevision"]
+                        .as_str()
+                        .is_none_or(|revision| revision < introduced)
+            };
             return Ok(Self {
                 databases: has("databases"),
                 creative: has("creative"),
-                templates: predates || has("templates"),
+                templates: predates(NOTE_MODULES_REVISION) || has("templates"),
+                supernotes: workspace["profile"]["id"].as_str().is_none_or(|profile| {
+                    has("supernotes")
+                        || (profile != "minimal"
+                            && workspace["profile"]["catalogRevision"]
+                                .as_str()
+                                .is_none_or(|revision| revision < SUPERNOTES_REVISION))
+                }),
                 daily: has("daily"),
             });
         }
@@ -94,6 +107,7 @@ impl Modules {
                 databases: false,
                 creative: false,
                 templates: false,
+                supernotes: true,
                 daily: false,
             }
         } else {
@@ -106,6 +120,7 @@ impl Modules {
             databases: true,
             creative: false,
             templates: true,
+            supernotes: true,
             daily: false,
         }
     }
@@ -115,6 +130,7 @@ impl Modules {
             Module::Databases => self.databases,
             Module::Creative => self.databases && self.creative,
             Module::Templates => self.templates,
+            Module::Supernotes => self.supernotes,
             Module::Daily => self.daily,
         }
     }
