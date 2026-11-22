@@ -1,20 +1,28 @@
-# Amby 0.1.9-beta.8 — November 19, 2026
+# Amby 0.1.9-beta.9 — November 22, 2026
 
-The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server for working with your vault. This release also improves saving, cross-window updates, and the responsiveness of large vaults.
+The ninth Amby 0.1.9 beta lets the AI panel propose changes to your notes, folders and databases, which you apply or undo. It also makes Supernotes an optional module, replaces several confirmation questions with Undo, and adds Templates and Daily notes. The command-line tool and local MCP server from beta 8 gain more tools.
 
 ## ✨ Highlights
 
-- **Amby in the terminal.** Find and read notes, open them in Amby, and edit, rename, move, archive, or restore them with the bundled CLI. Structural edits can update backlinks and show a preview before writing.
-- **Local MCP with scoped access.** Connected clients start with read-only access. You can grant edits for one folder or the entire vault. Database and workshop tools follow the workspace's module settings.
-- **Safer saves and updates.** Amby flushes open edits before applying an update, keeps unsaved text available when a save fails, and shows a conflict when another editor changes the same note.
-- **Faster editing and navigation.** Live editing updates the changed blocks. Background saving, lighter file watching, and targeted index updates keep large notes, folders, and database tables responsive.
-- **Offline emoji and folder collections.** Emoji and flags use bundled artwork, the picker follows your search language, and a Files setting controls whether a folder click opens its collection.
+- **The AI panel can edit, with your approval.** It proposes new notes, added or replaced text, property changes, database rows and cells, moves, renames, archiving and deletions as cards. Apply each one yourself, or choose Auto or Turbo, and undo any applied change from its card.
+- **Undo instead of questions.** Renaming or moving a note that updates links in other notes, and merging two notes, happen at once. A line under the tree and a notification entry offer «Restore», which puts everything back exactly.
+- **Supernotes as a module.** Switch Supernotes off for a vault in Settings → Modules: existing supernotes open as ordinary folders, nothing in your files is rewritten, and switching it back restores them.
+- **Templates and Daily notes.** Create notes from templates kept in your vault, and turn on Daily notes in Settings → Modules.
+- **Amby in the terminal and in AI agents.** The bundled CLI and local MCP server read and change notes, properties, attachments and links, and connect to Claude Code, Codex, Cursor or Antigravity from Settings with read-only or write access.
 
 > **Important.** Amby requires macOS 13 Ventura or newer. Vaults that use the earlier database format may show a migration prompt. Amby makes a backup before migrating.
 
 > **License.** Amby 0.1.9 is distributed under GNU AGPL-3.0. Versions through 0.1.8 remain under MIT.
 
 > **Sync backups.** New pre-sync copies live in Amby's app data and expire 14 days after the first successful sync. Existing copies beside the vault remain available. Restoring from Settings creates a separate folder. Subscription management and deleting the server copy require sync server 0.2.0.
+
+## 🤖 AI panel
+
+- The AI proposes changes as cards that show exactly what will change and every file a move, rename, archive or deletion touches. Nothing is written until you apply it; Undo restores the previous text, properties, rows or place. A note with unsaved edits waits until it is saved.
+- Approval modes: Manual (you apply every card), Auto (text, property and database changes apply at once with Undo) and Turbo (moves, renames and archiving apply at once too). Deletions always wait for you and follow your deletion setting.
+- The AI reads notes by section, sees properties, note info, earlier versions, tags and databases, and can find a note by its title. A database you add to the conversation can be read and changed without turning on vault search.
+- Attach a text file, a note or a folder from the paperclip menu. Steps name what was read or prepared, answers keep their paragraphs, and the AI knows which note is open now.
+- The AI panel saves conversations and supports search, archive and provider settings. Built-in Codex and Claude Code connections ask for consent before sending a conversation or reading vault content.
 
 ## 🪶 Creative workshop
 
@@ -26,32 +34,32 @@ The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server f
 - Live mode preserves untouched Markdown, frontmatter, and line endings. Fixes cover pasted table content, manual line breaks, unknown canvas cards, and sketches created by other apps.
 - History follows an identified note across renames and moves, including changes received through sync. Safety snapshots remain available after automatic cleanup.
 - Canvases, sketches, and recovery drafts follow their files when renamed or moved. Open notes and editors refresh across windows while preserving unsaved changes for conflict resolution.
+- Renaming or moving keeps the style of links: a link by name stays a name when that name is unique.
 
-## 🗃 Databases
+## 🗃 Databases and Supernotes
 
+- Supernotes is a module: with it off, folder conversion and layer management are hidden, a supernote's files show as a folder, and the command line, MCP and the AI panel treat its text file as a single file.
+- The sidebar can add a text layer to a database, and removing one keeps the rest of the bundle. Open notes show a newly attached database at once.
 - MCP clients can inspect schemas and rows, create databases and records, edit properties, and preview reciprocal relation changes. A folder grant must cover every record the operation will write.
-- Database views refresh after sync applies a complete batch. Table rendering and cell edits are faster, and stale record revisions are rejected.
+- Database views refresh after sync applies a complete batch. Table rendering and cell edits are faster, and stale record revisions are rejected. The folder view labels databases and sketches correctly.
 
 ## 🗂 Interface
 
+- Templates: create a note from a template, and make a new template from the template dialog. Daily notes, off by default, open today's note from the dock.
+- Settings: the font size and the tooltip delay are smooth sliders, AI agents are a row of tiles with their status, App data uses ordinary rows, and an About section shows the version and licenses. Every section has the same margins.
+- Dock menus have the same order everywhere, and slide-out side panels are one floating sheet. Below 960 px, opening one side panel closes the other.
 - Open notes, graphs, databases, canvases, and sketches in resizable workspace panes. Tabs remember their scroll position, and the start screen lists recent vaults.
 - Unified search covers notes, folders, databases, canvases, text, and tags. The graph saves its layout and zoom when locked and supports back and forward navigation.
 - The file tree supports dragging files and folders from the system file manager, offers sorting and filtering in its empty-area menu, and refreshes when an empty folder is deleted.
-- Separate note windows use Amby's header. Sidebars animate with the workspace, and header controls align with the docks across platforms. Opening a folder in the system file manager opens that folder directly.
-- Bookmark folders in Favorites, or turn a folder into a note with children from its header or context menu. The file tree groups expandable notes with folders.
-- The Attachments panel shows and searches local files. Image and file drops from Finder work in notes and in the file tree.
-- Notifications appear next to the dock bell. Naming and editing errors appear near the affected control, with conflict choices available from the notice.
-- Document tabs work with the keyboard, and image previews and centered database dialogs manage focus while open.
-
-## 🤖 AI panel
-
-- The AI panel saves conversations and supports search, archive, provider settings, and removing the current note from the conversation context. Built-in Codex and Claude Code connections ask for consent before sending a conversation or reading vault content for a response.
+- Bookmark folders in Favorites, or turn a folder into a note with children. The Attachments panel shows and searches local files, and drops from Finder work in notes and in the file tree.
+- Notifications appear next to the dock bell. A notification about a change sync made by itself, such as merged edits, offers «Restore». A properties backup is noted in the notifications too.
 
 ## ☁️ Sync
 
 - Browse and restore server versions and deleted files alongside local history. Property styling conflicts can be resolved per note.
+- A file over 30 MB, a symbolic link or a service path stays on this computer and is not shown as a problem. A conflict whose two versions became identical closes by itself.
 - Sync handles large uploads and folder renames in smaller batches. You can change the account password from Settings, and deleting the server copy of a vault requires the current password.
-- Sync protects local edits that arrive during downloads and refreshes the archive after each pass. Self-hosted servers reserve disk space and can reject new writes while continuing to serve reads.
+- Sync protects local edits that arrive during downloads and refreshes the archive after each pass. Backups are easier to read and delete one at a time.
 
 ## 🛠 Fixes
 
@@ -62,6 +70,6 @@ The eighth Amby 0.1.9 beta includes a command-line tool and a local MCP server f
 
 ## For developers
 
-- The CLI and MCP share vault services in the Tauri-free `amby-core` crate. MCP uses stdio, and commands that need the active vault writer use a local, user-only desktop connection.
-- Installer checks cover the bundled CLI and native delegation on the Windows and Linux CI matrix. See `docs/cli.md`, `docs/mcp.md`, and `docs/sync-format.md` for configuration and protocol details.
-- The watcher regression test waits for the manual scan to finish before checking that the next refresh has no pending work.
+- The CLI and MCP share vault services and the tool set in the Tauri-free `amby-core` crate, including the engine for AI proposals and exact undo. See `docs/cli.md`, `docs/mcp.md`, `docs/ai-harness.md` and `docs/sync-format.md`.
+- The sync server no longer stalls on long database work, limits event streams per device and times out stalled request bodies (sync server image `ch-20261122`).
+- Native contract tests cover AI proposals and undo through the real desktop commands; a debug build can use its own app data with `AMBY_APP_DATA_DIR`. The `url` crate is updated for RUSTSEC-2026-0592.
