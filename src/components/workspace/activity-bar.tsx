@@ -9,6 +9,8 @@ import {
   Check,
   Download,
   EyeOff,
+  FolderSync,
+  LayoutGrid,
   LayoutTemplate,
   Pin,
   Plus,
@@ -28,8 +30,10 @@ import {
   ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -54,6 +58,7 @@ import {
 import type { useRefreshSync } from "./sync/use-refresh-sync"
 import { syncErrorMessage } from "@/lib/sync/sync-errors"
 import { syncInactiveText } from "./sync/sync-inactive"
+import { SYNC_ACTION_ICONS } from "./sync/sync-action-icons"
 import { SyncInactiveMenu } from "./sync/sync-inactive-menu"
 import { useNoticesDockSummary } from "./sync/use-notices-dock-summary"
 import { useNoticesStackStore } from "./notices/use-notices-stack-store"
@@ -267,62 +272,56 @@ export function ActivityBar({
     )
   }
 
-  function dockMenuItems() {
-    return (
-      <>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          className="flex min-w-64 items-center justify-between gap-4"
-          onSelect={() => onPinnedChange?.(!pinned)}
-        >
-          <span className="flex items-center gap-2">
-            <Pin className="size-4 text-muted-foreground" />
-            {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
-          </span>
-          {pinned && <Check className="size-4" />}
-        </ContextMenuItem>
-      </>
-    )
-  }
-
-  /** The zone's section label and a switch for each button in it, styled like the menu items. */
+  /** The switches of the buttons in a zone. Switching keeps the menu open for the next one. */
   function zoneToggleItems(zone: ActivityZone) {
-    if (!onSetButtonHidden) return null
-    return (
-      <>
-        <ContextMenuSeparator />
-        <ContextMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          {t(zone === "view" ? "activityBar.zoneSections" : "activityBar.zoneActions")}
-        </ContextMenuLabel>
-        {zoneButtons(zone).map((button) => {
-          const def = findDef(button.defId)
-          if (!def) return null
-          const Icon = def.icon
-          return (
-            <ContextMenuCheckboxItem
-              key={def.id}
-              data-dock-toggle={def.id}
-              indicatorPosition="right"
-              checked={!button.hidden}
-              disabled={!canHideButton(def.id)}
-              // The menu stays open, so several buttons can be switched in a row.
-              onSelect={(event) => event.preventDefault()}
-              onCheckedChange={(checked) => onSetButtonHidden(def.id, !checked)}
-              className="gap-2 text-[13px]"
-            >
-              <Icon className="size-4 text-muted-foreground" />
-              {t(def.labelKey)}
-            </ContextMenuCheckboxItem>
-          )
-        })}
-      </>
-    )
+    if (!onSetButtonHidden) return []
+    return zoneButtons(zone).flatMap((button) => {
+      const def = findDef(button.defId)
+      // A button that cannot be hidden (Settings) is not listed at all.
+      if (!def || !canHideButton(def.id)) return []
+      const Icon = def.icon
+      return [
+        <ContextMenuCheckboxItem
+          key={def.id}
+          data-dock-toggle={def.id}
+          indicatorPosition="right"
+          checked={!button.hidden}
+          onSelect={(event) => event.preventDefault()}
+          onCheckedChange={(checked) => onSetButtonHidden(def.id, !checked)}
+          className="gap-2 text-[13px]"
+        >
+          <Icon className="size-4 text-muted-foreground" />
+          {t(def.labelKey)}
+        </ContextMenuCheckboxItem>,
+      ]
+    })
   }
 
-  /** A zone's own menu: pinning the dock, and a switch for each button that is in the zone. */
-  function zoneMenu(zone: ActivityZone) {
+  /**
+   * The end of every dock menu: pinning the dock, plus both section-button and action-button
+   * submenus (whenever that dock has toggleable buttons in each zone) so either group can be
+   * configured from anywhere on the activity bar.
+   */
+  function dockMenuItems() {
+    const zoneSubmenu = (zone: ActivityZone) => {
+      if (!onSetButtonHidden) return null
+      const items = zoneToggleItems(zone)
+      if (items.length === 0) return null
+      return (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger data-dock-zone-buttons={zone} className="gap-2 text-[13px]">
+            <LayoutGrid className="size-4 text-muted-foreground" />
+            {t(zone === "view" ? "activityBar.zoneSections" : "activityBar.zoneActions")}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="min-w-56 border-border bg-popover p-1 text-foreground">
+            {items}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )
+    }
+
     return (
-      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+      <>
         <ContextMenuCheckboxItem
           indicatorPosition="right"
           checked={pinned}
@@ -332,7 +331,17 @@ export function ActivityBar({
           <Pin className="size-4 text-muted-foreground" />
           {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
         </ContextMenuCheckboxItem>
-        {zoneToggleItems(zone)}
+        {zoneSubmenu("view")}
+        {zoneSubmenu("action")}
+      </>
+    )
+  }
+
+  /** A zone's own menu (a right click beside the buttons): the dock part of the button menus. */
+  function zoneMenu() {
+    return (
+      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+        {dockMenuItems()}
       </ContextMenuContent>
     )
   }
@@ -463,6 +472,35 @@ export function ActivityBar({
             <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
           )}
           <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+            {sync && (
+              <>
+                {syncInactive?.action && syncInactive.action !== "settings" && (
+                  <ContextMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                    disabled={sync.busy || sync.fixBusy}
+                    onSelect={() => {
+                      const action = syncInactive.action
+                      if (action && action !== "settings") void sync.fix(action)
+                    }}
+                  >
+                    {React.createElement(SYNC_ACTION_ICONS[syncInactive.action], {
+                      className: "size-4 text-muted-foreground",
+                    })}
+                    {t(`sync.inactive.action.${syncInactive.id}`)}
+                  </ContextMenuItem>
+                )}
+                {syncInactive?.action !== "refresh" && (
+                  <ContextMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                    disabled={sync.busy}
+                    onSelect={() => void sync.refresh()}
+                  >
+                    <FolderSync className="size-4 text-muted-foreground" />
+                    {t("sync.inactive.refreshFiles")}
+                  </ContextMenuItem>
+                )}
+              </>
+            )}
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
               disabled={IS_SITE_DEMO}
@@ -471,35 +509,32 @@ export function ActivityBar({
               <Settings2 className="size-4 text-muted-foreground" />
               {t(settingsLabelKey)}
             </ContextMenuItem>
+            {(onMoveToOtherSide || (onSetButtonHidden && canHideButton(def.id))) && (
+              <ContextMenuSeparator />
+            )}
             {onMoveToOtherSide && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-                  onSelect={() => onMoveToOtherSide(def.id)}
-                >
-                  {side === "left" ? (
-                    <ArrowRight className="size-4 text-muted-foreground" />
-                  ) : (
-                    <ArrowLeft className="size-4 text-muted-foreground" />
-                  )}
-                  {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
-                </ContextMenuItem>
-              </>
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                onSelect={() => onMoveToOtherSide(def.id)}
+              >
+                {side === "left" ? (
+                  <ArrowRight className="size-4 text-muted-foreground" />
+                ) : (
+                  <ArrowLeft className="size-4 text-muted-foreground" />
+                )}
+                {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
+              </ContextMenuItem>
             )}
             {onSetButtonHidden && canHideButton(def.id) && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-                  onSelect={() => onSetButtonHidden(def.id, true)}
-                >
-                  <EyeOff className="size-4 text-muted-foreground" />
-                  {t("activityBar.hideButton")}
-                </ContextMenuItem>
-              </>
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                onSelect={() => onSetButtonHidden(def.id, true)}
+              >
+                <EyeOff className="size-4 text-muted-foreground" />
+                {t("activityBar.hideButton")}
+              </ContextMenuItem>
             )}
-            {zoneToggleItems(zone)}
+            <ContextMenuSeparator />
             {dockMenuItems()}
           </ContextMenuContent>
         </ContextMenu>
@@ -535,9 +570,9 @@ export function ActivityBar({
             animate={{ x: isExpanded ? 0 : (side === "left" ? -1 : 1) * (dockWidth - 4) }}
             transition={motionTransitions.panel}
           >
-            {/* The bar is split 2:1 from the top: the upper two thirds belong to the section
-                buttons, the lower third to the action buttons, so a right click anywhere in
-                either part opens that zone's menu. */}
+            {/* The bar is split 2:1 from the top: the upper two thirds hold the section buttons,
+                the lower third holds the action buttons; right-clicking anywhere opens the dock
+                menu with both button groups available. */}
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div
@@ -547,7 +582,7 @@ export function ActivityBar({
                   {viewButtons.map((button) => renderButton(button, "view"))}
                 </div>
               </ContextMenuTrigger>
-              {zoneMenu("view")}
+              {zoneMenu()}
             </ContextMenu>
 
             <ContextMenu>
@@ -559,15 +594,13 @@ export function ActivityBar({
                   {actionButtons.map((button) => renderButton(button, "action"))}
                 </div>
               </ContextMenuTrigger>
-              {zoneMenu("action")}
+              {zoneMenu()}
             </ContextMenu>
           </motion.div>
         </motion.div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
-        <ContextMenuCheckboxItem checked={pinned} onCheckedChange={onPinnedChange}>
-          {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
-        </ContextMenuCheckboxItem>
+      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+        {dockMenuItems()}
       </ContextMenuContent>
     </ContextMenu>
   )

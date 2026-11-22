@@ -149,6 +149,7 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "creative", side: "left", order: 5 },
   { defId: "search", side: "left", order: 0 },
   { defId: "network", side: "left", order: 2 },
+  { defId: "daily", side: "left", order: 2.5 },
   { defId: "info", side: "right", order: 0 },
   { defId: "attachments", side: "right", order: 1 },
   { defId: "history", side: "right", order: 2 },

@@ -1,5 +1,7 @@
 export * from "./settings-common"
 export * from "./settings-updates"
+export * from "./settings-cli-path"
+export * from "./settings-about"
 export * from "./settings-theme-library"
 export * from "./settings-shortcuts"
 export * from "./settings-modules"

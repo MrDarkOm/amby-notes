@@ -199,7 +199,15 @@ pub(crate) fn files_below(base: &Path, dir: &Path, out: &mut Vec<String>) {
 /// archive is taken, the item goes next to it under a free name and nothing in the archive is
 /// replaced.
 pub fn move_to_archive(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
-    let preview = crate::recycle_bin::preview_move_to_trash(vault, path)?;
+    move_to_archive_scoped(vault, path, crate::recycle_bin::TrashScope::Item)
+}
+
+pub fn move_to_archive_scoped(
+    vault: &Path,
+    path: &Path,
+    scope: crate::recycle_bin::TrashScope,
+) -> Result<FsMutationResult, String> {
+    let preview = crate::recycle_bin::preview_move_to_trash_scoped(vault, path, scope)?;
     let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
     let relative = preview
         .original_path
@@ -251,6 +259,7 @@ pub fn move_to_archive(vault: &Path, path: &Path) -> Result<FsMutationResult, St
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -316,6 +325,67 @@ fn prune_empty_archive_dirs(vault: &Path, mut dir: PathBuf) {
     }
 }
 
+/// The archive identifier `move_to_archive_scoped` would give `original` now (its path in the
+/// archive, a free name when its own is taken). Called under the mutation gate, right before the
+/// move, so an undo of a merge knows where the merged note waits.
+pub fn planned_id(vault: &Path, original: &Path) -> Result<String, String> {
+    let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
+    let relative = original
+        .strip_prefix(&vault_path)
+        .map_err(|_| "Cannot determine the vault-relative archive path".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let wanted = archive_root(&vault_path).join(&relative);
+    let parent = wanted.parent().ok_or("Archive target has no parent")?;
+    let name = wanted
+        .file_name()
+        .ok_or("Archive target has no name")?
+        .to_string_lossy()
+        .into_owned();
+    let target = crate::paths::free_path(parent, &name);
+    Ok(target
+        .strip_prefix(archive_root(&vault_path))
+        .map_err(|_| "Archive target left the archive".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/"))
+}
+
+/// Puts an archived file or folder back at exactly `destination`, never replacing anything (the
+/// undo of a merge). Refuses when the entry is gone or `destination` is taken.
+pub fn restore_exact(vault: &Path, id: &str, destination: &Path) -> Result<(), String> {
+    if !is_plain_relative(id) || id == ".meta" || id.starts_with(".meta/") {
+        return Err("Invalid archive identifier".to_string());
+    }
+    let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
+    let source =
+        crate::paths::confine_rel_no_symlinks(&vault_path, &format!(".amby/archive/{id}"))?;
+    if fs::symlink_metadata(&source).is_err() {
+        return Err("Archive entry not found".to_string());
+    }
+    fs::create_dir_all(destination.parent().ok_or("Restore target has no parent")?)
+        .map_err(|error| error.to_string())?;
+    crate::atomic_fs::rename_no_replace(&source, destination).map_err(|error| error.to_string())?;
+    let below = format!("{id}/");
+    for record in meta_files(&vault_path) {
+        if read_meta(&record).is_some_and(|meta| meta.path == id || meta.path.starts_with(&below)) {
+            let _ = fs::remove_file(record);
+        }
+    }
+    if let Some(dir) = source.parent() {
+        prune_empty_archive_dirs(&vault_path, dir.to_path_buf());
+    }
+    Ok(())
+}
+
+/// The archived file or folder of `id`, if it is there (for an undo's checks).
+pub fn entry_path(vault: &Path, id: &str) -> Option<PathBuf> {
+    if !is_plain_relative(id) || id == ".meta" || id.starts_with(".meta/") {
+        return None;
+    }
+    let path = crate::paths::confine_rel_no_symlinks(vault, &format!(".amby/archive/{id}")).ok()?;
+    fs::symlink_metadata(&path).ok().map(|_| path)
+}
+
 /// Where «Вернуть» (К6) would put the file: the archived file and its final place, which is its
 /// path in the vault, or a free name next to it when that is taken. Creates nothing.
 pub fn restore_places(vault: &Path, id: &str) -> Result<(PathBuf, PathBuf), String> {
@@ -354,6 +424,7 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(crate::bundle::path_string(&target)),
         path_changes,

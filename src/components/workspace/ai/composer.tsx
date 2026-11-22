@@ -2,8 +2,14 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUp, FileText, Folder, FolderTree, Plus, Square, X } from "lucide-react"
+import { FileText, Folder, CornerDownLeft, Mic, Search, Square, X } from "lucide-react"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
+import { startSystemDictation } from "@/lib/ai"
+import { NoticeLine } from "../notices/notice-line"
+import { ApprovalModeButton } from "./approval-mode"
+import { AttachMenu } from "./attach-menu"
+import { readTextFiles, useAttachmentStore, type AttachError } from "./attachments"
+import type { ApprovalMode } from "./use-proposal-store"
 import { ModelPicker, type PickerModel } from "./model-picker"
 import type { Chat, TreeItem } from "@/lib/storage"
 import { cn } from "@/lib/utils"
@@ -193,12 +199,71 @@ function ContextChips({
   )
 }
 
+/** Matches `MAX_TOTAL_PROMPT_BYTES` enforced by the Rust AI backend (512 KB). */
+const MAX_CONTEXT_BYTES = 512 * 1024
+const RING_RADIUS = 6
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+const utf8Encoder = new TextEncoder()
+
+function ContextUsage({ bytes }: { bytes: number }) {
+  const { t } = useTranslation()
+  const ratio = Math.min(1, Math.max(0, bytes / MAX_CONTEXT_BYTES))
+  const percent = Math.min(100, Math.round(ratio * 100))
+  const usedKb = Math.round(bytes / 1024)
+  const limitKb = Math.round(MAX_CONTEXT_BYTES / 1024)
+  const label = t("ai.contextUsage", { percent, used: usedKb, limit: limitKb })
+  return (
+    <span
+      data-context-usage
+      title={label}
+      aria-label={label}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 text-[11px] tabular-nums",
+        percent >= 90
+          ? "text-destructive"
+          : percent >= 75
+            ? "text-[color:var(--notice-warning-fg)]"
+            : "text-muted-foreground",
+      )}
+    >
+      <svg className="size-3 -rotate-90" viewBox="0 0 16 16" aria-hidden="true">
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="opacity-20"
+        />
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={RING_CIRCUMFERENCE * (1 - ratio)}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span>{percent}%</span>
+    </span>
+  )
+}
+
 /** One capsule for everything you type with: context, the message, search, model, send. */
+const iconButton =
+  "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+
 export function Composer({
   chat,
+  treeItems,
   flat,
   openDocs,
   truncated,
+  contextBytes = 0,
   vault,
   currentDoc,
   currentClipped,
@@ -218,11 +283,18 @@ export function Composer({
   onPickMention,
   onModel,
   onManage,
+  approvalMode = "manual",
+  onApprovalMode,
 }: {
+  approvalMode?: ApprovalMode
+  onApprovalMode?: (mode: ApprovalMode) => void
   chat: Chat | null
+  treeItems?: TreeItem[]
   flat: TreeItem[]
   openDocs: Record<string, OpenDoc | undefined>
   truncated: string[]
+  /** UTF-8 bytes of the built system prompt (attached notes/folders). */
+  contextBytes?: number
   vault: string | null
   currentDoc: OpenDoc | null
   /** The text of the open note is longer than the limit of what is attached. */
@@ -247,6 +319,48 @@ export function Composer({
   const { t } = useTranslation()
   const searchOn = !!chat?.searchEnabled && tools
   const field = React.useRef<HTMLTextAreaElement>(null)
+  const picker = React.useRef<HTMLInputElement>(null)
+  const [attachError, setAttachError] = React.useState<AttachError | null>(null)
+  const [dictationFailed, setDictationFailed] = React.useState(false)
+  // Dictation is the system's own, started where the system has it (macOS).
+  const canDictate = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+  const dictate = async () => {
+    field.current?.focus()
+    setDictationFailed(false)
+    try {
+      await startSystemDictation()
+    } catch {
+      setDictationFailed(true)
+    }
+  }
+  const attached = useAttachmentStore((state) => (chat ? state.files[chat.id] : undefined))
+  const totalContextBytes = React.useMemo(() => {
+    let total = contextBytes
+    if (attached) {
+      for (const file of attached) total += utf8Encoder.encode(file.text).length
+    }
+    if (chat) {
+      for (const message of chat.messages) total += utf8Encoder.encode(message.content).length
+    }
+    if (input) total += utf8Encoder.encode(input).length
+    return total
+  }, [attached, chat, contextBytes, input])
+  const pickFiles = async (list: FileList | null) => {
+    if (!chat || !list?.length) return
+    const { added, error } = await readTextFiles(
+      [...list],
+      useAttachmentStore.getState().files[chat.id] ?? [],
+    )
+    if (added.length) useAttachmentStore.getState().add(chat.id, added)
+    setAttachError(error)
+  }
+  // The field is as tall as its text, up to its maximum; then it scrolls.
+  React.useLayoutEffect(() => {
+    const element = field.current
+    if (!element) return
+    element.style.height = "auto"
+    element.style.height = `${element.scrollHeight}px`
+  }, [input])
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [menuBox, setMenuBox] = React.useState<{ width: number; alignOffset: number }>()
   const root = React.useRef<HTMLDivElement>(null)
@@ -262,103 +376,103 @@ export function Composer({
   }
   return (
     <Popover open={menuOpen} onOpenChange={toggleMenu}>
-      <div ref={root} className="relative shrink-0 px-3 pb-3 pt-1">
+      <div ref={root} data-composer-root className="relative shrink-0 px-3 pb-3 pt-1">
         {mentionOpen && !loading && (
           <div
             role="listbox"
             aria-label={t("ai.addMention")}
             className="absolute bottom-full left-3 right-3 max-h-48 overflow-auto rounded-lg border border-border bg-popover p-1 shadow-lg"
           >
-            {choices.length ? (
-              choices.map((item) => (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected="false"
-                  key={item.id}
-                  onClick={() => onPickMention(item)}
-                  className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
-                >
-                  {item.type === "folder" ? (
-                    <Folder className="size-3 shrink-0" />
-                  ) : (
-                    <FileText className="size-3 shrink-0" />
-                  )}
-                  <span className="truncate">{item.name}</span>
-                </button>
-              ))
-            ) : (
-              <p className="p-2 text-xs text-muted-foreground">{t("ai.noMentions")}</p>
+            {chat && !chat.autoCurrent && currentDoc && (
+              <button
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => {
+                  // The "@" that opened the list is not part of the message.
+                  onInput(input.replace(/(^|\s)@\S*$/u, "$1"))
+                  onAddCurrent()
+                  field.current?.focus()
+                }}
+                className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
+              >
+                <FileText className="size-3 shrink-0" />
+                <span className="truncate">{t("ai.addContext")}</span>
+              </button>
             )}
+            {chat && !chat.autoCurrent && currentDoc && choices.length > 0 && (
+              <div role="separator" className="mx-1 my-1 h-px bg-border" />
+            )}
+            {choices.length
+              ? choices.map((item) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected="false"
+                    key={item.id}
+                    onClick={() => onPickMention(item)}
+                    className="flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left text-xs hover:bg-accent"
+                  >
+                    {item.type === "folder" ? (
+                      <Folder className="size-3 shrink-0" />
+                    ) : (
+                      <FileText className="size-3 shrink-0" />
+                    )}
+                    <span className="truncate">{item.name}</span>
+                  </button>
+                ))
+              : !(chat && !chat.autoCurrent && currentDoc) && (
+                  <p className="p-2 text-xs text-muted-foreground">{t("ai.noMentions")}</p>
+                )}
           </div>
         )}
-        <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
-          <label
-            title={!tools ? t("ai.toolsDisabled") : t("ai.searchVault")}
-            className={cn(
-              "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md",
-              searchOn
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+        {chat && (chat.context.length > 0 || totalContextBytes > 0) && (
+          <div data-composer-line className="mb-1.5 flex w-full min-w-0 items-center gap-1.5">
+            {chat.context.length > 0 ? (
+              <ContextChips
+                getPanel={() => root.current}
+                chat={chat}
+                flat={flat}
+                openDocs={openDocs}
+                truncated={truncated}
+                vault={vault}
+                currentDoc={currentDoc}
+                currentClipped={currentClipped}
+                loading={loading}
+                onChange={onChangeChat}
+              />
+            ) : (
+              <span className="min-w-0 flex-1" />
             )}
-          >
-            <input
-              type="checkbox"
-              className="sr-only"
-              disabled={!tools || loading || !chat}
-              checked={searchOn}
-              onChange={(event) => {
-                if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
-              }}
-            />
-            <FolderTree className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">{t("ai.searchVault")}</span>
-          </label>
-          {chat && chat.context.length > 0 ? (
-            <ContextChips
-              getPanel={() => root.current}
-              chat={chat}
-              flat={flat}
-              openDocs={openDocs}
-              truncated={truncated}
-              vault={vault}
-              currentDoc={currentDoc}
-              currentClipped={currentClipped}
-              loading={loading}
-              onChange={onChangeChat}
-            />
-          ) : (
-            <span className="min-w-0 flex-1" />
-          )}
-          {chat && !chat.autoCurrent && currentDoc && (
-            <button
-              type="button"
-              disabled={loading}
-              onClick={onAddCurrent}
-              className="shrink-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-            >
-              {t("ai.addContext")}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={loading || !chat}
-            title={t("ai.addMention")}
-            aria-label={t("ai.addMention")}
-            onClick={() => {
-              onInput(input === "" || /\s$/u.test(input) ? `${input}@` : `${input} @`)
-              field.current?.focus()
-            }}
-            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
+            <ContextUsage bytes={totalContextBytes} />
+          </div>
+        )}
         <div
           data-composer-box
-          className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:border-ring"
+          className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card px-2.5 py-2 shadow-sm focus-within:border-ring"
         >
+          {attached && attached.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label={t("ai.attach.list")}>
+              {attached.map((file, index) => (
+                <li
+                  key={`${file.name}-${index}`}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
+                >
+                  <FileText className="size-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    aria-label={t("ai.attach.remove", { name: file.name })}
+                    onClick={() => chat && useAttachmentStore.getState().remove(chat.id, index)}
+                    className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
             ref={field}
             value={input}
@@ -369,46 +483,121 @@ export function Composer({
                 onSend()
               }
             }}
-            rows={2}
+            rows={1}
             placeholder={t("ai.messagePlaceholder")}
-            className="min-h-[2.75rem] w-full resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+            className="max-h-48 min-h-7 w-full min-w-0 resize-none bg-transparent px-1 text-[14px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
           />
-          <PopoverAnchor asChild>
-            <div ref={row} className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <ModelPicker
-                  models={models}
-                  activeModelId={activeModelId}
-                  onModel={onModel}
-                  onManage={onManage}
-                  menu={{ open: menuOpen, onOpenChange: toggleMenu, ...menuBox }}
-                />
-              </div>
-              {loading ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  title={t("ai.stop")}
-                  aria-label={t("ai.stop")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full border border-border text-foreground hover:bg-accent"
-                >
-                  <Square className="size-3 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onSend}
-                  disabled={!input.trim() || switching || !chat}
-                  title={t("ai.send")}
-                  aria-label={t("ai.send")}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-30"
-                >
-                  <ArrowUp className="size-4" />
-                </button>
-              )}
-            </div>
-          </PopoverAnchor>
+          <div data-composer-actions className="flex w-full min-w-0 items-center gap-1">
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              accept="text/*,.md,.markdown,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.js,.ts,.tsx,.py,.rs,.go,.java,.sh,.log"
+              onChange={(event) => {
+                void pickFiles(event.target.files)
+                event.target.value = ""
+              }}
+            />
+            <AttachMenu
+              chat={chat}
+              treeItems={treeItems ?? flat}
+              openDocs={openDocs}
+              vault={vault}
+              currentDoc={currentDoc}
+              disabled={loading || !chat}
+              triggerClassName={iconButton}
+              onChangeChat={onChangeChat}
+              onAddCurrent={onAddCurrent}
+              onPickFile={() => picker.current?.click()}
+              getPanel={() => root.current}
+            />
+            <span className="min-w-0 flex-1" />
+            {canDictate && (
+              <button
+                type="button"
+                disabled={loading || !chat}
+                title={t("ai.dictation.label")}
+                aria-label={t("ai.dictation.label")}
+                onClick={() => void dictate()}
+                className={iconButton}
+              >
+                <Mic className="size-4" />
+              </button>
+            )}
+            {loading ? (
+              <button
+                type="button"
+                onClick={onStop}
+                title={t("ai.stop")}
+                aria-label={t("ai.stop")}
+                className={iconButton}
+              >
+                <Square className="size-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!input.trim() || switching || !chat}
+                title={t("ai.send")}
+                aria-label={t("ai.send")}
+                className={cn(iconButton, "text-foreground")}
+              >
+                <CornerDownLeft className="size-4" />
+              </button>
+            )}
+          </div>
         </div>
+        {dictationFailed && (
+          <NoticeLine role="status" className="mt-1.5" text={t("ai.dictation.error")} />
+        )}
+        {attachError && (
+          <NoticeLine role="status" className="mt-1.5" text={t(`ai.attach.error.${attachError}`)} />
+        )}
+        <PopoverAnchor asChild>
+          <div ref={row} className="mt-1.5 flex items-center gap-1">
+            <div className="min-w-0 shrink">
+              <ModelPicker
+                models={models}
+                activeModelId={activeModelId}
+                onModel={onModel}
+                onManage={onManage}
+                menu={{ open: menuOpen, onOpenChange: toggleMenu, ...menuBox }}
+              />
+            </div>
+            <span className="min-w-0 flex-1" />
+            {onApprovalMode && (
+              <ApprovalModeButton
+                mode={approvalMode}
+                disabled={!tools || !chat}
+                onChange={onApprovalMode}
+              />
+            )}
+            <label
+              title={!tools ? t("ai.toolsDisabled") : t("ai.searchVaultHint")}
+              className={cn(
+                "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md",
+                searchOn
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                (!tools || loading || !chat) && "cursor-default opacity-40 hover:bg-transparent",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                disabled={!tools || loading || !chat}
+                checked={searchOn}
+                onChange={(event) => {
+                  if (chat) onChangeChat({ ...chat, searchEnabled: event.target.checked })
+                }}
+              />
+              <Search className="size-3.5" aria-hidden="true" />
+              <span className="sr-only">{t("ai.searchVault")}</span>
+            </label>
+          </div>
+        </PopoverAnchor>
       </div>
     </Popover>
   )

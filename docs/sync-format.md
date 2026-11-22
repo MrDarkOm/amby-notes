@@ -270,6 +270,8 @@ keys never leave the device in the clear.
   `/v1/auth/*` requests at most 64 KiB whatever that setting says (and such a refusal does not count as a
   sign-in failure). A JSON body above 1 MiB is read only while fewer than `AMBY_SYNC_MAX_LARGE_BODIES`
   such bodies are being read; otherwise `503 server_busy` with `Retry-After: 5`.
+- **Stalled bodies**: a request body that sends no new data for `AMBY_SYNC_BODY_TIMEOUT_SECS` (60) is
+  refused with `408 request_timeout`; nothing of it is applied. Retry the request.
 - Routes below are relative to the server root. In the list, "token" means the Bearer token is required.
 
 ### 3.2 Routes
@@ -352,8 +354,11 @@ not the file size.
 non-string is `400`). A real user with a password gets their own salt and parameters. Everyone else
 (unknown, invalid, still waiting for the first enrolment) gets a **fake but stable salt** — the first 16
 bytes of `HMAC-SHA256(prelogin_secret, "amby-sync/prelogin/1" ‖ canonical name)`, with a secret the server
-keeps — and the default parameters. Prelogin is not counted as a sign-in attempt. Known limitation: the
-real salt changes when the password changes, the fake one does not.
+keeps — and the default parameters. Prelogin is not counted as a sign-in attempt. Known limitations: the
+real salt changes when the password changes, the fake one does not; an account created with non-default
+Argon2 parameters is told apart by them; and on a server with open registration the name check of
+registration (`409`) tells whether a name is taken anyway, so the fake salt hides names only on a server
+with invitations.
 
 **`POST /v1/auth/enroll`** creates the account and its first device in one transaction:
 
@@ -465,7 +470,9 @@ Plan, effective limits, usage and spaces of the signed-in user. Answer `200`:
 ### 3.10 Spaces
 
 - `POST /v1/spaces` `{"space_id": hex16, "name_enc": hex105, "key_epoch": 1, "wrapped_vk": hex73}` →
-  `201 {"space_id", "seq": 0, "created_ms"}`. Errors: `409 space_exists` (checked before the limit);
+  `201 {"space_id", "seq": 0, "created_ms"}`. Errors: `409 space_exists` (checked before the limit; also for
+  somebody else's space with this id — an exception to "foreign objects are `404`", harmless because the id is
+  128 random bits);
   `403 subscription_required` (3.15); `403 space_limit` with `details: {"max_spaces", "spaces"}`;
   `507 server_storage_full` (3.16). `key_epoch` must be 1.
 - `GET /v1/spaces` → `200 {"spaces": [{"space_id", "name_enc", "key_epoch", "wrapped_vk", "seq",
@@ -617,7 +624,8 @@ data: {"seq": 13, "device_id": "<hex16>", "items": 2}
 `sse_keepalive_secs` (15) a comment line `: ping` is sent. Events carry no headers and no paths: they mean
 only "check the feed". Missed events are not replayed (`Last-Event-ID` is ignored): after a break the client
 reads the feed from its cursor. The server ends the stream when the device is disconnected (within one
-keep-alive interval), when the space is deleted, and at shutdown. A silent connection for longer than a few
+keep-alive interval), when the space is deleted, at shutdown, and when the same device opens a fifth stream:
+a device keeps at most four, and the oldest ends first. A silent connection for longer than a few
 keep-alive intervals (the reference client uses 60 s) is dead. No token `401`; foreign space `404`.
 
 ### 3.14 Versions
@@ -759,6 +767,7 @@ the default plan acts, without rewriting the record.
 | 403  | `space_limit`              | the plan allows no more spaces; `details: {max_spaces, spaces}`                                  |
 | 404  | `not_found`                | no such object, somebody else's object, malformed id, unknown path                               |
 | 405  | `method_not_allowed`       | the path exists, the method does not                                                             |
+| 408  | `request_timeout`          | the request body sent nothing new for `AMBY_SYNC_BODY_TIMEOUT_SECS`; retry                       |
 | 409  | `version_conflict`         | a base version differs; the whole commit is refused; `details.conflicts`                         |
 | 409  | `commit_id_reused`         | the same `commit_id` with other content                                                          |
 | 409  | `keys_conflict`            | stale `base_keys_version`; `details.keys_version`                                                |
@@ -805,6 +814,7 @@ is not allowed) refuses the start. Flags accept `1`/`0` (also `true`/`false`).
 | `AMBY_SYNC_MAX_HEADER_BYTES`            | `16384`                 | one header envelope                                                                                                   |
 | `AMBY_SYNC_MAX_JSON_BYTES`              | `67108864`              | one JSON request (not `/v1/auth/*`, fixed at 64 KiB)                                                                  |
 | `AMBY_SYNC_MAX_LARGE_BODIES`            | `4`                     | JSON bodies above 1 MiB read at once; more get `503 server_busy`                                                      |
+| `AMBY_SYNC_BODY_TIMEOUT_SECS`           | `60`                    | seconds a request body may send nothing new before `408 request_timeout`                                              |
 | `AMBY_SYNC_MIN_FREE_BYTES`              | `1073741824`            | free bytes the data volume must keep; below it adding requests get `507`; `0` turns it off                            |
 | `AMBY_SYNC_QUOTA_BYTES_PER_USER`        | unset (no quota)        | per-user ceiling on live + pending sealed bytes                                                                       |
 | `AMBY_SYNC_PLANS_FILE`                  | `<data dir>/plans.json` | plans file (3.18)                                                                                                     |

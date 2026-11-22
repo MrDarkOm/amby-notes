@@ -5,11 +5,14 @@ const packageVersion = JSON.parse(readFileSync("package.json", "utf8")).version
 const tauriVersion = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).version
 const cargoManifest = readFileSync("src-tauri/Cargo.toml", "utf8")
 const cargoVersion = cargoManifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
+// The bundled CLI reports this version to MCP clients and in `amby --version`.
+const cliManifest = readFileSync("crates/amby-cli/Cargo.toml", "utf8")
+const cliVersion = cliManifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
 
-const versions = new Set([packageVersion, tauriVersion, cargoVersion])
-if (versions.size !== 1 || !cargoVersion) {
+const versions = new Set([packageVersion, tauriVersion, cargoVersion, cliVersion])
+if (versions.size !== 1 || !cargoVersion || !cliVersion) {
   throw new Error(
-    `Version mismatch: package=${packageVersion}, tauri=${tauriVersion}, cargo=${cargoVersion ?? "missing"}`,
+    `Version mismatch: package=${packageVersion}, tauri=${tauriVersion}, cargo=${cargoVersion ?? "missing"}, cli=${cliVersion ?? "missing"}`,
   )
 }
 

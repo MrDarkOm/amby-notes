@@ -191,6 +191,11 @@ mod enabled {
             count = second.len() as u64,
             files = touched as u64
         );
+        // The log folder exists only once persistent diagnostics wrote to it: without it the report
+        // would be lost and the difference would be seen only as a count.
+        if let Some(folder) = report.parent() {
+            let _ = std::fs::create_dir_all(folder);
+        }
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

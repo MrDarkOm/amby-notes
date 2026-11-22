@@ -14,6 +14,7 @@ import type {
   ChatSource,
   ClaudeStatus,
   CodexStatus,
+  ProposalCard,
 } from "./bindings"
 import { listen } from "@tauri-apps/api/event"
 import { unwrapCommand } from "./storage/ipc-result"
@@ -107,7 +108,7 @@ export interface AiChatOptions {
 export interface AiTurnEvent {
   streamId: string
   sequence: number
-  kind: "token" | "toolStart" | "toolEnd" | "done" | "error"
+  kind: "token" | "toolStart" | "toolEnd" | "proposal" | "done" | "error"
   payload: {
     delta?: string
     tool?: string
@@ -115,7 +116,7 @@ export interface AiTurnEvent {
     noteIds?: string[]
     source?: ChatSource | null
     error?: unknown
-  }
+  } & Partial<ProposalCard>
 }
 
 export interface AiTurnOptions extends AiChatOptions {
@@ -125,6 +126,8 @@ export interface AiTurnOptions extends AiChatOptions {
   initialSources: ChatSource[]
   searchEnabled: boolean
   supportsTools: boolean
+  /** The conversation's approval mode; the write tools tell the model what happens next. */
+  approvalMode?: "manual" | "auto" | "turbo"
   onEvent?: (event: AiTurnEvent) => void
 }
 
@@ -256,6 +259,7 @@ export async function aiRunTurn(
       searchEnabled: opts.searchEnabled,
       supportsTools: opts.supportsTools,
       streamId,
+      approvalMode: opts.approvalMode ?? null,
     })
     if (opts.signal?.aborted) throw new Error("Request cancelled")
     if (result.status === "ok") return result.data
@@ -353,4 +357,55 @@ export async function aiChat(
       unlisten()
     }
   }
+}
+
+/** A proposal action the backend refused; `code` is its stable code. */
+export class ProposalError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}
+
+/** What a proposal card can ask of the backend. */
+export type ProposalAction = "apply" | "reject" | "undo"
+
+/**
+ * Applies, rejects or undoes a proposal. `unsavedPaths` are the open notes with unsaved edits:
+ * the backend never writes over one. Rejects with the backend's stable code (a string).
+ */
+export async function aiProposalAction(
+  action: ProposalAction,
+  generation: number,
+  id: string,
+  unsavedPaths: string[],
+  deleteMode?: "system" | "archive",
+): Promise<ProposalCard> {
+  if (!isTauri()) throw new AiUnavailableError()
+  const result =
+    action === "apply"
+      ? await commands.aiApplyProposal(generation, id, unsavedPaths, deleteMode ?? null)
+      : action === "undo"
+        ? await commands.aiUndoProposal(generation, id, unsavedPaths)
+        : await commands.aiRejectProposal(generation, id)
+  if (result.status === "ok") return result.data
+  throw new ProposalError(result.error)
+}
+
+/** The system did not start dictation; `code` is the backend's stable code. */
+class SystemDictationError extends Error {
+  constructor(readonly code: string) {
+    super(code)
+  }
+}
+
+/**
+ * Asks the system to start dictating into the focused text field (macOS). Resolves `false` when
+ * this system has none, and rejects with the backend's stable code when it did not start.
+ */
+export async function startSystemDictation(): Promise<boolean> {
+  if (!isTauri()) return false
+  const result = await commands.startSystemDictation()
+  if (result.status === "ok") return true
+  if (result.error === "unsupported") return false
+  throw new SystemDictationError(result.error)
 }

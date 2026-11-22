@@ -48,10 +48,6 @@ it("keeps the original document, tab and pending autosave path after a rename co
   useDocStore.getState().setDoc("note", original)
   useDocStore.getState().markUnsaved("note")
   useTabsStore.getState().openItem({ fileId: "note", title: "Original", kind: "document" })
-  vi.spyOn(storage, "previewRenameRefactor").mockResolvedValue({
-    replacements: 0,
-    notes: 0,
-  })
   vi.spyOn(storage, "renameItem").mockRejectedValue(new Error("Target already exists"))
   vi.spyOn(console, "error").mockImplementation(() => {})
   const apply = vi.fn()

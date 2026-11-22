@@ -20,7 +20,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -35,6 +34,8 @@ import type {
 } from "./types"
 import type { DatabasePort } from "./database-port"
 import type { ProjectPort } from "./project-port"
+import type { NoteModulesPort } from "./note-modules-port"
+import type { UndoPort } from "./undo-port"
 
 export interface WriteNoteOptions {
   /**
@@ -44,7 +45,7 @@ export interface WriteNoteOptions {
   rewritesSource?: boolean
 }
 
-export interface StoragePort extends DatabasePort, ProjectPort {
+export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort, UndoPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>
@@ -143,18 +144,12 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   restoreTrash(trashId: string): Promise<FsMutationResult>
   purgeTrash(trashId: string): Promise<void>
   /** The files of the archive `.amby/archive/` (К6). */
-  listArchive(): Promise<ArchiveEntry[]>
+  listArchive(vaultPath: string): Promise<ArchiveEntry[]>
   readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview>
   /** Without replacing: the final path is `primaryPath` of the result (К6). */
-  restoreArchive(archiveId: string): Promise<FsMutationResult>
+  restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult>
   /** «Удалить из архива» by the setting of К4; `archive` here means the system trash. */
   purgeArchive(archiveId: string, mode: DeleteMode): Promise<void>
-  previewRenameRefactor(vaultPath: string, path: string, newName: string): Promise<RefactorPreview>
-  previewMoveRefactor(
-    vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview>
 
   // System & Assets
   openInExplorer(path: string): Promise<void>

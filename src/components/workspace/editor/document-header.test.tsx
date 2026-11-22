@@ -155,6 +155,22 @@ describe("the note's header, drawn by the shared bar", () => {
     expect(rows()).not.toContain("Ширина контента")
   })
 
+  it("omits the layer switch in a database file with Supernotes off", () => {
+    render(
+      <DocumentHeader
+        {...props({
+          docPath: "/v/Project/Project.json",
+          activeLayer: "database",
+          databasesEnabled: true,
+          supernotesEnabled: false,
+          linkedLayers: { canvas: false, sketch: false, database: false, note: false },
+        })}
+      />,
+    )
+    expect(rows()).not.toContain("Переключить слой")
+    expect(screen.queryByRole("button", { name: "Редактор текста" })).toBeNull()
+  })
+
   it("shows the layer switch only for a note with more than one layer", () => {
     const { rerender } = render(<DocumentHeader {...props({ moreActionsOpen: false })} />)
     expect(screen.queryByTitle("Холст")).toBeNull()

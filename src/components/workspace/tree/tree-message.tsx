@@ -23,7 +23,9 @@ export function TreeMessage() {
       <NoticeLevelIcon level={message.level} className="mt-0.5 size-3.5 shrink-0" />
       <div className="min-w-0 flex-1 text-[12px]">
         <p className="font-medium whitespace-pre-line">{t(message.titleKey, message.params)}</p>
-        {message.lineKey && <p className="text-muted-foreground">{t(message.lineKey)}</p>}
+        {message.lineKey && (
+          <p className="text-muted-foreground">{t(message.lineKey, message.params)}</p>
+        )}
         {message.action && (
           <button
             type="button"

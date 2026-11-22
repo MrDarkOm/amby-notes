@@ -677,14 +677,6 @@
   color: #ffffff;
 }
 
-.amby-sidebar-overlay--left {
-  box-shadow: 8px 0 24px -8px rgb(15 23 42 / 0.35);
-}
-
-.amby-sidebar-overlay--right {
-  box-shadow: -8px 0 24px -8px rgb(15 23 42 / 0.35);
-}
-
 /* The note keeps its place when the scrollbar comes and goes: without a bar its
    width is padded back in (the hook sets data-scrollbar; 11px matches the bar below). */
 .amby-editor-scroll[data-scrollbar="off"] {
@@ -3489,6 +3481,15 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --note-surface: #ffffff;
   --note-surface-shadow: 0 1px 2px rgba(20, 22, 28, 0.07), 0 5px 14px rgba(20, 22, 28, 0.045);
   --panel-shadow: 0 1px 2px rgba(20, 22, 28, 0.065), 0 4px 12px rgba(20, 22, 28, 0.04);
+  --sidebar-overlay-border: color-mix(in srgb, var(--panel-border) 88%, rgba(15, 23, 42, 0.14));
+  --sidebar-overlay-divider: color-mix(in srgb, var(--panel-border) 68%, transparent);
+  --sidebar-overlay-rail-bg: color-mix(in srgb, hsl(var(--popover)) 55%, hsl(var(--background)));
+  --sidebar-overlay-shadow-left:
+    0 1px 2px rgba(15, 23, 42, 0.05), 8px 12px 28px -6px rgba(15, 23, 42, 0.14),
+    2px 4px 10px -2px rgba(15, 23, 42, 0.06);
+  --sidebar-overlay-shadow-right:
+    0 1px 2px rgba(15, 23, 42, 0.05), -8px 12px 28px -6px rgba(15, 23, 42, 0.14),
+    -2px 4px 10px -2px rgba(15, 23, 42, 0.06);
 
   --editor-bg: var(--note-surface);
   --editor-fg: #292d36;
@@ -3612,6 +3613,15 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --note-surface: #1c1c1c;
   --note-surface-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 5px 14px rgba(0, 0, 0, 0.18);
   --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 12px rgba(0, 0, 0, 0.16);
+  --sidebar-overlay-border: color-mix(in srgb, var(--panel-border) 92%, rgba(255, 255, 255, 0.1));
+  --sidebar-overlay-divider: color-mix(in srgb, var(--panel-border) 74%, transparent);
+  --sidebar-overlay-rail-bg: color-mix(in srgb, hsl(var(--popover)) 58%, hsl(var(--background)));
+  --sidebar-overlay-shadow-left:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset, 10px 14px 34px -6px rgba(0, 0, 0, 0.52),
+    2px 4px 12px -2px rgba(0, 0, 0, 0.3);
+  --sidebar-overlay-shadow-right:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset, -10px 14px 34px -6px rgba(0, 0, 0, 0.52),
+    -2px 4px 12px -2px rgba(0, 0, 0, 0.3);
   --editor-bg: var(--note-surface);
   --editor-fg: #dedee4;
   --editor-heading: #f5f5f7;
@@ -3977,7 +3987,7 @@ html[data-density="compact"] .amby-panel-shell[data-panel-side="right"] > .amby-
 }
 
 html[data-density="compact"] .amby-workspace-stage {
-  padding-right: 0;
+  padding-inline: 0;
 }
 
 html[data-density="compact"] [data-pane-id] {
@@ -4140,6 +4150,77 @@ textarea,
 .amby-panel-host textarea,
 .amby-panel-host select {
   color: var(--panel-row-fg);
+}
+
+/* Slide-out sidebar overlays (unpinned docks and focus mode) render as one
+   unified floating sheet: the activity rail and panel share a single rounded
+   outer border and elevation shadow with a hairline divider between them. */
+.amby-sidebar-overlay-surface {
+  background: hsl(var(--popover));
+  border-style: solid;
+  border-color: var(--sidebar-overlay-border);
+}
+
+.amby-sidebar-overlay--left > .amby-sidebar-overlay-surface {
+  border-width: 1px 1px 1px 0;
+  border-radius: 0 0.9rem 0.9rem 0;
+  box-shadow: var(--sidebar-overlay-shadow-left);
+}
+
+.amby-sidebar-overlay--right > .amby-sidebar-overlay-surface {
+  border-width: 1px 0 1px 1px;
+  border-radius: 0.9rem 0 0 0.9rem;
+  box-shadow: var(--sidebar-overlay-shadow-right);
+}
+
+.amby-sidebar-overlay[data-open="false"] > .amby-sidebar-overlay-surface {
+  pointer-events: none;
+}
+
+.amby-sidebar-overlay-surface .amby-panel-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+.amby-sidebar-overlay-surface .amby-panel-host,
+html[data-density="compact"]
+  .amby-sidebar-overlay-surface
+  .amby-panel-shell[data-panel-side]
+  > .amby-panel-host {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar] {
+  background: var(--sidebar-overlay-rail-bg);
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar="left"] {
+  border-right: 1px solid var(--sidebar-overlay-divider);
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar="right"] {
+  border-left: 1px solid var(--sidebar-overlay-divider);
+}
+
+.amby-sidebar-overlay-surface .amby-resize-handle {
+  padding-bottom: 0;
+}
+
+html[data-density="compact"] .amby-sidebar-overlay {
+  padding-bottom: 0;
+}
+
+.amby-sidebar-overlay--compact-left .amby-panel-host {
+  box-shadow: var(--sidebar-overlay-shadow-left);
+}
+
+.amby-sidebar-overlay--compact-right .amby-panel-host {
+  box-shadow: var(--sidebar-overlay-shadow-right);
 }
 
 /* The editor sheet is the visual anchor inside the lighter #2e2e2e workspace. */
@@ -5409,37 +5490,49 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding-top: 12px;
   margin-top: 16px;
 }
-.sync-backup-details {
-  min-width: 0;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
+.sync-footer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
 }
-.sync-backup-details summary {
+.sync-footer-toggle {
   display: flex;
   align-items: center;
   gap: 7px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
-  list-style: none;
 }
-.sync-backup-details summary::-webkit-details-marker {
-  display: none;
+.sync-footer-toggle:hover,
+.sync-footer-toggle[aria-expanded="true"] {
+  color: hsl(var(--foreground));
 }
-.sync-backup-details summary:focus-visible {
+.sync-footer-toggle:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 5px;
   border-radius: 3px;
 }
-.sync-backup-details[open] summary > svg:last-child {
+.sync-footer-toggle[aria-expanded="true"] > svg:last-child {
   transform: rotate(90deg);
 }
-.sync-backup-content {
+.sync-footer-content {
   padding-top: 14px;
   display: grid;
   gap: 9px;
   line-height: 1.7;
   color: hsl(var(--foreground));
 }
-.sync-backup-content code {
+/* The backup manager inside the footer takes the footer's spacing, as the list of local files does. */
+.sync-footer-content > .backup-panel {
+  padding: 0;
+  gap: 9px;
+}
+.sync-footer-content .backup-intro {
+  align-items: center;
+}
+.sync-footer-content code {
   border-radius: 6px;
   padding: 8px 10px;
   background: hsl(var(--muted));
@@ -5604,10 +5697,15 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   padding: 0;
 }
 
-/* Reserve the gutter before scrolling starts; inset the thumb from rounded panel edges. */
+/* Inset the scrollbar thumb from rounded panel edges without adding phantom side gutters. */
 .settings-section-panel,
 .settings-section-panel .overflow-y-auto {
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: auto;
+}
+/* WebKit reserves the gutter only while the section scrolls, so a long section (Sync) sat narrower
+   than a short one (Editor). An always-present, transparent track keeps every section's edges equal. */
+.settings-section-panel.overflow-y-auto {
+  overflow-y: scroll;
 }
 .settings-section-panel::-webkit-scrollbar,
 .settings-section-panel .overflow-y-auto::-webkit-scrollbar {
@@ -5630,6 +5728,21 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
+}
+.settings-section-panel [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
+  width: 11px;
+  padding: 12px 3px;
+  border: 0;
+}
+.settings-section-panel [data-slot="scroll-area-thumb"] {
+  min-height: 36px;
+  background: var(--scrollbar-thumb);
+}
+.settings-section-panel [data-slot="scroll-area-thumb"]:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.settings-section-panel .ai-models-scroll::-webkit-scrollbar-track {
+  margin-block: 4px;
 }
 
 /* All settings sections share a readable content width, including search and modules. */
@@ -5931,10 +6044,13 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   border-radius: 10px;
   overflow: hidden;
 }
+/* Text first at full width, the actions on their own line under it: side by side the buttons
+   squeezed the title into a narrow column. */
 .backup-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
   padding: 12px;
 }
 .backup-row + .backup-row {
@@ -5946,7 +6062,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   flex-shrink: 0;
 }
 .backup-row-text {
-  flex: 1;
   min-width: 0;
 }
 .backup-row-text h4 {
@@ -5974,9 +6089,12 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   color: hsl(var(--destructive));
 }
 .backup-actions {
+  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  /* Ghost buttons carry their own inset: line their text up with the row's text. */
+  margin-left: -8px;
 }
 .backup-actions button {
   font-size: 11px;
@@ -6001,17 +6119,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 .backup-result > button {
   justify-self: start;
-}
-@container (max-width: 500px) {
-  .backup-row {
-    flex-wrap: wrap;
-  }
-  .backup-row-text {
-    flex-basis: calc(100% - 26px);
-  }
-  .backup-actions {
-    margin-left: auto;
-  }
 }
 
 /* The help map is one modal surface: rails teach actions, the center keeps shortcuts. */

@@ -1,6 +1,11 @@
+import {
+  isModuleEnabledInWorkspace,
+  readWorkspaceModuleConfig,
+} from "@/lib/modules/workspace-modules"
 import { StorageOperationError } from "./operation-error"
 import i18n from "@/lib/i18n"
 import type { StoragePort } from "./port"
+import type { DailyNote, NoteTemplate } from "./note-modules-port"
 import { NoteRevisionConflictError } from "./types"
 import { FILE_PREFIX, TREE_KEY, WEB_VAULT, flattenWebNotes } from "./web-tree"
 import {
@@ -24,6 +29,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   HistoryCleanupPreview,
   HistoryCleanupResult,
   HistoryRetention,
@@ -42,7 +48,6 @@ import type {
   NoteLayers,
   NoteProperties,
   PathChange,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -187,7 +192,8 @@ function joinPath(parent: string, child: string): string {
 function isBundleMainPath(path: string): boolean {
   const ext = path.split(".").pop()?.toLowerCase()
   if (ext !== "md" && ext !== "canvas" && ext !== "excalidraw") return false
-  return pathBase(pathDir(path)) === pathStem(path)
+  const parent = pathDir(path)
+  return parent !== WEB_VAULT && pathBase(parent) === pathStem(path)
 }
 
 function webGetTree(): TreeItem[] {
@@ -280,8 +286,50 @@ function webRemoveItem(items: TreeItem[], id: string): { tree: TreeItem[]; item:
   return { tree, item: removed }
 }
 
+const WEB_BUNDLE_EXTENSIONS = [
+  ["canvas", "canvas"],
+  ["excalidraw", "sketch"],
+] as const
+
+function webBundleMembers(path: string): TreeItem[] | undefined {
+  if (!isBundleMainPath(path)) return undefined
+  const dir = pathDir(path)
+  const name = pathStem(path)
+  return WEB_BUNDLE_EXTENSIONS.flatMap(([extension, type]) => {
+    const member = joinPath(dir, `${name}.${extension}`)
+    return member === path || webGet(FILE_PREFIX + member) === null
+      ? []
+      : [{ id: member, path: member, name, type, icon: type }]
+  })
+}
+
+function webTreeWithBundleMembers(items: TreeItem[]): TreeItem[] {
+  return items.map((item) => ({
+    ...item,
+    bundleMembers: item.type === "folder" ? undefined : webBundleMembers(item.path),
+    children: item.children ? webTreeWithBundleMembers(item.children) : undefined,
+  }))
+}
+
+function webFindBundleFolder(items: TreeItem[], path: string): TreeItem | null {
+  if (path === WEB_VAULT) return null
+  for (const item of items) {
+    if (item.type !== "folder" && pathDir(item.path) === path && isBundleMainPath(item.path)) {
+      return item
+    }
+    const child = item.children ? webFindBundleFolder(item.children, path) : null
+    if (child) return child
+  }
+  return null
+}
+
+function webRequireBundleFileMutation(path: string) {
+  if (isBundleMainPath(path)) requireWebSupernotes()
+}
+
 function webCollectFileIds(item: TreeItem): string[] {
-  const ids = item.type === "file" ? [item.id] : []
+  const ids = item.type === "folder" || item.type === "database" ? [] : [item.path]
+  for (const member of webBundleMembers(item.path) ?? []) ids.push(member.path)
   for (const child of item.children ?? []) ids.push(...webCollectFileIds(child))
   return ids
 }
@@ -297,6 +345,16 @@ function webApplyPathChanges(changes: PathChange[]) {
   for (const change of changes) {
     if (change.oldPath) webMoveFileContent(change.oldPath, change.newPath)
   }
+}
+
+function webSupernotesEnabled(): boolean {
+  const raw = withWebStorage(() => metadataStorage.readVault("workspace.json"))
+  const config = readWorkspaceModuleConfig(raw === null ? {} : JSON.parse(raw))
+  return isModuleEnabledInWorkspace("amby.supernotes", config)
+}
+
+function requireWebSupernotes(): void {
+  if (!webSupernotesEnabled()) throw new Error("moduleDisabled")
 }
 
 function webEnsureBundle(notePath: string): {
@@ -764,7 +822,7 @@ export class WebAdapterCore implements StoragePort {
     return {
       generation: 0,
       vaultPath: WEB_VAULT,
-      tree,
+      tree: webTreeWithBundleMembers(tree),
       notes,
       sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
     }
@@ -909,12 +967,14 @@ export class WebAdapterCore implements StoragePort {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path: name }))
     }
     let tree = webGetTree()
-    let targetParentId: string | null = null
+    let targetParentId: string | null
     let targetDir: string
     const parent = webFindItem(tree, parentPath)
+    const bundleFolder = parent ? null : webFindBundleFolder(tree, parentPath)
     const pathChanges: PathChange[] = []
 
     if (parent?.type === "file") {
+      requireWebSupernotes()
       const ensured = webEnsureBundle(parentPath)
       tree = ensured.tree
       pathChanges.push(...ensured.changes)
@@ -924,6 +984,7 @@ export class WebAdapterCore implements StoragePort {
       targetParentId = parentPath
       targetDir = parentPath
     } else {
+      targetParentId = bundleFolder?.id ?? null
       targetDir = parentPath
     }
 
@@ -953,6 +1014,24 @@ export class WebAdapterCore implements StoragePort {
     }
   }
 
+  // The note modules render templates and read their settings in Rust; the browser adapter
+  // has neither, so it says so instead of creating a different note.
+  async listNoteTemplates(): Promise<NoteTemplate[]> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async createNoteFromTemplate(): Promise<FsMutationResult> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async createNoteTemplate(): Promise<FsMutationResult> {
+    throw new StorageOperationError("operationFailed", "Templates require the desktop runtime")
+  }
+
+  async openDailyNote(): Promise<DailyNote> {
+    throw new StorageOperationError("operationFailed", "Daily notes require the desktop runtime")
+  }
+
   async createFolder(vaultPath: string, name: string): Promise<string> {
     const path = joinPath(vaultPath, name)
     const tree = webGetTree()
@@ -962,7 +1041,7 @@ export class WebAdapterCore implements StoragePort {
     if (webFindItem(tree, path)) {
       throw new StorageOperationError("alreadyExists", i18n.t("errors.noteExists", { path }))
     }
-    const parent = webFindItem(tree, vaultPath)
+    const parent = webFindItem(tree, vaultPath) ?? webFindBundleFolder(tree, vaultPath)
     const folder: TreeItem = {
       id: path,
       path,
@@ -971,7 +1050,7 @@ export class WebAdapterCore implements StoragePort {
       icon: "folder",
       children: [],
     }
-    webSaveTree(webAddChild(tree, parent?.type === "folder" ? vaultPath : null, folder))
+    webSaveTree(webAddChild(tree, parent?.id ?? null, folder))
     return path
   }
 
@@ -982,6 +1061,7 @@ export class WebAdapterCore implements StoragePort {
   ): Promise<string> {
     const tree = webGetTree()
     const parentItem = parentPath ? webFindItem(tree, parentPath) : null
+    const bundleFolder = parentPath && !parentItem ? webFindBundleFolder(tree, parentPath) : null
     let targetDir = WEB_VAULT
     let parentFolderId: string | null = null
     if (parentItem?.type === "folder") {
@@ -991,6 +1071,7 @@ export class WebAdapterCore implements StoragePort {
       targetDir = pathDir(parentItem.path ?? parentItem.id)
     } else if (parentPath && parentPath !== WEB_VAULT) {
       targetDir = parentPath
+      parentFolderId = bundleFolder?.id ?? null
     }
 
     const stem = name.trim() || i18n.t("defaults.untitled")
@@ -1013,6 +1094,7 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async attachCanvasToNote(_vaultPath: string, canvasPath: string): Promise<FsMutationResult> {
+    requireWebSupernotes()
     const dir = pathDir(canvasPath)
     const stem = pathStem(canvasPath)
     const content = webGet(FILE_PREFIX + canvasPath) ?? "{}\n"
@@ -1049,6 +1131,7 @@ export class WebAdapterCore implements StoragePort {
   ): Promise<string> {
     const tree = webGetTree()
     const parentItem = parentPath ? webFindItem(tree, parentPath) : null
+    const bundleFolder = parentPath && !parentItem ? webFindBundleFolder(tree, parentPath) : null
     let targetDir = WEB_VAULT
     let parentFolderId: string | null = null
     if (parentItem?.type === "folder") {
@@ -1058,6 +1141,7 @@ export class WebAdapterCore implements StoragePort {
       targetDir = pathDir(parentItem.path ?? parentItem.id)
     } else if (parentPath && parentPath !== WEB_VAULT) {
       targetDir = parentPath
+      parentFolderId = bundleFolder?.id ?? null
     }
 
     const stem = name.trim() || i18n.t("defaults.untitled")
@@ -1080,6 +1164,7 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async attachSketchToNote(_vaultPath: string, sketchPath: string): Promise<FsMutationResult> {
+    requireWebSupernotes()
     const dir = pathDir(sketchPath)
     const stem = pathStem(sketchPath)
     const content = webGet(FILE_PREFIX + sketchPath) ?? "{}\n"
@@ -1118,25 +1203,33 @@ export class WebAdapterCore implements StoragePort {
     if (!isValidItemName(newName)) {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
     }
+    webRequireBundleFileMutation(path)
     const tree = webGetTree()
-    const item = webFindItem(tree, path)
+    const folder = webFindBundleFolder(tree, path)
+    const item = webFindItem(tree, path) ?? folder
     if (!item) throw new StorageOperationError("notFound", i18n.t("errors.pathNotFound", { path }))
 
-    const ext = path.split(".").pop() || "md"
+    const sourcePath = item.path
+    const ext = sourcePath.split(".").pop() || "md"
     const oldIds = webCollectFileIds(item)
-    const oldPrefix = isBundleMainPath(path) ? pathDir(path) : path
-    const newPrefix = isBundleMainPath(path)
-      ? joinPath(pathDir(pathDir(path)), newName)
+    const oldPrefix = isBundleMainPath(sourcePath) ? pathDir(sourcePath) : sourcePath
+    const newPrefix = isBundleMainPath(sourcePath)
+      ? joinPath(pathDir(pathDir(sourcePath)), newName)
       : joinPath(
-          pathDir(path),
+          pathDir(sourcePath),
           item.type === "file" || item.type === "canvas" || item.type === "sketch"
             ? `${newName}.${ext}`
             : newName,
         )
-    const primaryPath = isBundleMainPath(path)
+    const primaryPath = isBundleMainPath(sourcePath)
       ? joinPath(newPrefix, `${newName}.${ext}`)
       : newPrefix
-    if (primaryPath !== path && webFindItem(tree, primaryPath)) {
+    if (
+      primaryPath !== sourcePath &&
+      (webFindItem(tree, primaryPath) ||
+        webFindItem(tree, newPrefix) ||
+        webFindBundleFolder(tree, newPrefix))
+    ) {
       throw new StorageOperationError(
         "alreadyExists",
         i18n.t("errors.noteExists", { path: primaryPath }),
@@ -1145,20 +1238,32 @@ export class WebAdapterCore implements StoragePort {
 
     const pathChanges = oldIds.map((oldPath) => ({
       oldPath,
-      newPath: oldPath === path ? primaryPath : oldPath.replace(oldPrefix, newPrefix),
+      newPath:
+        oldPath === sourcePath
+          ? primaryPath
+          : isBundleMainPath(oldPath) && pathDir(oldPath) === oldPrefix
+            ? joinPath(newPrefix, `${newName}.${oldPath.split(".").pop()}`)
+            : oldPath.replace(oldPrefix, newPrefix),
     }))
     webApplyPathChanges(pathChanges)
+    if (folder) pathChanges.push({ oldPath: path, newPath: newPrefix })
 
-    const nextTree = webUpdateItem(tree, path, (current) => {
+    const nextTree = webUpdateItem(tree, item.id, (current) => {
       const updated = webMapTreeIds([current], (id) => {
-        if (id === path) return primaryPath
+        if (id === sourcePath) return primaryPath
         return id.replace(oldPrefix, newPrefix)
       })[0]
       return { ...updated, name: newName }
     })
     webSaveTree(nextTree)
 
-    return { primaryId: primaryPath, primaryPath, pathChanges, deletedPaths: [], deletedIds: [] }
+    return {
+      primaryId: folder ? `folder:${newPrefix}` : primaryPath,
+      primaryPath: folder ? newPrefix : primaryPath,
+      pathChanges,
+      deletedPaths: [],
+      deletedIds: [],
+    }
   }
 
   async moveItem(
@@ -1166,10 +1271,13 @@ export class WebAdapterCore implements StoragePort {
     sourcePath: string,
     targetPath: string,
   ): Promise<FsMutationResult> {
+    webRequireBundleFileMutation(sourcePath)
     let tree = webGetTree()
-    const source = webFindItem(tree, sourcePath)
+    const sourceFolder = webFindBundleFolder(tree, sourcePath)
+    const source = webFindItem(tree, sourcePath) ?? sourceFolder
+    const targetFolder = webFindBundleFolder(tree, targetPath)
     const target = targetPath === vaultPath ? null : webFindItem(tree, targetPath)
-    if (!source || (targetPath !== vaultPath && !target))
+    if (!source || (targetPath !== vaultPath && !target && !targetFolder))
       throw new Error(i18n.t("errors.moveTargetNotFound"))
 
     const pathChanges: PathChange[] = []
@@ -1179,7 +1287,12 @@ export class WebAdapterCore implements StoragePort {
       targetParentId = targetPath
       targetDir = target.type === "file" ? pathDir(targetPath) : targetPath
     }
+    if (targetFolder) {
+      targetParentId = targetFolder.id
+      targetDir = targetPath
+    }
     if (target?.type === "file") {
+      requireWebSupernotes()
       const ensured = webEnsureBundle(targetPath)
       tree = ensured.tree
       pathChanges.push(...ensured.changes)
@@ -1187,15 +1300,19 @@ export class WebAdapterCore implements StoragePort {
       targetDir = pathDir(ensured.notePath)
     }
 
-    const removed = webRemoveItem(tree, sourcePath)
+    const removed = webRemoveItem(tree, source.id)
     if (!removed.item) throw new Error(i18n.t("errors.sourceNotFound", { path: sourcePath }))
-    const sourceRoot = isBundleMainPath(sourcePath) ? pathDir(sourcePath) : sourcePath
+    const sourceRoot = isBundleMainPath(source.path) ? pathDir(source.path) : source.path
     const sourceRootName = pathBase(sourceRoot)
     const newRoot = joinPath(targetDir, sourceRootName)
-    const primaryPath = isBundleMainPath(sourcePath)
-      ? joinPath(newRoot, pathBase(sourcePath))
-      : joinPath(targetDir, pathBase(sourcePath))
-    if (webFindItem(tree, primaryPath) || webFindItem(tree, newRoot)) {
+    const primaryPath = isBundleMainPath(source.path)
+      ? joinPath(newRoot, pathBase(source.path))
+      : joinPath(targetDir, pathBase(source.path))
+    if (
+      webFindItem(tree, primaryPath) ||
+      webFindItem(tree, newRoot) ||
+      webFindBundleFolder(tree, newRoot)
+    ) {
       throw new StorageOperationError(
         "alreadyExists",
         i18n.t("errors.noteExists", { path: primaryPath }),
@@ -1204,13 +1321,13 @@ export class WebAdapterCore implements StoragePort {
     const sourceIds = webCollectFileIds(removed.item)
     const sourceChanges = sourceIds.map((oldPath) => ({
       oldPath,
-      newPath: oldPath === sourcePath ? primaryPath : oldPath.replace(sourceRoot, newRoot),
+      newPath: oldPath === source.path ? primaryPath : oldPath.replace(sourceRoot, newRoot),
     }))
     webApplyPathChanges(sourceChanges)
 
     const moved = {
       ...webMapTreeIds([removed.item], (id) => {
-        if (id === sourcePath) return primaryPath
+        if (id === source.path) return primaryPath
         return id.replace(sourceRoot, newRoot)
       })[0],
     }
@@ -1218,9 +1335,13 @@ export class WebAdapterCore implements StoragePort {
     webSaveTree(nextTree)
 
     return {
-      primaryId: primaryPath,
-      primaryPath,
-      pathChanges: [...pathChanges, ...sourceChanges],
+      primaryId: sourceFolder ? `folder:${newRoot}` : primaryPath,
+      primaryPath: sourceFolder ? newRoot : primaryPath,
+      pathChanges: [
+        ...pathChanges,
+        ...sourceChanges,
+        ...(sourceFolder ? [{ oldPath: sourcePath, newPath: newRoot }] : []),
+      ],
       deletedPaths: [],
       deletedIds: [],
     }
@@ -1228,7 +1349,33 @@ export class WebAdapterCore implements StoragePort {
 
   async deleteItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
     const tree = webGetTree()
-    const removed = webRemoveItem(tree, path)
+    if (isBundleMainPath(path) && !webSupernotesEnabled()) {
+      const dir = pathDir(path)
+      const main = webFindBundleFolder(tree, dir)
+      if (!main || (main.path !== path && webGet(FILE_PREFIX + path) === null)) {
+        throw new StorageOperationError("notFound", i18n.t("errors.pathNotFound", { path }))
+      }
+      if (main.path === path) {
+        const next = webBundleMembers(path)?.[0] ?? {
+          id: dir,
+          path: dir,
+          name: pathBase(dir),
+          type: "folder" as const,
+          icon: "folder",
+        }
+        webSaveTree(webUpdateItem(tree, main.id, () => ({ ...next, children: main.children })))
+      }
+      webRemove(FILE_PREFIX + path)
+      return {
+        primaryId: null,
+        primaryPath: null,
+        pathChanges: [],
+        deletedPaths: [path],
+        deletedIds: main.path === path ? [main.id] : [path],
+      }
+    }
+    const folder = webFindBundleFolder(tree, path)
+    const removed = webRemoveItem(tree, folder?.id ?? path)
     if (!removed.item)
       throw new StorageOperationError("notFound", i18n.t("errors.pathNotFound", { path }))
     const deletedPaths = removed.item ? webCollectFileIds(removed.item) : [path]
@@ -1238,14 +1385,32 @@ export class WebAdapterCore implements StoragePort {
       primaryId: null,
       primaryPath: null,
       pathChanges: [],
-      deletedPaths,
-      deletedIds: deletedPaths,
+      deletedPaths: folder ? [...deletedPaths, path] : deletedPaths,
+      deletedIds: folder ? [...deletedPaths, `folder:${path}`] : deletedPaths,
     }
   }
 
   /** The browser has no restorable archive; deleting here would be permanent, so it refuses. */
   async archiveItem(_vaultPath: string, _path: string): Promise<FsMutationResult> {
     throw new StorageOperationError("operationFailed", i18n.t("errors.archiveDesktopOnly"))
+  }
+
+  // The browser adapter keeps no history versions: nothing it does is offered for undo.
+  async undoMutation(_record: UndoRecord): Promise<FsMutationResult> {
+    throw new StorageOperationError("undoUnavailable", "Undo is desktop only")
+  }
+
+  async beginMerge(_targetPath: string): Promise<string | null> {
+    return null
+  }
+
+  async finishMerge(
+    vaultPath: string,
+    sourcePath: string,
+    _targetPath: string,
+    _snapshotId: string,
+  ): Promise<FsMutationResult> {
+    return this.deleteItem(vaultPath, sourcePath)
   }
 
   async noteLayers(notePath: string): Promise<NoteLayers> {
@@ -1270,6 +1435,7 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {
+    requireWebSupernotes()
     if (kind === "database") {
       throw new Error("Database layer creation is unavailable until DB-10")
     }
@@ -1278,7 +1444,9 @@ export class WebAdapterCore implements StoragePort {
     const dir = pathDir(ensured.notePath)
     const extension = kind === "sketch" ? "excalidraw" : kind === "canvas" ? "canvas" : "md"
     const layerPath = joinPath(dir, `${stem}.${extension}`)
-    webSet(FILE_PREFIX + layerPath, extension === "md" ? "" : "{}\n")
+    if (webGet(FILE_PREFIX + layerPath) === null) {
+      webSet(FILE_PREFIX + layerPath, extension === "md" ? "" : "{}\n")
+    }
     return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
   }
 
@@ -1287,6 +1455,7 @@ export class WebAdapterCore implements StoragePort {
     notePath: string,
     kind: LayerKind,
   ): Promise<FsMutationResult> {
+    requireWebSupernotes()
     if (kind === "database") {
       throw new Error("Legacy database layers are read-only until DB-10")
     }
@@ -1320,6 +1489,7 @@ export class WebAdapterCore implements StoragePort {
     notePath: string,
     kind: LayerKind,
   ): Promise<FsMutationResult> {
+    requireWebSupernotes()
     if (kind === "database") {
       throw new Error("Legacy database layers are read-only until DB-10")
     }
@@ -1515,7 +1685,7 @@ export class WebAdapterCore implements StoragePort {
     return webTrashUnavailable()
   }
 
-  async listArchive(): Promise<ArchiveEntry[]> {
+  async listArchive(_vaultPath: string): Promise<ArchiveEntry[]> {
     return []
   }
 
@@ -1523,28 +1693,12 @@ export class WebAdapterCore implements StoragePort {
     return webTrashUnavailable()
   }
 
-  async restoreArchive(_archiveId: string): Promise<FsMutationResult> {
+  async restoreArchive(_archiveId: string, _vaultPath: string): Promise<FsMutationResult> {
     return webTrashUnavailable()
   }
 
   async purgeArchive(_archiveId: string, _mode: DeleteMode): Promise<void> {
     return webTrashUnavailable()
-  }
-
-  async previewRenameRefactor(
-    _vaultPath: string,
-    _path: string,
-    _newName: string,
-  ): Promise<RefactorPreview> {
-    return { notes: 0, replacements: 0 }
-  }
-
-  async previewMoveRefactor(
-    _vaultPath: string,
-    _sourcePath: string,
-    _targetPath: string,
-  ): Promise<RefactorPreview> {
-    return { notes: 0, replacements: 0 }
   }
 
   async openInExplorer(_path: string): Promise<void> {}

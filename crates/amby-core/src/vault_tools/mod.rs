@@ -1,7 +1,11 @@
 //! Capability-checked MCP operations shared by the CLI and desktop endpoint.
 
+pub mod attachments;
 pub mod database;
+pub mod delete;
+pub mod hygiene;
 pub mod modules;
+pub mod properties;
 pub mod workshop;
 
 use std::path::{Path, PathBuf};
@@ -86,6 +90,28 @@ pub enum Mutation {
         expected_revision: String,
         operation_id: String,
     },
+    SetProperty(properties::SetProperty),
+    SetPropertyAppearance(properties::PropertyAppearance),
+    RenameProperty {
+        path: String,
+        name: String,
+        new_name: String,
+    },
+    DeleteProperty {
+        path: String,
+        name: String,
+    },
+    ReorderProperties {
+        path: String,
+        names: Vec<String>,
+    },
+    Delete {
+        path: String,
+    },
+    DeleteDatabaseRow {
+        database_id: String,
+        note_id: String,
+    },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -150,6 +176,7 @@ impl Mutation {
         match self {
             Self::CreateDatabase { .. }
             | Self::CreateDatabaseRow { .. }
+            | Self::DeleteDatabaseRow { .. }
             | Self::AddDatabaseProperty { .. }
             | Self::SetDatabaseValue(_)
             | Self::RenameDatabase { .. }
@@ -180,6 +207,8 @@ pub struct Published {
     pub output: Value,
     pub changed: Vec<PathBuf>,
     pub archive_changed: bool,
+    /// The property groups changed: the desktop refreshes its properties panel.
+    pub properties_changed: bool,
 }
 
 impl Published {
@@ -188,7 +217,21 @@ impl Published {
             output,
             changed: vec![path],
             archive_changed: false,
+            properties_changed: false,
         }
+    }
+}
+
+impl Mutation {
+    fn is_property(&self) -> bool {
+        matches!(
+            self,
+            Self::SetProperty(_)
+                | Self::SetPropertyAppearance(_)
+                | Self::RenameProperty { .. }
+                | Self::DeleteProperty { .. }
+                | Self::ReorderProperties { .. }
+        )
     }
 }
 
@@ -240,14 +283,25 @@ pub fn execute_offline(
         modules::Modules::require(root, module)?;
     }
     let _lease = structural::try_lease(root)?;
-    execute(root, grant, request, &SelfWriteTracker::default(), |_| {}).map(|result| result.output)
+    execute(
+        root,
+        grant,
+        request,
+        None,
+        &SelfWriteTracker::default(),
+        |_| {},
+    )
+    .map(|result| result.output)
 }
 
-/// The caller holds either a closed-vault lease or the active desktop mutation gate.
+/// The caller holds either a closed-vault lease or the active desktop mutation gate. The
+/// desktop passes its index connection; without one, property edits use a private in-memory
+/// catalog of the vault, which the desktop rebuilds from the files when it opens the vault.
 pub fn execute(
     root: &Path,
     grant: &str,
     request: &Mutation,
+    index: Option<&rusqlite::Connection>,
     watcher: &SelfWriteTracker,
     on_move: impl FnOnce(&[PathChange]),
 ) -> Result<Published, &'static str> {
@@ -258,6 +312,61 @@ pub fn execute(
             modules::Modules::require(root, module)?;
         }
         structural::ensure_clean_for_text_edit(root)?;
+        if let Mutation::DeleteDatabaseRow {
+            database_id,
+            note_id,
+        } = request
+        {
+            let path = database::row_path(root, &scope, database_id, note_id)?;
+            return delete::execute(
+                root,
+                &scope,
+                watcher,
+                &crate::system_recycle_bin::OsTrash,
+                &path,
+            );
+        }
+        if let Mutation::Delete { path } = request {
+            return delete::execute(
+                root,
+                &scope,
+                watcher,
+                &crate::system_recycle_bin::OsTrash,
+                path,
+            );
+        }
+        if request.is_property() {
+            let memory;
+            let conn = match index {
+                Some(conn) => conn,
+                None => {
+                    memory =
+                        crate::index::read_only::disk_catalog(root).map_err(|_| "unavailable")?;
+                    // Finish or roll back a property edit an interrupted CLI left behind.
+                    crate::property_groups::recover_operations(&memory, root)
+                        .map_err(|_| "recoveryRequired")?;
+                    &memory
+                }
+            };
+            return match request {
+                Mutation::SetProperty(request) => properties::set(conn, root, &scope, request),
+                Mutation::SetPropertyAppearance(request) => {
+                    properties::appearance(conn, root, &scope, request)
+                }
+                Mutation::RenameProperty {
+                    path,
+                    name,
+                    new_name,
+                } => properties::rename(conn, root, &scope, path, name, new_name),
+                Mutation::DeleteProperty { path, name } => {
+                    properties::delete(conn, root, &scope, path, name)
+                }
+                Mutation::ReorderProperties { path, names } => {
+                    properties::reorder(conn, root, &scope, path, names)
+                }
+                _ => Err("invalidArguments"),
+            };
+        }
         let env = crate::project::create::Env {
             vault: root,
             watcher,
@@ -381,11 +490,24 @@ pub fn execute(
             operation,
             Operation::Archive { .. } | Operation::Restore { .. }
         ),
+        properties_changed: false,
     })
 }
 
 pub fn preview(root: &Path, grant: &str, request: &Mutation) -> Result<Value, &'static str> {
     let scope = visible_folder(root, grant).map_err(|_| "accessDenied")?;
+    if let Mutation::Delete { path } = request {
+        return delete::preview(root, &scope, path);
+    }
+    if let Mutation::DeleteDatabaseRow {
+        database_id,
+        note_id,
+    } = request
+    {
+        modules::Modules::require(root, modules::Module::Databases)?;
+        let path = database::row_path(root, &scope, database_id, note_id)?;
+        return delete::preview(root, &scope, &path);
+    }
     if let Mutation::SetDatabaseRelation(request) = request {
         modules::Modules::require(root, modules::Module::Databases)?;
         structural::ensure_clean_for_text_edit(root)?;

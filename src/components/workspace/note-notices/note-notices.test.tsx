@@ -604,7 +604,7 @@ describe("a note archived on another computer (К13)", () => {
     } as never)
     mount({ document: archived, onCloseTab: vi.fn() })
     fireEvent.click(within(stack()!).getByRole("button", { name: "Вернуть из архива" }))
-    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith(ORIGINAL))
+    await waitFor(() => expect(restoreArchive).toHaveBeenCalledWith(ORIGINAL, "/vault"))
     await waitFor(() => {
       const doc = useDocStore.getState().openDocs[ABSOLUTE]
       expect(doc.externallyDeleted).toBe(false)

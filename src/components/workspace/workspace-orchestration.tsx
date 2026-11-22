@@ -1,5 +1,8 @@
 "use client"
 
+import { visibleDocumentLayer } from "./layer-documents"
+import { projectBundleFolders } from "./tree/bundle-folders"
+
 import { activateNoteTab } from "./notices/activate-note-tab"
 import { remapExternalLayers } from "./orchestration/remap-external-layers"
 import { remapLayerAutosave } from "./autosave/remap-layer-autosave"
@@ -9,7 +12,12 @@ import { findModule } from "./modules"
 import { GRAPH_TAB_FILE_ID, useTabsStore } from "./use-tabs-store"
 import type { ActionContext } from "./panel-registry"
 import { computeSplitLayout } from "./split-tree"
-import { flattenFileItems, nextAvailableNoteName, noteLayerPath } from "./workspace-tree-utils"
+import {
+  applyIconOverrides,
+  flattenFileItems,
+  nextAvailableNoteName,
+  noteLayerPath,
+} from "./workspace-tree-utils"
 import { parseCreativeFileId } from "./creative/creative-history"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 import {
@@ -37,6 +45,8 @@ import { useDocStore } from "./use-doc-store"
 import { reloadOpenNotes } from "./reload-open-notes"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
+import { TemplateNoteDialog } from "./note-modules/template-note-dialog"
+import { useNoteModulesStore } from "./note-modules/note-modules-store"
 import { type WindowPreferences, setPendingWorkspaceProfile } from "./app-config"
 import type { HeaderTab } from "./header-tabs"
 import { spotlightCreateActions } from "./spotlight-create-actions"
@@ -190,7 +200,7 @@ export function WorkspaceOrchestration() {
   const {
     treeItems,
     setTreeItems,
-    displayTreeItems,
+    displayTreeItems: bundledTreeItems,
     refreshLinkGraph,
     loadVault,
     refreshTree,
@@ -233,20 +243,6 @@ export function WorkspaceOrchestration() {
   const primaryLayers = useViewStateStore((s) => s.primaryLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
 
-  const currentHelpContext: HelpContext = React.useMemo(() => {
-    if (!activeTab) return "workspace"
-    if (activeTab.kind === "canvas") return "canvas"
-    if (activeTab.kind === "sketch") return "sketch"
-    if (activeTab.kind === "database") return "database"
-    if (activeTab.kind === "document") {
-      const layer = activeLayers[activeTab.fileId] ?? "editor"
-      if (layer === "canvas") return "canvas"
-      if (layer === "sketch") return "sketch"
-      if (layer === "database") return "database"
-      return "note"
-    }
-    return "workspace"
-  }, [activeTab, activeLayers])
   // Stable store actions (never change reference).
   const {
     toggleFavorite,
@@ -329,9 +325,22 @@ export function WorkspaceOrchestration() {
   } = usePresets(vault, experimental)
   const databasesEnabled =
     activeModules.includes("databases") || activeModules.includes("amby.databases")
+  const supernotesEnabled =
+    activeModules.includes("supernotes") || activeModules.includes("amby.supernotes")
+  const bundleFolders = React.useMemo(() => projectBundleFolders(treeItems), [treeItems])
+  const displayTreeItems = React.useMemo(
+    () => (supernotesEnabled ? bundledTreeItems : applyIconOverrides(bundleFolders, iconOverrides)),
+    [supernotesEnabled, bundledTreeItems, bundleFolders, iconOverrides],
+  )
   const canvasEnabled = activeModules.includes("canvas") || activeModules.includes("amby.canvas")
   const sketchEnabled =
     activeModules.includes("excalidraw") || activeModules.includes("amby.excalidraw")
+  const templatesEnabled =
+    activeModules.includes("templates") || activeModules.includes("amby.templates")
+  const dailyEnabled = activeModules.includes("daily") || activeModules.includes("amby.daily")
+  React.useEffect(() => {
+    useNoteModulesStore.getState().setTemplatesEnabled(templatesEnabled)
+  }, [templatesEnabled])
   const favoritesModuleOn =
     activeModules.includes("favorites") || activeModules.includes("amby.favorites")
   const favoritesInTreePref = useSettingsStore((s) => s.prefs.favoritesInTree)
@@ -476,6 +485,7 @@ export function WorkspaceOrchestration() {
     openSearch: () => useOverlaysStore.getState().setSearchOpen(true),
     openSettings,
     openHelp: () => useOverlaysStore.getState().setHelpOpen(true),
+    openDailyNote: () => void handleOpenDailyNote(),
   }
 
   const {
@@ -549,15 +559,35 @@ export function WorkspaceOrchestration() {
         if (item.children) visit(item.children)
       }
     }
+    // Keep tabs opened from the folder view addressable after switching the module back on.
+    if (supernotesEnabled) visit(bundleFolders)
     visit(displayTreeItems)
     return result
-  }, [displayTreeItems])
+  }, [bundleFolders, displayTreeItems, supernotesEnabled])
+  const findNavigationFallback = React.useCallback(
+    (id: string) => treeItemById.get(id),
+    [treeItemById],
+  )
 
   // The document of the active tab: the root takes its identity, not its text (SHELL-04).
   const { currentDoc, currentDocId, currentDocPath, currentDocDefaultLayer } = useActiveDocument(
     activeTab,
     treeItemById,
   )
+
+  const currentPageLayer = visibleDocumentLayer(
+    activeTab,
+    currentDocPath,
+    (currentDocId ? activeLayers[currentDocId] : undefined) ?? currentDocDefaultLayer,
+    supernotesEnabled,
+    databasesEnabled,
+  )
+  const currentHelpContext: HelpContext =
+    !activeTab || !["document", "canvas", "sketch", "database"].includes(activeTab.kind)
+      ? "workspace"
+      : currentPageLayer === "editor"
+        ? "note"
+        : currentPageLayer
 
   // Canvas and sketch tabs hold the file path while their tree rows are `canvas:`/`sketch:`
   // prefixed, so resolve the tab to its row to highlight it.
@@ -746,6 +776,7 @@ export function WorkspaceOrchestration() {
     refreshTreePaths,
     applyMutationResult,
     databasesEnabled,
+    supernotesEnabled,
     backendGeneration,
     refreshDatabaseCatalog,
     onOpenDatabase: openDatabaseTab,
@@ -757,6 +788,9 @@ export function WorkspaceOrchestration() {
     handleCloneFile,
     navigateToFile,
     handleWikiLinkClick,
+    handleOpenDailyNote,
+    handleNewFromTemplate,
+    handleNewTemplate,
     handleRenameFile,
     handleDeleteFile,
     handleDeleteFiles,
@@ -778,6 +812,7 @@ export function WorkspaceOrchestration() {
   } = useFileActions({
     vault,
     treeItems: displayTreeItems,
+    findNavigationFallback,
     setTreeItems,
     refreshTree,
     refreshTreePaths,
@@ -792,6 +827,26 @@ export function WorkspaceOrchestration() {
     windowLabel,
     refreshDatabaseCatalog,
   })
+
+  // The creation dialog opens today's note through the same action as the activity bar.
+  const openDailyRef = React.useRef(handleOpenDailyNote)
+  openDailyRef.current = handleOpenDailyNote
+  React.useEffect(() => {
+    useNoteModulesStore
+      .getState()
+      .setOpenDaily(dailyEnabled ? () => void openDailyRef.current() : null)
+  }, [dailyEnabled])
+
+  // The file dialogs of both layouts: deletion and, with the Templates module, a note from a
+  // template.
+  const fileDialogs = (
+    <>
+      {deleteConfirmationDialog}
+      {templatesEnabled && (
+        <TemplateNoteDialog onCreate={handleNewFromTemplate} onCreateTemplate={handleNewTemplate} />
+      )}
+    </>
+  )
 
   function openNotePath(path: string) {
     const wanted = path.normalize("NFC")
@@ -1007,7 +1062,7 @@ export function WorkspaceOrchestration() {
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
-    const activeLayer = activeLayers[currentDoc.id] ?? "editor"
+    const activeLayer = currentPageLayer
     const key = `${currentDoc.id}:${activeLayer}`
     setViewMode(key, mode)
     if (activeLayer === "editor") setViewMode(currentDoc.id, mode)
@@ -1045,9 +1100,9 @@ export function WorkspaceOrchestration() {
 
   const handleToggleLock = React.useCallback(() => {
     if (!currentDoc) return
-    const activeLayer = activeLayers[currentDoc.id] ?? "editor"
+    const activeLayer = currentPageLayer
     handleToggleLayerLock(currentDoc.id, activeLayer)
-  }, [activeLayers, currentDoc, handleToggleLayerLock])
+  }, [currentDoc, currentPageLayer, handleToggleLayerLock])
 
   const handleHistoryRestored = React.useCallback(
     async (path?: string) => {
@@ -1085,8 +1140,7 @@ export function WorkspaceOrchestration() {
   const { handleOpenCanvasNote } = useLayerLoadEffects({
     currentDocId,
     currentDocPath,
-    activeLayers,
-    currentDocDefaultLayer,
+    currentLayer: currentPageLayer,
     openCanvases,
     loadCanvasBuffer,
     setOpenCanvases,
@@ -1123,6 +1177,7 @@ export function WorkspaceOrchestration() {
   })
 
   const selectedDatabase = React.useMemo(() => {
+    if (!databasesEnabled || currentPageLayer !== "database") return null
     if (activeTab?.kind === "database") {
       const treeItem = treeItemById.get(activeTab.fileId)
       return (
@@ -1137,11 +1192,7 @@ export function WorkspaceOrchestration() {
         ) ?? null
       )
     }
-    if (
-      activeTab?.kind === "document" &&
-      currentDoc &&
-      activeLayers[currentDoc.id] === "database"
-    ) {
+    if (activeTab?.kind === "document" && currentDoc) {
       return (
         databases.find(
           (database) =>
@@ -1150,7 +1201,7 @@ export function WorkspaceOrchestration() {
       )
     }
     return null
-  }, [activeLayers, activeTab, currentDoc, databases, treeItemById])
+  }, [activeTab, currentDoc, currentPageLayer, databases, databasesEnabled, treeItemById])
 
   const headerTabs: HeaderTab[] = React.useMemo(
     () =>
@@ -1258,6 +1309,7 @@ export function WorkspaceOrchestration() {
     handleToggleFavorite,
     handleAttachLayerToFile,
     linkedLayersByDoc,
+    supernotesEnabled,
     databasesEnabled,
     canvasEnabled,
     sketchEnabled,
@@ -1321,6 +1373,7 @@ export function WorkspaceOrchestration() {
       handleNewCanvasIn,
       handleNewSketchIn,
       databasesEnabled,
+      supernotesEnabled,
       creativeEnabled,
       activatePanelAnywhere,
       handleNewDatabase,
@@ -1351,7 +1404,7 @@ export function WorkspaceOrchestration() {
       setNestedNotesPlacement,
       handleMoveItem,
       handleNewFolderIn,
-      handleConvertFolderToNote,
+      handleConvertFolderToNote: supernotesEnabled ? handleConvertFolderToNote : undefined,
       handleMergeFile,
       handleDeleteFile,
       handleSelect,
@@ -1473,7 +1526,7 @@ export function WorkspaceOrchestration() {
         activeFolder={activeFolder}
         handleNewFileIn={handleNewFileIn}
         handleNewFolderIn={handleNewFolderIn}
-        handleConvertFolderToNote={handleConvertFolderToNote}
+        handleConvertFolderToNote={supernotesEnabled ? handleConvertFolderToNote : undefined}
         handleSetIcon={handleSetIcon}
         renderCachedTabSurfaces={renderCachedTabSurfaces}
         focusShowLeft={focusShowLeft}
@@ -1499,7 +1552,7 @@ export function WorkspaceOrchestration() {
         activeModules={activeModules}
         adoptPreset={adoptPreset}
         workspaceProfileDialog={workspaceProfileDialog}
-        deleteConfirmationDialog={deleteConfirmationDialog}
+        deleteConfirmationDialog={fileDialogs}
         propertyMigrationDialog={propertyMigrationDialog}
       />
     )
@@ -1532,7 +1585,7 @@ export function WorkspaceOrchestration() {
       handleSplitRight={handleSplitRight}
       handleSplitDown={handleSplitDown}
       handleTabUsageChanged={handleTabUsageChanged}
-      deleteConfirmationDialog={deleteConfirmationDialog}
+      deleteConfirmationDialog={fileDialogs}
       propertyMigrationDialog={propertyMigrationDialog}
       leftButtons={leftButtons}
       activeBySide={activeBySide}

@@ -63,6 +63,57 @@ const ru = {
       colorsEffects: "Цвета и эффекты",
       typography: "Шрифты",
       updates: "Обновления",
+      commandLine: "Командная строка",
+    },
+    cliPath: {
+      label: "Команда amby в терминале",
+      off: "Не подключена: без неё CLI запускается только по полному пути.",
+      on: "Подключена. В новом окне терминала наберите amby --help.",
+      needsPath:
+        "Ссылка создана: {{location}}. Ваша оболочка не ищет в этой папке: добавьте её в PATH в настройках оболочки.",
+      taken:
+        "Имя занято: в {{location}} уже лежит другая программа amby. Amby её не трогает: уберите её сами, если она не нужна.",
+      add: "Подключить",
+      remove: "Отключить",
+      changeLink: "Amby создаст ссылку {{location}} на свой CLI.",
+      changeProfile:
+        "Amby создаст ссылку {{location}} на свой CLI и добавит в конец {{profile}} строку с PATH, помеченную комментарием Amby.",
+      changeWindows: "Amby добавит папку {{location}} в PATH вашей учётной записи Windows.",
+      errors: {
+        failed: "Не удалось изменить PATH. Попробуйте ещё раз.",
+        taken: "Имя amby уже занято другой программой. Amby её не трогает.",
+        unavailable: "В этой сборке Amby нет CLI.",
+      },
+    },
+    mcpClients: {
+      title: "ИИ-агенты",
+      hint: "Агенты работают с открытым хранилищем через MCP. Правки агента пишутся сразу, без подтверждения; каждая сохраняется в истории версий.",
+      edits: "Редактирование",
+      readOnly: "Только чтение",
+      readWrite: "Чтение и запись",
+      notFound: "Не найден",
+      off: "Не подключён",
+      on: "Подключён",
+      onOther: "Другое хранилище",
+      cursorRemove: "Убрать его можно в настройках Cursor → MCP.",
+      cursorAsked: "Cursor откроет окно установки: подтвердите подключение там.",
+      connect: "Подключить",
+      reconnect: "Переподключить",
+      connectHere: "Подключить сюда",
+      disconnect: "Отключить",
+      how: {
+        claudeCode: "команду claude mcp add",
+        codex: "команду codex mcp add",
+        cursor: "окно установки Cursor",
+        antigravity: "команду agy mcp add",
+      },
+      errors: {
+        noVault: "Откройте хранилище, которое нужно подключить.",
+        noCli: "В этой сборке Amby нет CLI.",
+        clientMissing: "Программа не найдена на этом компьютере.",
+        unsupported: "Убрать сервер можно в настройках этой программы.",
+        failed: "Не удалось изменить подключение. Попробуйте ещё раз.",
+      },
     },
     general: {
       deleteMode: "Удаление файлов",
@@ -273,6 +324,10 @@ const ru = {
       shortcuts: "Сочетания клавиш",
       modules: "Встроенные модули",
       sync: "Синхронизация",
+      about: "О программе",
+    },
+    about: {
+      app: "Amby",
     },
     shortcuts: {
       description:
@@ -394,7 +449,12 @@ const ru = {
       excalidraw: "Набросок",
       canvas: "Canvas",
       creative: "Творческая мастерская",
+      templates: "Шаблоны",
+      supernotes: "Суперзаметки",
+      daily: "Ежедневные заметки",
       descriptions: {
+        supernotes:
+          "Создание вложенных заметок, преобразование папок и управление слоями. При выключении суперзаметки отображаются папками. Связанные файлы можно удалять отдельно, а переименовывать и переносить вместе с папкой.",
         tags: "Собирает теги из заметок и добавляет навигацию по ним в боковую панель.",
         favorites: "Хранит быстрый доступ к избранным заметкам текущего хранилища.",
         databases: "Табличные представления заметок и их свойств.",
@@ -406,6 +466,9 @@ const ru = {
         canvas: "Визуальная бесконечная доска с карточками заметок, связями и медиа.",
         creative:
           "Инструменты для писателей: персонажи, локации, сюжетные связи, пробковые доски и структура рукописи.",
+        templates:
+          "Новые заметки из заготовок в папке шаблонов: дата, время и название подставляются сами.",
+        daily: "Одна заметка на каждый день. Кнопка «Сегодня» открывает её или создаёт.",
       },
     },
     appearance: {
@@ -441,9 +504,6 @@ const ru = {
       fontSerif: "С засечками",
       fontMono: "Моноширинный",
       fontScale: "Размер шрифта",
-      fontSm: "Мелкий",
-      fontMd: "Средний",
-      fontLg: "Крупный",
       density: "Плотность интерфейса",
       comfortable: "Просторно",
       compact: "Компактно",
@@ -457,10 +517,7 @@ const ru = {
         "Если выключить, правая панель, её док и кнопка открытия пропадают, а все кнопки переходят в левую панель.",
       tooltipDelay: "Задержка подсказок",
       tooltipNone: "Без задержки",
-      tooltipHalfSecond: "0,5 с",
-      tooltipOneSecond: "1 с",
-      tooltipOneHalfSeconds: "1,5 с",
-      tooltipTwoSeconds: "2 с",
+      tooltipSeconds: "{{seconds}} с",
       tooltipDisabled: "Без подсказок",
       bottomBar: "Нижняя панель заметки",
       bottomBarHint:
@@ -520,7 +577,11 @@ const ru = {
       openFolder: "Открыть папку",
       openFolderFailed: "Не удалось показать папку. Проверьте, что она на месте.",
       reset: "Сбросить настройки",
-      clearRecent: "Очистить список недавних хранилищ",
+      resetHint: "Настройки приложения вернутся к исходным. Заметки и хранилища не затрагиваются.",
+      resetAction: "Сбросить",
+      recent: "Недавние хранилища",
+      recentHint: "Список на экране выбора хранилища. Сами хранилища остаются на месте.",
+      clearRecent: "Очистить",
     },
   },
   confirmations: {
@@ -549,11 +610,28 @@ const ru = {
       description: "Настройки вернутся к значениям по умолчанию, заметки не затрагиваются.",
       confirm: "Сбросить",
     },
-    deleteBackup: {
-      title: "Удалить копию перед синхронизацией?",
+    connectMcpClient: {
+      title: "Подключить Amby к {{client}}?",
       description:
-        "Копия исчезнет с этого компьютера и не вернётся. Заметки в хранилище и на сервере не изменятся.",
+        "{{client}} получит доступ к хранилищу {{vault}}: {{access}}. Amby зарегистрирует сервер amby через {{how}}. «Отключить» уберёт его.",
+      confirm: "Подключить",
+    },
+    addCliToPath: {
+      title: "Подключить команду amby?",
+      description: "{{change}} Кнопка «Отключить» уберёт это обратно.",
+      confirm: "Подключить",
+    },
+    deleteBackup: {
+      title: "Удалить копию от {{date}}?",
+      description:
+        "Удалится только эта копия: она исчезнет с этого компьютера и не вернётся. Другие копии, заметки в хранилище и на сервере не изменятся.",
       confirm: "Удалить копию",
+    },
+    deleteOldBackup: {
+      title: "Удалить старую копию от {{date}}?",
+      description:
+        "Удалится только эта старая копия рядом с хранилищем: она исчезнет с этого компьютера и не вернётся. Другие копии, заметки в хранилище и на сервере не изменятся.",
+      confirm: "Удалить старую копию",
     },
     deleteDebugHistory: {
       title: "Удалить сохранённый журнал событий?",
@@ -565,25 +643,16 @@ const ru = {
       description: "Файл слоя попадёт в корзину системы, его можно вернуть оттуда.",
       confirm: "Удалить",
     },
+    aiTurbo: {
+      title: "Включить режим без остановок?",
+      description:
+        "ИИ будет сразу применять все свои правки, в том числе переносить и архивировать файлы, без вашего подтверждения. Удаление всё равно ждёт вашего «Применить». Применённое можно отменить.",
+      confirm: "Включить",
+    },
     removeAiConnection: {
       title: "Удалить подключение «{{name}}»?",
       description: "Ключ удалится, если им не пользуются другие подключения; беседы сохранятся.",
       confirm: "Удалить",
-    },
-    renameRefactor: {
-      title: "Переименовать и обновить ссылки?",
-      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
-      confirm: "Переименовать",
-    },
-    moveRefactor: {
-      title: "Переместить и обновить ссылки?",
-      description: "Ссылок изменится: {{replacements}}, в заметках: {{notes}}.",
-      confirm: "Переместить",
-    },
-    mergeNotes: {
-      title: "Добавить «{{source}}» в конец «{{target}}»?",
-      description: "Заметка «{{source}}» уйдёт в корзину системы, её можно вернуть оттуда.",
-      confirm: "Добавить",
     },
     deletePermanent: {
       title: "Удалить «{{name}}» навсегда?",
@@ -1220,6 +1289,11 @@ const ru = {
       "Нет доступа: система не разрешила изменить этот файл или папку. Ничего не изменено. Проверьте права доступа и повторите.",
     invalidPath:
       "Название не подходит: в нём недопустимые символы или оно слишком длинное. Введите другое.",
+    undoItemMoved:
+      "Не вернуть: заметку уже перенесли или переименовали, или её прежнее место занято. Ничего не изменено.",
+    undoNoteChanged:
+      "Не вернуть: заметки уже правили после этого. Ничего не изменено, правки целы.",
+    undoUnavailable: "Не вернуть: прежняя версия больше не хранится. Ничего не изменено.",
   },
   databaseErrors: {
     diagnostic: {
@@ -1351,6 +1425,7 @@ const ru = {
     search: "Поиск",
     refresh: "Обновить хранилище",
     network: "Граф связей",
+    daily: "Сегодня",
     notifications: "Уведомления",
     noticesCount: "Уведомления: {{count}}",
     presets: "Зоны и пресеты",
@@ -1459,6 +1534,10 @@ const ru = {
     databaseDesc: "Таблица, доска или галерея заметок",
     folder: "Папка",
     folderDesc: "Новая папка",
+    template: "Заметка из шаблона",
+    templateShort: "Шаблон",
+    daily: "Заметка на сегодня",
+    dailyShort: "Сегодня",
     canvasDesc: "Новый холст",
     canvas: "Canvas",
     sketch: "Набросок",
@@ -1577,6 +1656,43 @@ const ru = {
     previous: "Предыдущее изображение",
     next: "Следующее изображение",
   },
+  templates: {
+    dialog: {
+      title: "Заметка из шаблона",
+      description: "Название станет заголовком, а дата и время подставятся из шаблона.",
+      name: "Название",
+      nameRequired: "Введите название заметки.",
+      template: "Шаблон",
+      loading: "Загружаем шаблоны…",
+      listFailed: "Не удалось прочитать папку шаблонов. Ничего не создано.",
+      empty:
+        "Шаблонов пока нет. Создайте первый: он откроется для правки, а потом по нему можно будет создавать заметки.",
+      newTemplate: "Новый шаблон",
+      newTemplateDescription:
+        "Шаблон откроется для правки. Вместо {{titleTag}}, {{dateTag}} и {{timeTag}} в заметке появятся её название, дата и время.",
+      templateName: "Название шаблона",
+      createTemplate: "Создать шаблон",
+      back: "Назад",
+      templateCreateFailed:
+        "Не удалось создать шаблон. Возможно, шаблон с таким названием уже есть. Ничего не изменено.",
+      createFailed:
+        "Не удалось создать заметку. Возможно, заметка с таким названием уже есть. Шаблон не изменён.",
+      create: "Создать",
+    },
+  },
+  noteModules: {
+    templatesFolder: "Папка шаблонов",
+    templatesFolderHint: "Каждая заметка в этой папке — шаблон. Путь от корня хранилища.",
+    dailyFolder: "Папка ежедневных заметок",
+    dailyFolderHint:
+      "Заметка дня называется по дате, например 2026-11-20. Точка — корень хранилища.",
+    dailyTemplate: "Шаблон для нового дня",
+    dailyTemplateHint: "Из него создаётся заметка, которой ещё нет.",
+    noTemplate: "Без шаблона",
+    missingTemplate: "{{name}} (нет в папке шаблонов)",
+    folderInvalid: "Укажите папку внутри хранилища, без «..» и скрытых папок.",
+    saveFailed: "Не удалось сохранить настройку. Попробуйте ещё раз.",
+  },
   folderView: {
     summary: "Заметок: {{notes}} · папок: {{folders}}",
     itemSummary: "Заметок: {{notes}} · папок: {{folders}}",
@@ -1586,6 +1702,8 @@ const ru = {
     search: "Поиск в папке…",
     note: "Заметка",
     canvas: "Canvas",
+    database: "База данных",
+    sketch: "Набросок",
     empty: "Папка пуста",
     emptyHint: "Создайте заметку или вложенную папку.",
     noResults: "Ничего не найдено",
@@ -1767,6 +1885,10 @@ const ru = {
         title: "Не удалось открыть ссылку",
         line: "Заметки не тронуты. Попробуйте ещё раз.",
       },
+      dailyNoteFailed: {
+        title: "Не удалось открыть заметку на сегодня",
+        line: "Заметки не тронуты. Проверьте папку и шаблон в Настройки → Модули → Ежедневные заметки.",
+      },
       aiKeyLeft: {
         title: "Старый ключ остался в связке ключей",
         line: "Подключение удалено, а ключ можно убрать из связки ключей вручную.",
@@ -1783,6 +1905,16 @@ const ru = {
       propertiesKept: "Свойства «{{name}}» не перенесены в базу",
       propertiesKeptLine: "Они остались в заметке, ничего не потеряно.",
       propertiesRetry: "Перенести",
+      renamed: "Переименовано в «{{name}}»",
+      moved: "Перенесено «{{name}}» в «{{target}}»",
+      movedMany: "Перенесено выбранное ({{items}}) в «{{target}}»",
+      linksUpdated_one: "Ссылки обновлены в {{count}} заметке.",
+      linksUpdated_few: "Ссылки обновлены в {{count}} заметках.",
+      linksUpdated_many: "Ссылки обновлены в {{count}} заметках.",
+      linksUpdated: "Ссылки обновлены в {{count}} заметках.",
+      merged: "Текст «{{source}}» добавлен в «{{target}}»",
+      mergedLine: "Заметка «{{source}}» убрана в архив.",
+      undoFailed: "Не удалось вернуть",
       createNoteFailed: "Не удалось создать заметку",
       createFolderFailed: "Не удалось создать папку",
       createCanvasFailed: "Не удалось создать холст",
@@ -1858,6 +1990,31 @@ const ru = {
     journal: {
       merged: "«{{name}}»: правки двух компьютеров объединены",
       backupReady: "Резервная копия готова",
+      propertiesBackup: "Свойства заметки «{{name}}» сохранены в резервной копии",
+      restore: "Вернуть",
+      restoredDone: "Возвращено",
+      renamedWithLinks_one: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметке",
+      renamedWithLinks_few: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      renamedWithLinks_many: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      renamedWithLinks: "Переименовано в «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks_one: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметке",
+      movedWithLinks_few: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks_many: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedWithLinks: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks_one:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметке",
+      movedManyWithLinks_few:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks_many:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks: "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
+      notesMerged: "Текст «{{source}}» добавлен в «{{target}}»",
+      undoPartial:
+        "Вернулось {{done}} из {{total}}, остальное осталось на новом месте. Ничего не потеряно.",
+      undoSaveFirst: "Сначала сохраните открытые заметки, потом верните.",
+      undoFailed: "Не удалось вернуть. Ничего не изменено.",
+      restoreSaveFirst: "Сначала сохраните заметку, потом верните прежнюю версию.",
+      restoreFailed: "Не удалось вернуть прежнюю версию. Она осталась в истории заметки.",
       updateFailed: "Не удалось проверить обновления, попробуем позже",
       updateInstallFailed: "Не удалось установить обновление {{version}}",
       unknown: "Событие",
@@ -1993,8 +2150,110 @@ const ru = {
     addMention: "Добавить заметку или папку",
     noMentions: "Ничего не найдено",
     searchVault: "Поиск по хранилищу",
-    toolsDisabled:
-      "Модель не поддерживает инструменты. Включите их у модели в Настройки → Модули → AI (значок гаечного ключа).",
+    dictation: {
+      label: "Диктовка (системная)",
+      error: "Не удалось начать диктовку. Включите её в настройках системы: Клавиатура → Диктовка.",
+    },
+    attach: {
+      label: "Прикрепить",
+      file: "Текстовый файл",
+      note: "Заметка или папка",
+      noteTree: "Дерево заметок",
+      searchNotes: "Поиск заметок и папок…",
+      clearSearch: "Очистить поиск",
+      back: "Назад",
+      expandFolder: "Раскрыть папку",
+      collapseFolder: "Свернуть папку",
+      list: "Прикреплённые файлы",
+      remove: "Убрать файл {{name}}",
+      error: {
+        tooMany: "Можно прикрепить не больше пяти файлов.",
+        tooLarge: "Файл слишком большой: до 200 КБ на файл и около 30 000 знаков на все.",
+        notText: "Это не текстовый файл. Можно прикреплять только текст.",
+      },
+    },
+    searchVaultHint:
+      "Всё хранилище: ИИ ищет и может предлагать правки в любых заметках, а не только в контексте",
+    approval: {
+      title: "Как применять правки ИИ",
+      manual: {
+        label: "Ручное подтверждение",
+        hint: "Каждую правку вы применяете сами на карточке.",
+      },
+      auto: {
+        label: "Автоматически",
+        hint: "Текст, свойства и базы применяются сразу, на карточке остаётся «Отменить». Перенос, переименование, архив и удаление ждут вашего «Применить».",
+      },
+      turbo: {
+        label: "Без остановок",
+        hint: "Всё применяется сразу, включая перенос и архив, ничего не спрашивается. Удаление всё равно ждёт «Применить»: его нельзя отменить отсюда.",
+      },
+    },
+    proposal: {
+      title: "Предложенная правка: {{path}}",
+      kind: {
+        new: "Новая заметка",
+        append: "Добавить в конец",
+        replace: "Замена фрагмента",
+        createDatabaseRow: "Новая строка базы",
+        setDatabaseValue: "Значение ячейки",
+        setProperty: "Свойство заметки",
+        deleteProperty: "Удаление свойства",
+        renameProperty: "Переименование свойства",
+        move: "Перенос",
+        rename: "Переименование",
+        archive: "Перенос в архив",
+        delete: "Удаление",
+      },
+      deleteWarning:
+        "Удаление идёт в системную корзину, как при ручном удалении. Отсюда отменить его нельзя: восстанавливать придётся вручную из корзины. Если файл может понадобиться, лучше архив.",
+      deleteWarningArchive:
+        "По вашей настройке удаление уходит в архив, откуда его можно вернуть кнопкой «Отменить».",
+      affected: "Файлы, которых касается правка",
+      affectedMore: "Правка затрагивает больше файлов, чем показано.",
+      truncated: "Показано не всё изменение.",
+      waitForSave:
+        "Заметка открыта с несохранёнными правками. Сохраните её, и правку можно будет применить.",
+      apply: "Применить",
+      reject: "Отклонить",
+      undo: "Отменить",
+      state: {
+        applied: "Применено. Прежний текст сохранён в истории заметки.",
+        rejected: "Отклонено.",
+        undone: "Отменено.",
+        outdated: "Заметка изменилась после предложения, ничего не записано.",
+        outdatedStructural: "Файлы изменились после предложения, ничего не сделано.",
+        appliedStructural: "Применено. «Отменить» вернёт всё на место, включая ссылки.",
+        appliedDelete: "Удалено. Восстановить можно только вручную из корзины.",
+        appliedArchive: "Перенесено в архив. «Отменить» вернёт на место.",
+        appliedRow: "Строка добавлена. «Отменить» уберёт её.",
+        appliedCell: "Значение записано. «Отменить» вернёт прежнее.",
+      },
+      error: {
+        noteHasUnsavedEdits: "Заметка открыта с несохранёнными правками. Сначала сохраните её.",
+        changedSince:
+          "Заметка изменилась после применения, поэтому отменить нельзя. Прежний текст есть в её истории.",
+        proposalNotFound: "Предложение устарело. Попросите ИИ повторить его.",
+        proposalNotPending: "Предложение уже обработано.",
+        vaultNotActive: "Это хранилище уже закрыто.",
+        revisionConflict: "Строка изменилась после предложения, ничего не записано.",
+        moduleDisabled: "Модуль баз данных выключен. Включите его в настройках модулей.",
+        invalidValue: "Это значение не подходит для такого свойства. Строка не изменена.",
+        databaseLocked: "Эта база закрыта для правок. Ничего не записано.",
+        propertiesNotMigrated:
+          "Свойства этого хранилища ещё не переведены в новый формат, поэтому их нельзя менять. Заметка не изменена.",
+        changedSinceStructural:
+          "Файлы изменились после применения, поэтому отменить отсюда нельзя. Ничего не тронуто.",
+        mutationConflict: "Файл с таким именем уже есть или что-то мешает. Ничего не изменено.",
+        vaultBusy: "Сейчас выполняется другое изменение. Повторите через минуту.",
+        trashUnavailable: "Корзина недоступна. Ничего не удалено.",
+        undoUnavailable: "Отсюда отменить нельзя. Найдите файл в корзине или архиве.",
+        operationTooLarge: "Правка затрагивает слишком много файлов. Ничего не изменено.",
+        recoveryRequired: "Хранилищу сначала нужно завершить прошлую операцию. Ничего не изменено.",
+        other: "Не удалось выполнить действие. Заметка не изменена.",
+      },
+    },
+    toolsDisabled: "Выбранная модель не поддерживает инструменты.",
     localModel: "локально",
     cloudModel: "облако",
     consentTitle: "Разрешить облачный поиск?",
@@ -2021,8 +2280,22 @@ const ru = {
     reading: "Прочитал «{{query}}»",
     listing: "Просмотрел папку «{{query}}» · {{count}} заметок",
     linking: "Проверил связи «{{query}}»",
+    outlining: "Посмотрел структуру «{{query}}»",
+    readingSection: "Прочитал раздел в «{{query}}»",
+    readingProperties: "Посмотрел свойства «{{query}}»",
+    readingInfo: "Посмотрел сведения о «{{query}}»",
+    readingHistory: "Посмотрел историю «{{query}}»",
+    readingVersion: "Прочитал прежнюю версию «{{query}}»",
+    listingTags: "Посмотрел теги",
+    listingDatabases: "Посмотрел базы данных",
+    readingDatabase: "Прочитал базу «{{query}}»",
+    proposing: "Подготовил изменение «{{query}}»",
     toolOther: "Шаг ИИ: {{tool}}",
     toolFailed: "Не удалось выполнить шаг",
+    toolNotFound: "Не нашёл «{{query}}»",
+    toolAmbiguous: "Несколько заметок называются «{{query}}»",
+    toolOutsideContext:
+      "Я не могу искать заметки вне контекста. Включите поиск по хранилищу или добавьте заметку в контекст.",
     indexTooLarge: "Индекс слишком велик для безопасного чтения ИИ (более 512 МБ).",
     examples: "Например: выдели главные мысли или найди связанные заметки.",
     untitled: "без названия",
@@ -2043,6 +2316,7 @@ const ru = {
     stop: "Остановить",
     cancelled: "Запрос отменён",
     activeModel: "Активная модель",
+    contextUsage: "Заполненность контекста: {{percent}}% ({{used}} из {{limit}} КБ)",
     noModelsOpenSettings: "Нет моделей — откройте настройки",
     generating: "Генерация…",
     noteFallback: "Заметка",
@@ -2149,6 +2423,10 @@ const ru = {
     expand: "Развернуть {{name}}",
     moveUp: "Поднять модель {{model}}",
     moveDown: "Опустить модель {{model}}",
+    dragModel: "Перетащить модель {{model}}",
+    hideModel: "Скрыть модель {{model}}",
+    showModel: "Показать модель {{model}}",
+    hiddenModels: "Скрытые модели ({{count}})",
   },
   models: {
     empty: "Пока нет моделей. Добавьте первую ниже.",
@@ -2388,8 +2666,7 @@ const ru = {
       openWorkshop: "Открыть Мастерскую",
     },
     openVault: "Открыть хранилище",
-    layerCreated:
-      "Слой создан рядом с заметкой. Полноценный редактор появится в следующем инкременте.",
+    loadingDatabaseLayer: "Загрузка слоя базы данных…",
     wordCount: "{{count}} сл.",
     editMode: "Режим редактирования",
     viewMode: "Режим просмотра",
@@ -2783,6 +3060,7 @@ const ru = {
     empty: "Нет файлов. Создайте новый.",
     create: "Создать",
     newNote: "Новая заметка",
+    newFromTemplate: "Заметка из шаблона…",
     newFolder: "Новая папка",
     newCanvas: "Новый Canvas",
     newSketch: "Новый набросок",
@@ -4172,6 +4450,10 @@ const ru = {
       },
       unsynced: {
         title: "Не синхронизируется ({{count}})",
+        localOnlyTitle: "Только на этом компьютере ({{count}})",
+        refresh: "Проверить файлы заново",
+        localOnlyHint:
+          "Эти файлы не участвуют в синхронизации по правилам Amby. Это не ошибка, делать ничего не нужно.",
         symlink: "Символическая ссылка",
         notUtf8: "Имя не в UTF-8",
         tooLarge: "Файл больше лимита сервера",
@@ -4179,7 +4461,7 @@ const ru = {
         tooLargeServer: "Файл больше предела сервера: {{size}}",
         quotaFull: "Хранилище заполнено: файл ждёт свободного места",
         subscriptionRequired: "Нужна подписка: файл ждёт отправки",
-        tooBigForMemory: "Файл больше лимита приложения",
+        tooBigForMemory: "Больше 30 МБ: такие файлы не синхронизируются",
         excludedPath: "Служебный путь",
         invalidName: "Имя нельзя создать на этой системе ({{problem}})",
         caseCollision: "Совпадает с «{{other}}» без учёта регистра",
@@ -4376,6 +4658,57 @@ const en: LocaleShape<typeof ru> = {
       colorsEffects: "Colors & effects",
       typography: "Typography",
       updates: "Updates",
+      commandLine: "Command line",
+    },
+    cliPath: {
+      label: "The amby command in the terminal",
+      off: "Not set up: without it the CLI runs only by its full path.",
+      on: "Set up. In a new terminal window, type amby --help.",
+      needsPath:
+        "The link is at {{location}}, but your shell does not search that folder: add it to PATH in your shell settings.",
+      taken:
+        "The name is taken: another amby program is already at {{location}}. Amby leaves it alone; remove it yourself if you do not need it.",
+      add: "Set up",
+      remove: "Remove",
+      changeLink: "Amby will create a link at {{location}} to its CLI.",
+      changeProfile:
+        "Amby will create a link at {{location}} to its CLI and add a PATH line, marked with an Amby comment, to the end of {{profile}}.",
+      changeWindows: "Amby will add the folder {{location}} to the PATH of your Windows account.",
+      errors: {
+        failed: "Could not change PATH. Try again.",
+        taken: "The name amby is already used by another program. Amby leaves it alone.",
+        unavailable: "This Amby build has no CLI.",
+      },
+    },
+    mcpClients: {
+      title: "AI agents",
+      hint: "Agents work with the open vault through MCP. An agent's edits are written at once, without asking; each one is kept in version history.",
+      edits: "Editing",
+      readOnly: "Read only",
+      readWrite: "Read and write",
+      notFound: "Not found",
+      off: "Not connected",
+      on: "Connected",
+      onOther: "Another vault",
+      cursorRemove: "Remove it in Cursor settings → MCP.",
+      cursorAsked: "Cursor opens its install window: confirm the connection there.",
+      connect: "Connect",
+      reconnect: "Reconnect",
+      connectHere: "Connect here",
+      disconnect: "Disconnect",
+      how: {
+        claudeCode: "the claude mcp add command",
+        codex: "the codex mcp add command",
+        cursor: "the Cursor install window",
+        antigravity: "the agy mcp add command",
+      },
+      errors: {
+        noVault: "Open the vault you want to connect.",
+        noCli: "This Amby build has no CLI.",
+        clientMissing: "The program was not found on this computer.",
+        unsupported: "Remove the server in that program's settings.",
+        failed: "Could not change the connection. Try again.",
+      },
     },
     general: {
       deleteMode: "File deletion",
@@ -4586,6 +4919,10 @@ const en: LocaleShape<typeof ru> = {
       shortcuts: "Keyboard shortcuts",
       modules: "Built-in modules",
       sync: "Synchronization",
+      about: "About",
+    },
+    about: {
+      app: "Amby",
     },
     shortcuts: {
       description:
@@ -4705,7 +5042,12 @@ const en: LocaleShape<typeof ru> = {
       excalidraw: "Draw",
       canvas: "Canvas",
       creative: "Creative Studio",
+      templates: "Templates",
+      supernotes: "Supernotes",
+      daily: "Daily notes",
       descriptions: {
+        supernotes:
+          "Create nested notes, convert folders, and manage layers. With the module off, supernotes appear as folders. Delete linked files individually, or use the folder to rename or move the group.",
         tags: "Collects tags from notes and adds tag navigation to the sidebar.",
         favorites: "Keeps quick access to favorite notes in the current vault.",
         databases: "Table views for notes and their properties.",
@@ -4717,6 +5059,9 @@ const en: LocaleShape<typeof ru> = {
         canvas: "Visual infinite canvas with note cards, connections, and media.",
         creative:
           "Writers' studio: characters, locations, narrative relations, corkboards, and manuscript outlines.",
+        templates:
+          "New notes from the notes in the templates folder, with the date, time and title filled in.",
+        daily: "One note for each day. The Today button opens it or creates it.",
       },
     },
     appearance: {
@@ -4752,9 +5097,6 @@ const en: LocaleShape<typeof ru> = {
       fontSerif: "Serif",
       fontMono: "Monospace",
       fontScale: "Font size",
-      fontSm: "Small",
-      fontMd: "Medium",
-      fontLg: "Large",
       density: "UI density",
       comfortable: "Comfortable",
       compact: "Compact",
@@ -4768,10 +5110,7 @@ const en: LocaleShape<typeof ru> = {
         "When off, the right panel, its dock and its toggle disappear, and all its buttons move to the left panel.",
       tooltipDelay: "Tooltip delay",
       tooltipNone: "No delay",
-      tooltipHalfSecond: "0.5 sec",
-      tooltipOneSecond: "1 sec",
-      tooltipOneHalfSeconds: "1.5 sec",
-      tooltipTwoSeconds: "2 sec",
+      tooltipSeconds: "{{seconds}} sec",
       tooltipDisabled: "No tooltips",
       bottomBar: "Note bottom bar",
       bottomBarHint: "Show the floating bar with word count, undo/redo, lock, and editor mode.",
@@ -4829,7 +5168,11 @@ const en: LocaleShape<typeof ru> = {
       openFolder: "Open folder",
       openFolderFailed: "Could not show the folder. Check that it is still there.",
       reset: "Reset settings",
-      clearRecent: "Clear recent vaults list",
+      resetHint: "App settings return to their defaults. Notes and vaults are not touched.",
+      resetAction: "Reset",
+      recent: "Recent vaults",
+      recentHint: "The list on the vault picker. The vaults themselves stay where they are.",
+      clearRecent: "Clear",
     },
   },
   confirmations: {
@@ -4858,11 +5201,28 @@ const en: LocaleShape<typeof ru> = {
       description: "Settings go back to their defaults; your notes are not touched.",
       confirm: "Reset",
     },
-    deleteBackup: {
-      title: "Delete the copy made before sync?",
+    connectMcpClient: {
+      title: "Connect Amby to {{client}}?",
       description:
-        "The copy leaves this computer and cannot be brought back. The notes in the vault and on the server are not changed.",
+        "{{client}} gets access to the vault {{vault}}: {{access}}. Amby registers the amby server through {{how}}. Disconnect removes it.",
+      confirm: "Connect",
+    },
+    addCliToPath: {
+      title: "Set up the amby command?",
+      description: "{{change}} The Remove button takes this back.",
+      confirm: "Set up",
+    },
+    deleteBackup: {
+      title: "Delete the copy from {{date}}?",
+      description:
+        "Only this copy is deleted: it leaves this computer and cannot be brought back. Other copies and the notes in the vault and on the server are not changed.",
       confirm: "Delete copy",
+    },
+    deleteOldBackup: {
+      title: "Delete the old copy from {{date}}?",
+      description:
+        "Only this old copy beside the vault is deleted: it leaves this computer and cannot be brought back. Other copies and the notes in the vault and on the server are not changed.",
+      confirm: "Delete old copy",
     },
     deleteDebugHistory: {
       title: "Delete the saved event journal?",
@@ -4874,26 +5234,16 @@ const en: LocaleShape<typeof ru> = {
       description: "The layer file goes to the system Recycle Bin; it can be restored from there.",
       confirm: "Delete",
     },
+    aiTurbo: {
+      title: "Turn on the mode without stops?",
+      description:
+        "The AI will apply all its changes at once, including moving and archiving files, without asking you. Deleting still waits for your Apply. What was applied can be undone.",
+      confirm: "Turn on",
+    },
     removeAiConnection: {
       title: "Delete the connection “{{name}}”?",
       description: "Its key is deleted unless another connection uses it; chats are kept.",
       confirm: "Delete",
-    },
-    renameRefactor: {
-      title: "Rename and update the links?",
-      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
-      confirm: "Rename",
-    },
-    moveRefactor: {
-      title: "Move and update the links?",
-      description: "Links to change: {{replacements}}, in notes: {{notes}}.",
-      confirm: "Move",
-    },
-    mergeNotes: {
-      title: "Append “{{source}}” to the end of “{{target}}”?",
-      description:
-        "The note “{{source}}” goes to the system Recycle Bin; it can be restored from there.",
-      confirm: "Append",
     },
     deletePermanent: {
       title: "Delete “{{name}}” permanently?",
@@ -5520,6 +5870,11 @@ const en: LocaleShape<typeof ru> = {
       "No access: the system did not allow changing this file or folder. Nothing was changed. Check the permissions and try again.",
     invalidPath:
       "The name is not allowed: it has forbidden characters or is too long. Enter another one.",
+    undoItemMoved:
+      "Cannot undo: the note was moved or renamed since, or its old place is taken. Nothing was changed.",
+    undoNoteChanged:
+      "Cannot undo: the notes were edited since. Nothing was changed; the edits are intact.",
+    undoUnavailable: "Cannot undo: the previous version is no longer kept. Nothing was changed.",
   },
   databaseErrors: {
     diagnostic: {
@@ -5655,6 +6010,7 @@ const en: LocaleShape<typeof ru> = {
     search: "Search",
     refresh: "Refresh vault",
     network: "Graph",
+    daily: "Today",
     notifications: "Notifications",
     noticesCount: "Notifications: {{count}}",
     presets: "Zones and presets",
@@ -5761,6 +6117,10 @@ const en: LocaleShape<typeof ru> = {
     databaseDesc: "A table, board or gallery of notes",
     folder: "Folder",
     folderDesc: "New folder",
+    template: "Note from template",
+    templateShort: "Template",
+    daily: "Today's note",
+    dailyShort: "Today",
     canvasDesc: "New canvas",
     canvas: "Canvas",
     sketch: "Draw",
@@ -5876,6 +6236,43 @@ const en: LocaleShape<typeof ru> = {
     previous: "Previous image",
     next: "Next image",
   },
+  templates: {
+    dialog: {
+      title: "Note from template",
+      description: "The name becomes the title; the date and time are filled in from the template.",
+      name: "Name",
+      nameRequired: "Enter a name for the note.",
+      template: "Template",
+      loading: "Loading templates…",
+      listFailed: "Could not read the templates folder. Nothing was created.",
+      empty:
+        "No templates yet. Create the first one: it opens for editing, and then notes can be made from it.",
+      newTemplate: "New template",
+      newTemplateDescription:
+        "The template opens for editing. In a note made from it, {{titleTag}}, {{dateTag}} and {{timeTag}} become its name, date and time.",
+      templateName: "Template name",
+      createTemplate: "Create template",
+      back: "Back",
+      templateCreateFailed:
+        "Could not create the template. A template with this name may already exist. Nothing was changed.",
+      createFailed:
+        "Could not create the note. A note with this name may already exist. The template is unchanged.",
+      create: "Create",
+    },
+  },
+  noteModules: {
+    templatesFolder: "Templates folder",
+    templatesFolderHint: "Every note in this folder is a template. A path from the vault root.",
+    dailyFolder: "Daily notes folder",
+    dailyFolderHint:
+      "Each day's note is named by its date, such as 2026-11-20. A dot is the vault root.",
+    dailyTemplate: "Template for a new day",
+    dailyTemplateHint: "A day's note that does not exist yet is created from it.",
+    noTemplate: "No template",
+    missingTemplate: "{{name}} (not in the templates folder)",
+    folderInvalid: "Choose a folder inside the vault, without “..” or hidden folders.",
+    saveFailed: "Could not save the setting. Try again.",
+  },
   folderView: {
     summary: "Notes: {{notes}} · folders: {{folders}}",
     itemSummary: "Notes: {{notes}} · folders: {{folders}}",
@@ -5885,6 +6282,8 @@ const en: LocaleShape<typeof ru> = {
     search: "Search this folder…",
     note: "Note",
     canvas: "Canvas",
+    database: "Database",
+    sketch: "Sketch",
     empty: "This folder is empty",
     emptyHint: "Create a note or a nested folder.",
     noResults: "Nothing found",
@@ -6059,6 +6458,10 @@ const en: LocaleShape<typeof ru> = {
         title: "Could not open the link",
         line: "Your notes are not affected. Try again.",
       },
+      dailyNoteFailed: {
+        title: "Could not open today's note",
+        line: "Your notes are not affected. Check the folder and template in Settings → Modules → Daily notes.",
+      },
       aiKeyLeft: {
         title: "The old key stayed in the keychain",
         line: "The connection is deleted; you can remove the key from the keychain by hand.",
@@ -6075,6 +6478,14 @@ const en: LocaleShape<typeof ru> = {
       propertiesKept: "The properties of “{{name}}” were not moved to the database",
       propertiesKeptLine: "They stayed in the note, nothing is lost.",
       propertiesRetry: "Move them",
+      renamed: "Renamed to “{{name}}”",
+      moved: "Moved “{{name}}” to “{{target}}”",
+      movedMany: "Moved the selected items ({{items}}) to “{{target}}”",
+      linksUpdated_one: "Links updated in {{count}} note.",
+      linksUpdated: "Links updated in {{count}} notes.",
+      merged: "The text of “{{source}}” was added to “{{target}}”",
+      mergedLine: "The note “{{source}}” went to the archive.",
+      undoFailed: "Could not undo",
       createNoteFailed: "Could not create the note",
       createFolderFailed: "Could not create the folder",
       createCanvasFailed: "Could not create the canvas",
@@ -6149,6 +6560,23 @@ const en: LocaleShape<typeof ru> = {
     journal: {
       merged: "“{{name}}”: the edits of two computers were merged",
       backupReady: "The backup is ready",
+      propertiesBackup: "The properties of the note “{{name}}” are saved in a backup",
+      restore: "Restore",
+      restoredDone: "Restored",
+      renamedWithLinks_one: "Renamed to “{{name}}”, links updated in {{count}} note",
+      renamedWithLinks: "Renamed to “{{name}}”, links updated in {{count}} notes",
+      movedWithLinks_one: "Moved “{{name}}”, links updated in {{count}} note",
+      movedWithLinks: "Moved “{{name}}”, links updated in {{count}} notes",
+      movedManyWithLinks_one:
+        "Moved the selected items ({{items}}), links updated in {{count}} note",
+      movedManyWithLinks: "Moved the selected items ({{items}}), links updated in {{count}} notes",
+      notesMerged: "The text of “{{source}}” was added to “{{target}}”",
+      undoPartial:
+        "{{done}} of {{total}} came back; the rest stayed in the new place. Nothing was lost.",
+      undoSaveFirst: "Save the open notes first, then undo.",
+      undoFailed: "Could not undo. Nothing was changed.",
+      restoreSaveFirst: "Save the note first, then restore the previous version.",
+      restoreFailed: "Could not restore the previous version. It is still in the note's history.",
       updateFailed: "Could not check for updates; we will try later",
       updateInstallFailed: "Could not install the update {{version}}",
       unknown: "Event",
@@ -6281,8 +6709,110 @@ const en: LocaleShape<typeof ru> = {
     addMention: "Add a note or folder",
     noMentions: "No matches",
     searchVault: "Search the vault",
-    toolsDisabled:
-      "This model does not support tools. Turn them on for the model in Settings → Modules → AI (wrench icon).",
+    dictation: {
+      label: "Dictation (system)",
+      error: "Dictation did not start. Turn it on in the system settings: Keyboard → Dictation.",
+    },
+    attach: {
+      label: "Attach",
+      file: "Text file",
+      note: "Note or folder",
+      noteTree: "Note tree",
+      searchNotes: "Search notes and folders…",
+      clearSearch: "Clear search",
+      back: "Back",
+      expandFolder: "Expand folder",
+      collapseFolder: "Collapse folder",
+      list: "Attached files",
+      remove: "Remove the file {{name}}",
+      error: {
+        tooMany: "You can attach at most five files.",
+        tooLarge:
+          "The file is too large: up to 200 KB per file and about 30,000 characters in all.",
+        notText: "This is not a text file. Only text can be attached.",
+      },
+    },
+    searchVaultHint:
+      "The whole vault: the AI searches and can propose changes in any note, not only in the context",
+    approval: {
+      title: "How the AI's changes are applied",
+      manual: { label: "Manual approval", hint: "You apply each change yourself on its card." },
+      auto: {
+        label: "Automatic",
+        hint: "Text, properties and databases apply at once and the card keeps Undo. Move, rename, archive and delete wait for your Apply.",
+      },
+      turbo: {
+        label: "Without stops",
+        hint: "Everything applies at once, move and archive included, with no questions. Delete still waits for Apply: it cannot be undone from here.",
+      },
+    },
+    proposal: {
+      title: "Proposed change: {{path}}",
+      kind: {
+        new: "New note",
+        append: "Add to the end",
+        replace: "Replace a fragment",
+        createDatabaseRow: "New database row",
+        setDatabaseValue: "Cell value",
+        setProperty: "Note property",
+        deleteProperty: "Remove a property",
+        renameProperty: "Rename a property",
+        move: "Move",
+        rename: "Rename",
+        archive: "Move to the archive",
+        delete: "Delete",
+      },
+      deleteWarning:
+        "Deleting goes to the system trash, like a manual delete. It cannot be undone from here: you will have to restore it by hand from the trash. If you may need the file, archive is better.",
+      deleteWarningArchive:
+        "By your setting, deleting sends the item to the archive, where Undo can bring it back.",
+      affected: "Files this change touches",
+      affectedMore: "The change touches more files than are listed.",
+      truncated: "Only part of the change is shown.",
+      waitForSave: "The note is open with unsaved edits. Save it, then the change can be applied.",
+      apply: "Apply",
+      reject: "Reject",
+      undo: "Undo",
+      state: {
+        applied: "Applied. The previous text is kept in the note's history.",
+        rejected: "Rejected.",
+        undone: "Undone.",
+        outdated: "The note changed after the proposal, so nothing was written.",
+        outdatedStructural: "Files changed after the proposal, so nothing was done.",
+        appliedStructural: "Applied. Undo puts everything back, links included.",
+        appliedDelete: "Deleted. It can only be restored by hand from the trash.",
+        appliedArchive: "Moved to the archive. Undo puts it back.",
+        appliedRow: "Row added. Undo removes it.",
+        appliedCell: "Value written. Undo restores the previous one.",
+      },
+      error: {
+        noteHasUnsavedEdits: "The note is open with unsaved edits. Save it first.",
+        changedSince:
+          "The note changed after the change was applied, so it cannot be undone here. The previous text is in its history.",
+        proposalNotFound: "The proposal has expired. Ask the AI to propose it again.",
+        proposalNotPending: "This proposal was already handled.",
+        vaultNotActive: "That vault is no longer open.",
+        revisionConflict: "The row changed after the proposal, so nothing was written.",
+        moduleDisabled: "The databases module is off. Turn it on in the module settings.",
+        invalidValue: "This value does not fit that property. The row is unchanged.",
+        databaseLocked: "This database is closed for changes. Nothing was written.",
+        propertiesNotMigrated:
+          "This vault's properties have not been moved to the new format yet, so they cannot be changed. The note is unchanged.",
+        changedSinceStructural:
+          "Files changed after the change was applied, so it cannot be undone from here. Nothing was touched.",
+        mutationConflict:
+          "A file with that name already exists or is in the way. Nothing was changed.",
+        vaultBusy: "Another change is running. Try again in a moment.",
+        trashUnavailable: "The trash is not available. Nothing was deleted.",
+        undoUnavailable:
+          "This cannot be undone from here. Find the file in the trash or the archive.",
+        operationTooLarge: "The change covers too many files. Nothing was changed.",
+        recoveryRequired:
+          "The vault has to finish a previous operation first. Nothing was changed.",
+        other: "The action failed. The note is unchanged.",
+      },
+    },
+    toolsDisabled: "The selected model does not support tools.",
     localModel: "local",
     cloudModel: "cloud",
     consentTitle: "Allow cloud search?",
@@ -6309,8 +6839,22 @@ const en: LocaleShape<typeof ru> = {
     reading: "Read “{{query}}”",
     listing: "Listed folder “{{query}}” · {{count}} notes",
     linking: "Checked links for “{{query}}”",
+    outlining: "Looked at the outline of “{{query}}”",
+    readingSection: "Read a section of “{{query}}”",
+    readingProperties: "Looked at the properties of “{{query}}”",
+    readingInfo: "Looked at details of “{{query}}”",
+    readingHistory: "Looked at the history of “{{query}}”",
+    readingVersion: "Read an earlier version of “{{query}}”",
+    listingTags: "Looked at the tags",
+    listingDatabases: "Looked at the databases",
+    readingDatabase: "Read the database “{{query}}”",
+    proposing: "Prepared a change to “{{query}}”",
     toolOther: "AI step: {{tool}}",
     toolFailed: "The step could not be completed",
+    toolNotFound: "Did not find “{{query}}”",
+    toolAmbiguous: "Several notes are called “{{query}}”",
+    toolOutsideContext:
+      "I cannot search notes outside the context. Turn on vault search or add the note to the context.",
     indexTooLarge: "The index is too large for safe AI access (over 512 MB).",
     examples: "For example: summarize the main ideas or find related notes.",
     untitled: "untitled",
@@ -6332,6 +6876,7 @@ const en: LocaleShape<typeof ru> = {
     stop: "Stop",
     cancelled: "Request cancelled",
     activeModel: "Active model",
+    contextUsage: "Context usage: {{percent}}% ({{used}} of {{limit}} KB)",
     noModelsOpenSettings: "No models — open settings",
     generating: "Generating…",
     noteFallback: "Note",
@@ -6438,6 +6983,10 @@ const en: LocaleShape<typeof ru> = {
     expand: "Expand {{name}}",
     moveUp: "Move {{model}} up",
     moveDown: "Move {{model}} down",
+    dragModel: "Drag model {{model}}",
+    hideModel: "Hide model {{model}}",
+    showModel: "Show model {{model}}",
+    hiddenModels: "Hidden models ({{count}})",
   },
   models: {
     empty: "No models yet. Add your first below.",
@@ -6678,8 +7227,7 @@ const en: LocaleShape<typeof ru> = {
       openWorkshop: "Open the Workshop",
     },
     openVault: "Open vault",
-    layerCreated:
-      "Layer created next to the note. A full editor will appear in the next increment.",
+    loadingDatabaseLayer: "Loading database layer…",
     wordCount: "{{count}} w",
     editMode: "Edit mode",
     viewMode: "View mode",
@@ -7073,6 +7621,7 @@ const en: LocaleShape<typeof ru> = {
     empty: "No files. Create a new one.",
     create: "Create",
     newNote: "New note",
+    newFromTemplate: "Note from template…",
     newFolder: "New folder",
     newCanvas: "New Canvas",
     newSketch: "New Draw",
@@ -8440,6 +8989,10 @@ const en: LocaleShape<typeof ru> = {
       },
       unsynced: {
         title: "Not synchronised ({{count}})",
+        localOnlyTitle: "Only on this computer ({{count}})",
+        refresh: "Check the files again",
+        localOnlyHint:
+          "These files are left out of sync by Amby's rules. This is not an error; nothing needs to be done.",
         symlink: "A symbolic link",
         notUtf8: "The name is not UTF-8",
         tooLarge: "The file is above the limit of the server",
@@ -8447,7 +9000,7 @@ const en: LocaleShape<typeof ru> = {
         tooLargeServer: "The file is above the limit of the server: {{size}}",
         quotaFull: "The storage is full: the file waits for free space",
         subscriptionRequired: "A subscription is needed: the file waits to be sent",
-        tooBigForMemory: "The file exceeds the app limit",
+        tooBigForMemory: "Over 30 MB: such files are not synced",
         excludedPath: "A service path",
         invalidName: "The name cannot be created on this system ({{problem}})",
         caseCollision: "The same as “{{other}}” ignoring case",

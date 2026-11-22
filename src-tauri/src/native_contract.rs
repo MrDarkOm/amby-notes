@@ -111,6 +111,7 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::ai::proposals::ProposalStore::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .on_menu_event(crate::state::handle_menu_event)
@@ -356,6 +357,94 @@ fn spawn_cli_write_probe(root: std::path::PathBuf, binary: std::ffi::OsString) {
                             "The inverse relation was not durably written",
                         ));
                     }
+                    // Property edits run inside the app while it holds the index connection. The
+                    // probe vault has no legacy properties, so it is in the group format as soon
+                    // as the layout exists, as after the migration at the first opening.
+                    let layout = amby_core::property_groups::layout_path(&vault);
+                    if let Some(parent) = layout.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::write(&layout, amby_core::property_groups::layout_text())?;
+                    let row_path = left["path"].clone();
+                    let property = scoped(
+                        "set_property",
+                        serde_json::json!({"path":row_path,"name":"Native check","value":["a","b"]}),
+                    )?;
+                    let found = |listing: &serde_json::Value| {
+                        listing["properties"].as_array().and_then(|items| {
+                            items
+                                .iter()
+                                .find(|item| item["name"] == "Native check")
+                                .cloned()
+                        })
+                    };
+                    if found(&property).map(|item| item["items"].clone())
+                        != Some(serde_json::json!(["a", "b"]))
+                    {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated property write: {property}"
+                        )));
+                    }
+                    let styled = scoped(
+                        "set_property_appearance",
+                        serde_json::json!({"path":row_path,"name":"Native check",
+                            "settings":{"options":["a","b"],"colors":{"a":"green"}}}),
+                    )?;
+                    if found(&styled).map(|item| item["settings"]["colors"]["a"].clone())
+                        != Some(serde_json::json!("green"))
+                    {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated presentation write: {styled}"
+                        )));
+                    }
+                    let names = styled["properties"]
+                        .as_array()
+                        .map(|items| {
+                            items
+                                .iter()
+                                .rev()
+                                .filter_map(|item| item["name"].as_str())
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let ordered = scoped(
+                        "reorder_properties",
+                        serde_json::json!({"path":row_path,"names":names}),
+                    )?;
+                    let order: Vec<String> = ordered["properties"]
+                        .as_array()
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| item["name"].as_str())
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if order.is_empty() || order != names {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated property order: {ordered}"
+                        )));
+                    }
+                    // Deletion runs inside the app as well: the note goes to the system trash
+                    // (named so it is recognisable there) and leaves the index.
+                    let doomed = "Destination/Amby native check - safe to delete.md";
+                    fs::write(vault.join(doomed), "# Amby native check\n")?;
+                    let deleted = scoped("delete_item", serde_json::json!({ "path": doomed }))?;
+                    if deleted.get("error").is_some() || vault.join(doomed).exists() {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated deletion: {deleted}"
+                        )));
+                    }
+                    let kept = "Amby native check - kept.md";
+                    fs::write(vault.join(kept), "# Kept\n")?;
+                    let outside = scoped("delete_item", serde_json::json!({ "path": kept }))?;
+                    if outside["error"] != "outsideWriteScope" || !vault.join(kept).is_file() {
+                        return Err(std::io::Error::other(format!(
+                            "Expected a delegated deletion scope denial: {outside}"
+                        )));
+                    }
                     let workshop = scoped(
                         "create_workshop",
                         serde_json::json!({
@@ -456,6 +545,7 @@ pub fn run_native_contract() {
         .manage(crate::database::mutation_state::DatabaseMutationState::default())
         .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::ai::proposals::ProposalStore::default())
         .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {

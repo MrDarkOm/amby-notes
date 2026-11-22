@@ -1,3 +1,4 @@
+import { findDocumentDatabaseLayer } from "../database/document-database-layer"
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { DeleteMode } from "../file-actions/use-document-crud"
 import type { LayerKind } from "../editor/document-actions"
@@ -13,7 +14,7 @@ import type { NoteLayers } from "@/lib/storage/types"
 import type { PanelId } from "../panel-registry"
 import type { SplitPaneOptions, Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
-import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
+import { isLayerDocument, visibleDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { DatabaseWorkspace, LazyEditorFallback } from "./lazy-surfaces"
@@ -31,7 +32,13 @@ import {
   exportActiveLayerImage,
 } from "../editor/layer-export"
 import { findWikiLinkItem } from "../wiki-links"
-import { canvasLayerPath, sketchLayerPath, nextAvailableNoteName } from "../workspace-tree-utils"
+import {
+  canvasLayerPath,
+  nextAvailableNoteName,
+  sketchLayerPath,
+  treeItemLayers,
+  wsPathDir,
+} from "../workspace-tree-utils"
 import type { TreeItem } from "../sidebar-tree"
 import { DossierFrame } from "../creative/dossier/dossier-frame"
 import { CreativeNoteTrail } from "../creative/note-trail-header"
@@ -71,6 +78,7 @@ interface UsePaneEditorPropsParams {
   ) => Promise<void>
   handleNewCanvasIn: (parentId: string | null) => Promise<void>
   handleNewSketchIn: (parentId: string | null) => Promise<void>
+  supernotesEnabled: boolean
   databasesEnabled: boolean
   creativeEnabled: boolean
   activatePanelAnywhere: (panelId: PanelId) => void
@@ -152,6 +160,7 @@ export function usePaneEditorProps({
   handleNewFileIn,
   handleNewCanvasIn,
   handleNewSketchIn,
+  supernotesEnabled,
   databasesEnabled,
   creativeEnabled,
   activatePanelAnywhere,
@@ -234,27 +243,35 @@ export function usePaneEditorProps({
     const tabCanGoBack = tab ? (tab.historyIndex ?? 0) > 0 : canGoBack
     const tabCanGoForward = tab ? tab.historyIndex < tab.history.length - 1 : canGoForward
     const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type !== "folder")
-    const foundDatabase = databases.find(
-      (database) =>
-        (doc && (database.attachedNoteId === doc.id || database.databaseId === doc.id)) ||
-        (tab && (database.databaseId === tab.fileId || database.attachedNoteId === tab.fileId)),
-    )
-    const attachedDatabase: DatabaseSummary | undefined =
-      foundDatabase ??
+    const attachedDatabase =
+      findDocumentDatabaseLayer(databases, doc, treeItem, tab?.fileId) ??
       (tab?.kind === "database"
         ? {
             databaseId: tab.fileId,
             title: tab.title,
             icon: treeItem?.icon ?? null,
             attachedNoteId: null,
-            manifestRevision: "0",
-            locked: false,
-            properties: [],
-            views: [],
-            templates: [],
-            diagnostics: [],
           }
         : undefined)
+    const cachedLayers = doc ? linkedLayersByDoc[doc.id] : undefined
+    // Tabs opened on a physical layer can outlive a change of the bundle's primary row.
+    const siblingLayers = treeItem?.bundleMember
+      ? treeItemById
+          .get(`folder:${wsPathDir(treeItem.path)}`)
+          ?.children?.filter((item) => item.bundleMember)
+      : undefined
+    const linkedLayers = supernotesEnabled
+      ? treeItem
+        ? treeItemLayers(
+            siblingLayers ? { ...treeItem, bundleMembers: siblingLayers } : treeItem,
+            cachedLayers,
+          )
+        : (cachedLayers ?? EMPTY_LAYERS)
+      : EMPTY_LAYERS
+    const pageLinkedLayers =
+      supernotesEnabled && attachedDatabase && !linkedLayers.database
+        ? { ...linkedLayers, database: true }
+        : linkedLayers
     // Keep a hidden database note's layer mounted while its tab is cached. This
     // avoids tearing down and rebuilding the database workspace on every tab
     // switch, while the legacy secondary split remains editor-only.
@@ -270,9 +287,6 @@ export function usePaneEditorProps({
         ? primaryLayers[attachedDatabase.attachedNoteId]
         : undefined)
 
-    const defaultDocLayer: EditorLayer =
-      resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
-
     const resolvedActiveLayer =
       (doc?.id ? activeLayers[doc.id] : undefined) ??
       (doc?.path ? activeLayers[doc.path] : undefined) ??
@@ -281,8 +295,13 @@ export function usePaneEditorProps({
       (attachedDatabase?.databaseId ? activeLayers[attachedDatabase.databaseId] : undefined) ??
       (attachedDatabase?.attachedNoteId ? activeLayers[attachedDatabase.attachedNoteId] : undefined)
 
-    const pageLayer =
-      canRenderLayer && doc ? (resolvedActiveLayer ?? defaultDocLayer) : defaultDocLayer
+    const pageLayer = visibleDocumentLayer(
+      tab,
+      doc?.path,
+      (canRenderLayer && doc ? resolvedActiveLayer : undefined) ?? resolvedPrimaryLayer,
+      supernotesEnabled,
+      databasesEnabled,
+    )
     const contentWidthKey =
       pageLayer === "database" && attachedDatabase
         ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -327,7 +346,10 @@ export function usePaneEditorProps({
       onForward: isPrimary ? handleForward : tab ? () => handleForward(tab.key) : () => {},
       canGoBack: isPrimary ? canGoBack : tabCanGoBack,
       canGoForward: isPrimary ? canGoForward : tabCanGoForward,
-      onRenameTitle: (name: string) => (tab ? handleRenameFile(tab.fileId, name) : undefined),
+      onRenameTitle:
+        tab && !treeItem?.bundleMember
+          ? (name: string) => handleRenameFile(tab.fileId, name)
+          : undefined,
       vault: vault ?? undefined,
       fileIcon: isPrimary
         ? currentFileIcon
@@ -411,7 +433,8 @@ export function usePaneEditorProps({
       onContentWidthChange: contentWidthKey
         ? (width: ContentWidth) => setContentWidth(contentWidthKey, width)
         : undefined,
-      linkedLayers: doc ? (linkedLayersByDoc[doc.id] ?? EMPTY_LAYERS) : EMPTY_LAYERS,
+      supernotesEnabled,
+      linkedLayers: pageLinkedLayers,
       databasesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       isLocked: doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, pageLayer) : false,
@@ -423,20 +446,24 @@ export function usePaneEditorProps({
       isFavorite: doc ? favorites.has(doc.id) : false,
       onToggleFavorite: doc ? () => handleToggleFavorite(doc.id) : undefined,
       onOpenInNewTab: doc ? () => handleOpenInNewTab(doc.id) : undefined,
-      nestedNotes,
+      nestedNotes: supernotesEnabled ? nestedNotes : [],
       nestedNotesPlacement: doc ? (nestedNotesPlacements[doc.id] ?? "top") : "top",
       onNestedNotesPlacementChange: doc
         ? (placement: "top" | "bottom" | "hidden") => setNestedNotesPlacement(doc.id, placement)
         : undefined,
       onOpenNestedNoteInNewTab: handleOpenInNewTab,
-      onMoveFile: doc
-        ? (targetFolderId: string | null) => handleMoveItem([doc.id], targetFolderId)
-        : undefined,
+      onMoveFile:
+        doc && !treeItem?.bundleMember
+          ? (targetFolderId: string | null) => handleMoveItem([doc.id], targetFolderId)
+          : undefined,
       onCreateFolder:
         doc && vault
           ? (parentId: string | null, name: string) => handleNewFolderIn(parentId, name)
           : undefined,
-      onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
+      onMergeFile:
+        doc && !treeItem?.bundleMember
+          ? (targetId: string) => handleMergeFile(doc.id, targetId)
+          : undefined,
       onShowInExplorer: doc ? () => void showInFileManager(doc.path) : undefined,
       onDeleteFile: doc ? (mode?: "archive") => handleDeleteFile(doc.id, mode) : undefined,
       treeItems: displayTreeItems,

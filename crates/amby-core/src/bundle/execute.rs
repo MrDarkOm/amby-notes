@@ -74,15 +74,17 @@ pub fn rename_item_impl(
         let path_changes =
             bundle_rename_path_changes(&old_paths, bundle_dir, &new_dir, &old_stem, trimmed);
 
-        let rename_specs = ["md", "canvas", "excalidraw"]
-            .into_iter()
-            .filter_map(|ext| {
-                let old_path = bundle_dir.join(format!("{old_stem}.{ext}"));
-                if !old_path.exists() {
+        let rename_specs = path_changes
+            .iter()
+            .filter_map(|change| {
+                let old_path = Path::new(&change.old_path);
+                let new_path = Path::new(&change.new_path);
+                let old_name = old_path.file_name()?;
+                let new_name = new_path.file_name()?;
+                if old_path.parent() != Some(bundle_dir) || old_name == new_name {
                     return None;
                 }
-                let new_path = bundle_dir.join(format!("{trimmed}.{ext}"));
-                Some((old_path, new_path))
+                Some((old_path.to_path_buf(), bundle_dir.join(new_name)))
             })
             .collect::<Vec<_>>();
         for (old_path, new_path) in &rename_specs {
@@ -119,13 +121,10 @@ pub fn rename_item_impl(
             renamed_inside_new_dir.push((renamed, current));
         }
 
-        let manifest_path = if new_dir.join(format!("{trimmed}.json")).is_file() {
-            new_dir.join(format!("{trimmed}.json"))
-        } else if new_dir.join(format!("{trimmed}.database")).is_file() {
-            new_dir.join(format!("{trimmed}.database"))
-        } else {
-            new_dir.join("ambd.json")
-        };
+        // A same-stem JSON file may belong to another app. Preserve its bytes
+        // while moving it with the group; only the legacy manifest was already
+        // updated here before same-stem files became part of the rename.
+        let manifest_path = new_dir.join("ambd.json");
         // The folder rename already happened and must be reported; a manifest
         // display-name that could not be refreshed is logged, not fatal.
         if let Err(error) = rewrite_manifest_name(&manifest_path, trimmed) {
@@ -135,6 +134,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
             path_changes,
@@ -156,6 +156,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: vec![PathChange {
@@ -201,6 +202,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes,
@@ -297,6 +299,7 @@ fn move_item_to_dir(
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path,
         path_changes,

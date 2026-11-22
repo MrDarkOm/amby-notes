@@ -4,10 +4,10 @@ use crate::model::*;
 use crate::paths;
 use crate::recovery::RecoveryEntry;
 use crate::recycle_bin;
-use crate::vault_context::{PreparedMoveRefactor, VaultContext};
+use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::mutations::{mutation_paths, sync_mutation_result};
 
@@ -288,9 +288,19 @@ pub fn purge_trash(
 #[tauri::command]
 #[specta::specta]
 pub fn list_archive(
-    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
+    vault_path: String,
 ) -> Result<Vec<crate::archive::ArchiveEntry>, String> {
-    Ok(crate::archive::list(&scope.get()?))
+    let _mutation_guard = db.mutation_gate.lock_or_recover();
+    Ok(crate::archive::list(&archive_vault(&db, &vault_path)?))
+}
+
+fn archive_vault(db: &VaultContext, vault_path: &str) -> Result<PathBuf, String> {
+    let vault = db.root()?;
+    if Path::new(vault_path).canonicalize().ok().as_ref() != Some(&vault) {
+        return Err("Archive belongs to a different workspace".into());
+    }
+    Ok(vault)
 }
 
 /// A read-only look at an archived file (К6).
@@ -311,19 +321,42 @@ pub fn read_archive_preview(
 #[specta::specta]
 pub fn restore_archive(
     app: tauri::AppHandle,
-    scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     archive_id: String,
+    vault_path: String,
 ) -> Result<MutationOutcome, String> {
+    let ArchiveRestore {
+        outcome,
+        vault,
+        generation,
+        restored_paths,
+    } = restore_archive_inner(&db, &watcher_state, &archive_id, &vault_path)?;
+    watcher::notify_published_files(&app, &vault, generation, &restored_paths, None);
+    Ok(outcome)
+}
+
+pub(crate) struct ArchiveRestore {
+    pub(crate) outcome: MutationOutcome,
+    vault: PathBuf,
+    generation: u64,
+    restored_paths: Vec<PathBuf>,
+}
+
+pub(crate) fn restore_archive_inner(
+    db: &VaultContext,
+    watcher_state: &WatcherState,
+    archive_id: &str,
+    vault_path: &str,
+) -> Result<ArchiveRestore, String> {
     let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let vault = scope.get()?;
+    let vault = archive_vault(db, vault_path)?;
     let generation = db.generation()?;
-    let (source, target) = crate::archive::restore_places(&vault, &archive_id)?;
+    let (source, target) = crate::archive::restore_places(&vault, archive_id)?;
     let writes = vec![(target.clone(), watcher::path_fingerprint_for_move(&source))];
     let mut restored_paths = vec![target];
     let prepared = watcher_state.self_writes.prepare_write(writes);
-    let result = match crate::archive::restore(&vault, &archive_id) {
+    let result = match crate::archive::restore(&vault, archive_id) {
         Ok(result) => {
             watcher_state.self_writes.confirm_prepared_write(&prepared);
             result
@@ -333,12 +366,16 @@ pub fn restore_archive(
             return Err(error);
         }
     };
-    let outcome = sync_mutation_result(&db, &vault, result);
+    let outcome = sync_mutation_result(db, &vault, result);
     restored_paths.extend(mutation_paths(&outcome.mutation));
     restored_paths.sort();
     restored_paths.dedup();
-    watcher::notify_published_files(&app, &vault, generation, &restored_paths, None);
-    Ok(outcome)
+    Ok(ArchiveRestore {
+        outcome,
+        vault,
+        generation,
+        restored_paths,
+    })
 }
 
 /// Developer command (К9, К11 (е)): puts the entries moved by the migration of the old trash back
@@ -371,67 +408,4 @@ pub fn purge_archive(
         mode,
         &crate::system_recycle_bin::OsTrash,
     )
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn preview_rename_refactor(
-    db: tauri::State<'_, VaultContext>,
-    path: String,
-    new_name: String,
-) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
-    let preview = crate::bundle::preview_rename_item(&db.root()?, &path, &new_name)?;
-    let (vault, inputs) = {
-        let conn_guard = db.conn.lock_or_recover();
-        let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
-            conn,
-            &conn.root,
-            &preview.path_changes,
-        )?;
-        (conn.root.clone(), inputs)
-    };
-    let plan = vault_index::build_inbound_wiki_rewrites(&vault, &preview.path_changes, inputs)?;
-    Ok(vault_index::refactor_preview(&plan))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn preview_move_refactor(
-    db: tauri::State<'_, VaultContext>,
-    source_path: String,
-    target_path: String,
-) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let source_path = paths::guard(&db, &source_path)?;
-    let target_path = paths::guard(&db, &target_path)?;
-    let preview = crate::bundle::preview_move_item(&db.root()?, &source_path, &target_path)?;
-    let (vault, generation, inputs) = {
-        let conn_guard = db.conn.lock_or_recover();
-        let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
-            conn,
-            &conn.root,
-            &preview.path_changes,
-        )?;
-        (conn.root.clone(), conn.generation, inputs)
-    };
-    let plan = vault_index::build_inbound_wiki_rewrites(&vault, &preview.path_changes, inputs)?;
-    let summary = vault_index::refactor_preview(&plan);
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    if conn.generation != generation {
-        return Err("Vault changed while preparing move preview".to_string());
-    }
-    conn.pending_move_refactor
-        .lock_or_recover()
-        .replace(PreparedMoveRefactor {
-            source_path,
-            target_path,
-            path_changes: preview.path_changes,
-            plan,
-        });
-    Ok(summary)
 }

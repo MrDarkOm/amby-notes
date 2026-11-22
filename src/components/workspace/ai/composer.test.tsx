@@ -5,6 +5,9 @@ import "@/lib/i18n"
 import { Composer } from "./composer"
 import type { Chat } from "@/lib/storage"
 
+const dictation = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/ai", () => ({ startSystemDictation: dictation }))
+
 const chat: Chat = {
   version: 1,
   id: "c",
@@ -64,111 +67,76 @@ const before = (a: Element, b: Element) =>
 afterEach(cleanup)
 
 describe("Composer layout", () => {
-  it("puts the context chip and the search switch above the message line", () => {
-    show()
+  it("puts the attached context note and context usage above the writing box, with no plus button or search switch there", () => {
+    show({ onApprovalMode: vi.fn(), contextBytes: 64 * 1024 })
     const field = screen.getByPlaceholderText("Сообщение…")
-    const chipRemove = screen.getByRole("button", { name: "Убрать заметку из контекста" })
-    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
-    expect(before(chipRemove, field)).toBe(true)
-    expect(before(search, field)).toBe(true)
-  })
-
-  it("keeps search, the note and the plus in one line outside the writing box, search first", () => {
-    show()
-    const field = screen.getByPlaceholderText("Сообщение…")
-    const box = field.closest("[data-composer-box]")
-    expect(box).not.toBeNull()
-    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    const box = field.closest("[data-composer-box]")!
     const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" })
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    for (const control of [search, chip, plus]) expect(box!.contains(control)).toBe(false)
-    expect(before(search, chip)).toBe(true)
-    expect(before(chip, plus)).toBe(true)
-    const line = search.closest("[data-composer-line]")
-    expect(line).not.toBeNull()
-    expect(line!.contains(chip) && line!.contains(plus)).toBe(true)
-    expect(line!.className).not.toContain("flex-wrap")
+    const usage = document.querySelector("[data-context-usage]")!
+    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    expect(box.contains(chip)).toBe(false)
+    expect(box.contains(usage)).toBe(false)
+    expect(screen.queryByRole("button", { name: "Добавить заметку или папку" })).toBeNull()
+    const line = chip.closest("[data-composer-line]")!
+    expect(line.contains(usage)).toBe(true)
+    expect(before(chip, usage)).toBe(true)
+    expect(usage.textContent).toBe("13%")
+    expect(line.contains(search)).toBe(false)
+    expect(before(line, box)).toBe(true)
+    expect(line.className).not.toContain("flex-wrap")
   })
 
-  it("keeps the model and the send button below the message line", () => {
+  it("hides the context line when nothing is attached and context is empty", () => {
+    show({ chat: { ...chat, context: [], autoCurrent: false }, currentDoc: null })
+    expect(document.querySelector("[data-composer-line]")).toBeNull()
+  })
+
+  it("keeps the text on its own line, with the paperclip and the send button in a line under it", () => {
     show({ input: "hi" })
+    const box = document.querySelector("[data-composer-box]")!
     const field = screen.getByPlaceholderText("Сообщение…")
-    expect(before(field, screen.getByRole("button", { name: "Отправить" }))).toBe(true)
-    expect(before(field, screen.getByLabelText("Активная модель"))).toBe(true)
+    const actions = box.querySelector("[data-composer-actions]")!
+    const clip = screen.getByRole("button", { name: "Прикрепить" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(actions.contains(field)).toBe(false)
+    expect(before(field, actions)).toBe(true)
+    expect(actions.contains(clip) && actions.contains(send)).toBe(true)
+    expect(before(clip, send)).toBe(true)
   })
 
-  it("has a plus that starts adding another note by typing @ at the end", () => {
-    const props = show({ input: "Сравни" })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(props.onInput).toHaveBeenCalledWith("Сравни @")
+  it("draws send as a plain icon without a circle around it", () => {
+    show({ input: "hi" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(send.className).not.toContain("rounded-full")
+    expect(send.className).not.toContain("bg-primary")
   })
 
-  it("does not double the space before @ and starts from nothing when the field is empty", () => {
-    const withSpace = show({ input: "Сравни " })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(withSpace.onInput).toHaveBeenCalledWith("Сравни @")
-    cleanup()
-    const empty = show({ input: "" })
-    fireEvent.click(screen.getByRole("button", { name: "Добавить заметку или папку" }))
-    expect(empty.onInput).toHaveBeenCalledWith("@")
+  it("puts the model, approval mode and search vault switch below the writing box in that order", () => {
+    show({ onApprovalMode: vi.fn() })
+    const box = document.querySelector("[data-composer-box]")!
+    const model = screen.getByLabelText("Активная модель")
+    const mode = screen.getByRole("button", { name: "Как применять правки ИИ" })
+    const search = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ })
+    for (const control of [model, mode, search]) expect(box.contains(control)).toBe(false)
+    expect(before(box, model)).toBe(true)
+    expect(before(model, mode)).toBe(true)
+    expect(before(mode, search)).toBe(true)
   })
 
-  it("does not offer the plus while an answer is being written", () => {
-    show({ loading: true })
-    expect(screen.getByRole("button", { name: "Добавить заметку или папку" })).toHaveProperty(
-      "disabled",
-      true,
-    )
-  })
-
-  it("shows the active model with its provider's mark on the closed control", () => {
-    show()
-    const closed = screen.getByRole("combobox", { name: "Активная модель" })
-    expect(within(closed).getByRole("img", { name: "Codex (ChatGPT)" })).toBeTruthy()
-    expect(closed.textContent).toContain("Terra")
-  })
-
-  it("opens the model list with the provider rail and leads to the model settings", async () => {
-    const props = show()
-    fireEvent.click(screen.getByRole("combobox", { name: "Активная модель" }))
-    const tabs = await screen.findAllByRole("tab")
-    expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["Codex (ChatGPT)", "Ollama"])
-    fireEvent.click(screen.getByRole("button", { name: "Управлять моделями" }))
-    expect(props.onManage).toHaveBeenCalledOnce()
-  })
-
-  it("anchors the model list to the whole composer, so it spans the panel above it", async () => {
-    show()
-    fireEvent.click(screen.getByRole("combobox", { name: "Активная модель" }))
-    const content = (await screen.findByRole("listbox")).closest("[data-popover-content]")!
-    expect(content.className).toContain("w-[var(--radix-popover-trigger-width)]")
-  })
-
-  it("draws the search switch as the file tree icon the sidebar uses, not a magnifier", () => {
+  it("uses the search magnifier icon for searching the vault", () => {
     show()
     const label = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
-    expect(label.querySelector("svg.lucide-folder-tree")).not.toBeNull()
-    expect(label.querySelector("svg.lucide-search")).toBeNull()
+    expect(label.querySelector("svg.lucide-search")).not.toBeNull()
+    expect(label.querySelector("svg.lucide-folder-tree")).toBeNull()
   })
 
-  it("stretches the line: the tree at the left edge, the plus at the right edge, the note between", () => {
+  it("stretches the single context chip across the full context line", () => {
     show()
     const line = document.querySelector("[data-composer-line]")!
-    const tree = screen.getByRole("checkbox", { name: /Поиск по хранилищу/ }).closest("label")!
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.firstElementChild).toBe(tree)
-    expect(line.lastElementChild).toBe(plus)
     expect(line.className).toContain("w-full")
     const chip = screen.getByRole("button", { name: "Убрать заметку из контекста" }).parentElement!
+    expect(line.firstElementChild).toBe(chip)
     expect(chip.className).toContain("flex-1")
-  })
-
-  it("keeps the plus at the right edge when nothing is attached", () => {
-    show({ chat: { ...chat, context: [], autoCurrent: false }, currentDoc: null })
-    const line = document.querySelector("[data-composer-line]")!
-    const plus = screen.getByRole("button", { name: "Добавить заметку или папку" })
-    expect(line.lastElementChild).toBe(plus)
-    expect(plus.previousElementSibling?.className).toContain("flex-1")
   })
 })
 
@@ -283,7 +251,7 @@ describe("Attached notes", () => {
 
   it("sizes the list exactly like the model list: the panel's whole width from its left edge", async () => {
     show({ chat: many, ...extras })
-    const panel = document.querySelector("[data-composer-line]")!.parentElement!
+    const panel = document.querySelector("[data-composer-root]")!
     const rect = (left: number, width: number) =>
       ({
         left,
@@ -311,5 +279,254 @@ describe("Attached notes", () => {
     show({ chat: many, loading: true, ...extras })
     fireEvent.mouseEnter(group())
     expect(screen.queryByRole("list", { name: "Прикреплённые заметки" })).toBeNull()
+  })
+})
+
+describe("Composer approval mode", () => {
+  it("puts the model row under the writing box, with the mode button right of the picker", () => {
+    const onApprovalMode = vi.fn()
+    show({ onApprovalMode, approvalMode: "auto" })
+    const box = document.querySelector("[data-composer-box]")!
+    const picker = screen.getByRole("combobox")
+    const mode = screen.getByRole("button", { name: "Как применять правки ИИ" })
+    expect(box.contains(picker)).toBe(false)
+    expect(before(box, picker)).toBe(true)
+    expect(before(picker, mode)).toBe(true)
+    expect(mode.getAttribute("title")).toBe("Автоматически")
+  })
+})
+
+describe("Composer current note", () => {
+  const detached: Chat = { ...chat, autoCurrent: false, context: [] }
+
+  it("has no text button beside the plus; the plus list offers the current note", () => {
+    const onAddCurrent = vi.fn()
+    const onInput = vi.fn()
+    show({
+      chat: detached,
+      onAddCurrent,
+      onInput,
+      input: "Привет @",
+      mentionOpen: true,
+      choices: [],
+    })
+    // Only the plus stays in the line; the words are inside its list.
+    expect(screen.queryByRole("button", { name: "Добавить текущую заметку" })).toBeNull()
+    fireEvent.click(screen.getByRole("option", { name: /Добавить текущую заметку/ }))
+    expect(onAddCurrent).toHaveBeenCalledTimes(1)
+    expect(onInput).toHaveBeenCalledWith("Привет ")
+  })
+
+  it("does not offer it when the current note is already followed", () => {
+    show({ input: "@", mentionOpen: true, choices: [] })
+    expect(screen.queryByRole("option", { name: /Добавить текущую заметку/ })).toBeNull()
+  })
+})
+
+describe("Composer plus list", () => {
+  it("separates the current note from the other notes", () => {
+    const detached: Chat = { ...chat, autoCurrent: false, context: [] }
+    show({
+      chat: detached,
+      input: "@",
+      mentionOpen: true,
+      choices: [{ id: "x", path: "/v/X.md", name: "X.md", type: "file" }],
+    })
+    const current = screen.getByRole("option", { name: /Добавить текущую заметку/ })
+    const other = screen.getByRole("option", { name: /X\.md/ })
+    const divider = screen.getByRole("separator")
+    expect(before(current, divider)).toBe(true)
+    expect(before(divider, other)).toBe(true)
+  })
+
+  it("has no separate write switch: the tree switch is the only one for the whole vault", () => {
+    show()
+    expect(screen.queryByRole("checkbox", { name: /правки по всему хранилищу/ })).toBeNull()
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1)
+  })
+})
+
+describe("Composer writing box", () => {
+  it("starts as one line and keeps the box the same width in focus", () => {
+    show({ input: "text" })
+    const field = screen.getByPlaceholderText("Сообщение…") as HTMLTextAreaElement
+    const box = document.querySelector("[data-composer-box]")!
+    expect(field.getAttribute("rows")).toBe("1")
+    fireEvent.focus(field)
+    expect(box.className).not.toContain("-mx")
+  })
+})
+
+describe("Composer attachments", () => {
+  it("opens a submenu from the paperclip with text file and note/folder choices", async () => {
+    show()
+    const box = document.querySelector("[data-composer-box]")!
+    const clip = screen.getByRole("button", { name: "Прикрепить" })
+    expect(box.contains(clip)).toBe(true)
+    expect(clip.querySelector("svg.lucide-paperclip")).not.toBeNull()
+    expect(before(screen.getByPlaceholderText("Сообщение…"), clip)).toBe(true)
+
+    fireEvent.click(clip)
+    const menu = await screen.findByRole("menu", { name: "Прикрепить" })
+    const fileChoice = within(menu).getByRole("menuitem", { name: "Текстовый файл" })
+    const noteChoice = within(menu).getByRole("menuitem", { name: "Заметка или папка" })
+    expect(before(fileChoice, noteChoice)).toBe(true)
+
+    const input = box.querySelector('input[type="file"]') as HTMLInputElement
+    expect(input.multiple).toBe(true)
+    expect(input.accept).toContain(".md")
+    const clickSpy = vi.spyOn(input, "click").mockImplementation(() => {})
+    fireEvent.click(fileChoice)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    clickSpy.mockRestore()
+  })
+
+  it("opens a note tree popup where both a folder and a nested note can be selected", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    const roadmap = {
+      id: "note-roadmap",
+      path: "/v/Projects/Roadmap.md",
+      name: "Roadmap.md",
+      type: "file" as const,
+    }
+    const projects = {
+      id: "folder-projects",
+      path: "/v/Projects",
+      name: "Projects",
+      type: "folder" as const,
+      children: [roadmap],
+    }
+    const inbox = {
+      id: "note-root",
+      path: "/v/Inbox.md",
+      name: "Inbox.md",
+      type: "file" as const,
+    }
+    const props = show({
+      chat: emptyChat,
+      treeItems: [projects, inbox],
+      flat: [projects, roadmap, inbox],
+      openDocs: { "note-roadmap": { title: "Roadmap" } },
+      currentDoc: null,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const tree = await screen.findByRole("tree", { name: "Дерево заметок" })
+
+    // Selecting a whole folder attaches it as a folder context item.
+    fireEvent.click(within(tree).getByRole("treeitem", { name: "Projects" }))
+    expect(props.onChangeChat).toHaveBeenCalledWith({
+      ...emptyChat,
+      context: [{ kind: "folder", id: "Projects" }],
+    })
+
+    // Expanding the folder reveals nested notes; clicking a note attaches it.
+    fireEvent.click(within(tree).getByRole("button", { name: "Раскрыть папку" }))
+    fireEvent.click(within(tree).getByRole("treeitem", { name: "Roadmap" }))
+    expect(props.onChangeChat).toHaveBeenCalledWith({
+      ...emptyChat,
+      context: [{ kind: "note", id: "note-roadmap" }],
+    })
+  })
+
+  it("filters the note tree and auto-expands matching folders", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    const spec = {
+      id: "note-spec",
+      path: "/v/Work/Spec.md",
+      name: "Spec.md",
+      type: "file" as const,
+    }
+    const work = {
+      id: "folder-work",
+      path: "/v/Work",
+      name: "Work",
+      type: "folder" as const,
+      children: [spec],
+    }
+    const other = {
+      id: "note-other",
+      path: "/v/Other.md",
+      name: "Other.md",
+      type: "file" as const,
+    }
+    show({
+      chat: emptyChat,
+      treeItems: [work, other],
+      flat: [work, spec, other],
+      openDocs: {},
+      currentDoc: null,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const search = await screen.findByPlaceholderText("Поиск заметок и папок…")
+    fireEvent.change(search, { target: { value: "Spec" } })
+
+    const tree = screen.getByRole("tree", { name: "Дерево заметок" })
+    expect(within(tree).getByRole("treeitem", { name: "Spec.md" })).toBeTruthy()
+    expect(within(tree).queryByRole("treeitem", { name: "Other.md" })).toBeNull()
+  })
+
+  it("places current-note action above the bottom search bar and back button below the tree", async () => {
+    const emptyChat: Chat = { ...chat, autoCurrent: false, context: [] }
+    show({ chat: emptyChat, currentDoc: { title: "Current" } })
+    fireEvent.click(screen.getByRole("button", { name: "Прикрепить" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Заметка или папка" }))
+    const tree = await screen.findByRole("tree", { name: "Дерево заметок" })
+    const addCurrent = screen.getByRole("button", { name: "Добавить текущую заметку" })
+    const back = screen.getByRole("button", { name: "Назад" })
+    const search = screen.getByPlaceholderText("Поиск заметок и папок…")
+    expect(before(tree, addCurrent)).toBe(true)
+    expect(before(addCurrent, back)).toBe(true)
+    expect(before(addCurrent, search)).toBe(true)
+  })
+
+  it("lists attached files and removes one", async () => {
+    const { useAttachmentStore } = await import("./attachments")
+    useAttachmentStore.getState().clear("c")
+    useAttachmentStore.getState().add("c", [{ name: "plan.md", text: "x", size: 1 }])
+    show()
+    expect(screen.getByText("plan.md")).toBeTruthy()
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Убрать файл plan.md" })),
+    )
+    expect(screen.queryByText("plan.md")).toBeNull()
+  })
+})
+
+describe("Composer dictation and send", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it("shows the microphone left of send on a Mac and starts the system dictation in the field", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    dictation.mockResolvedValue(true)
+    show()
+    const mic = screen.getByRole("button", { name: "Диктовка (системная)" })
+    expect(before(mic, screen.getByRole("button", { name: "Отправить" }))).toBe(true)
+    await act(async () => fireEvent.click(mic))
+    expect(dictation).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(screen.getByPlaceholderText("Сообщение…"))
+  })
+
+  it("says so when the system did not start dictation, and has no microphone elsewhere", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    dictation.mockRejectedValue(new Error("notStarted"))
+    show()
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "Диктовка (системная)" })),
+    )
+    expect(screen.getByRole("status").textContent).toMatch(/Диктовка/)
+    cleanup()
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("Win32")
+    show()
+    expect(screen.queryByRole("button", { name: "Диктовка (системная)" })).toBeNull()
+  })
+
+  it("sends with the return arrow", () => {
+    show({ input: "hi" })
+    const send = screen.getByRole("button", { name: "Отправить" })
+    expect(send.querySelector("svg.lucide-corner-down-left")).not.toBeNull()
   })
 })

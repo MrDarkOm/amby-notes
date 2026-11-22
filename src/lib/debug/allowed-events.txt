@@ -34,6 +34,7 @@ create_database_row
 create_folder
 create_note
 creative.plot.anchor_links_failed
+daily.open_failed
 database.aggregate
 database.change_property_type
 database.change_property_type_failed
@@ -121,13 +122,16 @@ file.create_canvas
 file.create_canvas_failed
 file.create_folder
 file.create_folder_failed
+file.create_from_template
 file.create_note
 file.create_note_failed
 file.create_properties_read_failed
 file.create_sketch
 file.create_sketch_failed
+file.create_template
 file.delete
 file.delete_failed
+file.merge_kept_source
 file.move
 file.move_database_context_failed
 file.move_databases_refresh_failed
@@ -140,6 +144,10 @@ file.rename_failed
 file.reveal_failed
 file.set_icon
 file.toggle_favorite
+file.undo
+file.undo_failed
+file.undo_refresh_failed
+file.undo_refused
 file.wiki_link_open_failed
 file_revision.save_without_baseline
 flush_request.failed
@@ -181,6 +189,8 @@ note_written.open_document_reload_failed
 notices.journal_damaged
 notices.journal_unreadable
 notices.journal_write_failed
+notices.restore_failed
+notices.snapshot_lookup_failed
 operation.failed
 project_change_event_failed
 project_index_rebuild_failed
@@ -213,6 +223,8 @@ refresh_vault.flush_failed
 refresh_vault.open_document_reload_failed
 remote_deletion_system_trash_refused
 rename_database_property
+rename_description_keep_failed
+rename_description_release_failed
 rename_item
 rename_retitle_failed
 reorder_custom_properties
@@ -248,6 +260,8 @@ storage.create_database_row
 storage.create_database_view
 storage.create_folder
 storage.create_note
+storage.create_note_from_template
+storage.create_note_template
 storage.create_sketch
 storage.create_story
 storage.create_text_page
@@ -259,6 +273,7 @@ storage.delete_database_view
 storage.delete_item
 storage.duplicate_database_row
 storage.ensure_plot_links
+storage.finish_merge
 storage.init_workshop
 storage.move_item
 storage.move_text_page
@@ -271,6 +286,7 @@ storage.rename_item
 storage.reorder_custom_properties
 storage.reorder_database_properties
 storage.reorder_workshop_sections
+storage.undo_mutation
 storage.update_database_property_config
 storage.update_database_property_options
 storage.update_database_relation_value
@@ -282,6 +298,8 @@ storage.write_note
 surface_render_error
 sync.cancel_pending_failed
 sync.compare_read_failed
+sync.conflicts_settle_failed
+sync.conflicts_settled
 sync.listen_failed
 sync.restore_remote_deleted_failed
 sync_account_prepared
@@ -303,6 +321,8 @@ tab.open_singleton
 tab.split_down
 tab.split_right
 tab.switch
+templates.create_failed
+templates.list_failed
 terminate_cancelled_for_flush
 terminate_flush_timeout
 terminate_hook_failed
@@ -317,6 +337,8 @@ tree.view_state_save_failed
 tree_patch.shadow_mismatch
 tree_patch.shadow_ok
 tree_patch_failed
+undo_mutation
+undo_mutation_refused
 unhandled_promise_rejection
 unhandled_window_error
 update_database_property_config

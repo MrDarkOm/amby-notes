@@ -30,6 +30,13 @@ interface FolderViewProps {
   onIconChange: (icon: string) => void
 }
 
+/** What each card is, under its name; any other kind of file reads as a note. */
+const KIND_LABELS: Partial<Record<string, string>> = {
+  canvas: "folderView.canvas",
+  sketch: "folderView.sketch",
+  database: "folderView.database",
+}
+
 function itemIcon(item: TreeItem) {
   const customIcon =
     item.icon &&
@@ -61,6 +68,8 @@ export function FolderView({
   onIconChange,
 }: FolderViewProps) {
   const { t, i18n } = useTranslation()
+  const bundleFolder = folder.children?.some((item) => item.bundleMember)
+  const destination = bundleFolder ? folder.path : folder.id
   const [query, setQuery] = React.useState("")
   const [iconPickerOpen, setIconPickerOpen] = React.useState(false)
   const iconTriggerRef = React.useRef<HTMLDivElement>(null)
@@ -136,7 +145,7 @@ export function FolderView({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {onConvertToNote && (
+            {onConvertToNote && !bundleFolder && (
               <button
                 type="button"
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
@@ -149,7 +158,7 @@ export function FolderView({
             <button
               type="button"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
-              onClick={() => onNewFolder(folder.id)}
+              onClick={() => onNewFolder(destination)}
             >
               <FolderPlus className="size-4" />
               {t("folderView.newFolder")}
@@ -157,7 +166,7 @@ export function FolderView({
             <button
               type="button"
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:opacity-90"
-              onClick={() => onNewNote(folder.id)}
+              onClick={() => onNewNote(destination)}
             >
               <Plus className="size-4" />
               {t("folderView.newNote")}
@@ -207,9 +216,7 @@ export function FolderView({
                             notes: nested.notes,
                             folders: nested.folders,
                           })
-                        : item.type === "canvas"
-                          ? t("folderView.canvas")
-                          : t("folderView.note")}
+                        : t(KIND_LABELS[item.type] ?? "folderView.note")}
                     </span>
                   </span>
                 </motion.button>

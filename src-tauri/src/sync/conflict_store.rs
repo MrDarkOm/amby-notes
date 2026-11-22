@@ -753,6 +753,30 @@ impl FileConflictStore {
         }
     }
 
+    /// Closes every complete set whose file is now the other version byte for byte (both
+    /// computers came to the same bytes, as when each rewrote a database manifest the same way):
+    /// "keep the file", which leaves the file as it is and only removes the set. Returns the ids
+    /// it closed; a set that still differs, or one it cannot read, stays open.
+    pub fn close_settled(&mut self) -> Result<Vec<String>, ConflictError> {
+        let settled = self.settled();
+        for id in &settled {
+            self.resolve(id, Resolution::Current)?;
+        }
+        Ok(settled)
+    }
+
+    /// The complete sets whose file is now the other version byte for byte; reads only.
+    pub fn settled(&self) -> Vec<String> {
+        let (sets, _) = self.sets();
+        sets.into_iter()
+            .filter(|(meta, dir)| {
+                let current = self.read_file(&self.current_path(meta));
+                current.is_some() && current == self.read_file(&format!("{dir}/{}", meta.other))
+            })
+            .map(|(meta, _)| meta.id)
+            .collect()
+    }
+
     /// Moves files to the trash of the vault; a file that is not there is fine (Г26 (2)).
     fn trash(&self, paths: &[String]) -> Result<(), ConflictError> {
         let mut files = self.files();

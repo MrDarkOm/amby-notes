@@ -59,13 +59,40 @@ describe("Workspace Modules Management", () => {
 describe("Reading the workspace module configuration", () => {
   it("reads a stored profile and canonicalises module ids", () => {
     const config = readWorkspaceModuleConfig({
-      profile: { id: "standard", catalogRevision: "2026-09-20" },
+      profile: { id: "standard", catalogRevision: "2026-11-20" },
       enabledModules: ["tags", "amby.favorites"],
       moduleSettings: { tags: { a: 1 } },
     })
     expect(config.profile.id).toBe("standard")
-    expect(config.enabledModules).toEqual(["amby.tags", "amby.favorites"])
+    expect(config.enabledModules).toEqual(["amby.tags", "amby.favorites", "amby.supernotes"])
     expect(config.moduleSettings).toEqual({ tags: { a: 1 } })
+  })
+
+  it("adds Templates once to a list saved before it, and Daily notes stay opt-in", () => {
+    const old = readWorkspaceModuleConfig({
+      profile: { id: "custom", catalogRevision: "2026-09-20" },
+      enabledModules: ["tags"],
+    })
+    expect(old.enabledModules).toEqual(["amby.tags", "amby.templates", "amby.supernotes"])
+    expect(old.profile.catalogRevision).toBe("2026-11-21")
+    // Saved again with the new revision, a switched-off module stays off.
+    const current = readWorkspaceModuleConfig({
+      profile: { id: "custom", catalogRevision: old.profile.catalogRevision },
+      enabledModules: ["amby.tags", "amby.daily"],
+    })
+    expect(current.enabledModules).toEqual(["amby.tags", "amby.daily"])
+    const minimal = readWorkspaceModuleConfig({
+      profile: { id: "minimal", catalogRevision: "2026-09-20" },
+      enabledModules: [],
+    })
+    expect(minimal.enabledModules).toEqual([])
+  })
+
+  it("lists Templates in the Standard set, keeps Daily notes opt-in and maps their IDs", () => {
+    expect(STANDARD_MODULES).toContain("amby.templates")
+    expect(STANDARD_MODULES).not.toContain("amby.daily")
+    expect(toCanonicalModuleId("daily")).toBe("amby.daily")
+    expect(toShortModuleId("amby.templates")).toBe("templates")
   })
 
   it("falls back to the standard profile when there is no profile or module list", () => {

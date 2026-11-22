@@ -16,7 +16,7 @@ use tokio::time::MissedTickBehavior;
 use super::spaces::owned_space;
 use super::util::{authenticate, hex, ApiError, ApiResult, Auth};
 use super::{split, Params};
-use crate::state::{AppState, HubEvent};
+use crate::state::{AppState, HubEvent, StreamSlot};
 
 /// Whether the token of the stream is still alive. A revoked device gets nothing more (П19, П34).
 fn token_alive(state: &AppState, auth: &Auth) -> bool {
@@ -42,6 +42,8 @@ struct Running {
     state: AppState,
     auth: Auth,
     space_id: [u8; 16],
+    /// This stream's place among the device's open streams (Ч2).
+    slot: StreamSlot,
 }
 
 /// `GET /v1/spaces/{space_id}/events` (П34).
@@ -73,6 +75,7 @@ pub(crate) async fn events(
     let keepalive = Duration::from_secs(state.config.sse_keepalive_secs);
     let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + keepalive, keepalive);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let slot = state.streams.open(auth.device_id);
     let running = Running {
         first: Some(hello),
         events,
@@ -80,13 +83,17 @@ pub(crate) async fn events(
         state,
         auth,
         space_id: space.space_id,
+        slot,
     };
     let chunks = stream::unfold(running, |mut run| async move {
         if let Some(first) = run.first.take() {
             return Some((Ok::<_, Infallible>(Bytes::from(first)), run));
         }
         loop {
+            let closed = run.slot.closed.clone();
             tokio::select! {
+                // A newer stream of the same device took this place (Ч2).
+                () = closed.notified() => return None,
                 received = run.events.recv() => match received {
                     Ok(HubEvent::Commit { space_id, seq, device_id, items }) if space_id == run.space_id => {
                         if !token_alive(&run.state, &run.auth) {

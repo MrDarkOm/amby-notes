@@ -6,8 +6,8 @@
 
 use crate::commands::database::database_note_context_inner;
 use crate::commands::mutations::{
-    archive_item_inner, create_note_inner, delete_item_inner, move_item_inner, rename_item_inner,
-    sync_mutation_result,
+    archive_item_inner, create_layer_inner, create_note_inner, delete_item_inner, move_item_inner,
+    rename_item_inner, sync_mutation_result,
 };
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::index;
@@ -88,7 +88,8 @@ fn fixture() -> Vault {
         "Projects/Beta.md",
         "beta token #two [[Alpha]] [Alpha](Projects/Alpha.md)",
     );
-    vault.note("Заметки/Гамма.md", "gamma [[Alpha]]");
+    // A link by path, so both a rename and a move rewrite this note.
+    vault.note("Заметки/Гамма.md", "gamma [[Projects/Alpha]]");
     vault.note("Folder/Sub/Deep.md", "deep [[Beta]]");
     vault.note("Folder/Sub/Deeper/Deepest.md", "deepest");
     vault.note("Folder/Loose.md", "loose");
@@ -407,6 +408,7 @@ fn trash(context: &VaultContext, vault: &Vault, path: &str) -> FsMutationResult 
         delete_item_inner(
             context,
             &WatcherState::new(),
+            None,
             vault.string(path),
             DeleteMode::Archive,
         )
@@ -455,6 +457,367 @@ fn creating_a_child_under_a_plain_note_promotes_it_to_a_bundle() {
 }
 
 #[test]
+fn disabled_supernotes_refuse_note_targets_and_preserve_existing_bundles() {
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+    );
+    assert_point_equals_full(&vault, |context, vault| {
+        let watcher = WatcherState::new();
+        for parent in ["Projects/Alpha.md", "Bundle/Bundle.md"] {
+            let error =
+                create_note_inner(context, &watcher, vault.string(parent), "Child".into()).err();
+            assert_eq!(error.as_deref(), Some("moduleDisabled"));
+            let error = move_item_inner(
+                context,
+                &DatabaseRuntimeState::default(),
+                &watcher,
+                &|_, _| panic!("a refused move must not emit a sync hint"),
+                vault.string("Projects/Beta.md"),
+                vault.string(parent),
+            )
+            .err();
+            assert_eq!(error.as_deref(), Some("moduleDisabled"));
+        }
+        assert!(vault.path("Projects/Alpha.md").is_file());
+        assert!(!vault.path("Projects/Alpha").exists());
+        assert!(vault.path("Projects/Beta.md").is_file());
+        assert!(vault.path("Bundle/Bundle.canvas").is_file());
+        create(context, vault, "Folder", "Ordinary note")
+    });
+}
+
+#[test]
+fn disabled_supernotes_never_widen_file_mutations_to_bundle_folders() {
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+    );
+    vault.write("Bundle/Bundle.excalidraw", "{}\n");
+    let context = activate(&vault.0);
+    let watcher = WatcherState::new();
+    let runtime = DatabaseRuntimeState::default();
+    for file in [
+        "Bundle/Bundle.md",
+        "Bundle/Bundle.canvas",
+        "Bundle/Bundle.excalidraw",
+        "Db/Db.json",
+    ] {
+        let path = vault.string(file);
+        let error = rename_item_inner(
+            &context,
+            &runtime,
+            &watcher,
+            &|_, _| panic!("sync hint"),
+            path.clone(),
+            "Changed".into(),
+        )
+        .err();
+        assert_eq!(error.as_deref(), Some("moduleDisabled"), "rename {file}");
+        let error = move_item_inner(
+            &context,
+            &runtime,
+            &watcher,
+            &|_, _| panic!("sync hint"),
+            path.clone(),
+            vault.string("Folder"),
+        )
+        .err();
+        assert_eq!(error.as_deref(), Some("moduleDisabled"), "move {file}");
+        assert!(vault.path(file).is_file());
+    }
+    assert!(vault.path("Bundle/Child.md").is_file());
+    assert!(vault.path("Db").is_dir());
+    // The folder remains an explicit, operable target.
+    move_to(&context, &vault, "Bundle", "Folder");
+    assert!(vault.path("Folder/Bundle/Bundle.md").is_file());
+}
+
+#[test]
+fn disabled_supernotes_delete_exact_main_and_refresh_changed_bundle_shape() {
+    for (remove_canvas, mode) in [(false, DeleteMode::Permanent), (true, DeleteMode::Archive)] {
+        let vault = fixture();
+        vault.write(
+            ".amby/workspace.json",
+            r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+        );
+        if remove_canvas {
+            fs::remove_file(vault.path("Bundle/Bundle.canvas")).unwrap();
+        }
+        assert_point_equals_full(&vault, |context, vault| {
+            let result = delete_with(context, vault, "Bundle/Bundle.md", mode);
+            assert!(!vault.path("Bundle/Bundle.md").exists());
+            assert!(vault.path("Bundle/Child.md").is_file());
+            assert_eq!(vault.path("Bundle/Bundle.canvas").is_file(), !remove_canvas);
+            result
+        });
+    }
+}
+
+#[test]
+fn disabled_supernotes_keep_the_manifest_after_deleting_markdown() {
+    for kind in ["attached", "standalone"] {
+        let vault = fixture();
+        vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":["databases"]}"#,
+    );
+        vault.note("Db/Db.md", "database text layer");
+        let mut attached: serde_json::Value =
+            serde_json::from_str(&database_manifest("Db")).unwrap();
+        attached["containerKind"] = serde_json::json!(kind);
+        let manifest = attached.to_string();
+        vault.write("Db/Db.json", &manifest);
+        assert_point_equals_full(&vault, |context, vault| {
+            let result = delete_with(context, vault, "Db/Db.md", DeleteMode::Archive);
+            assert!(!vault.path("Db/Db.md").exists());
+            assert!(vault.path(".amby/archive/Db/Db.md").is_file());
+            assert_eq!(
+                fs::read_to_string(vault.path("Db/Db.json")).unwrap(),
+                manifest
+            );
+            let db = loaded_tree(context)
+                .into_iter()
+                .find(|item| item.path == vault.string("Db"))
+                .unwrap();
+            let [member] = db.bundle_members.as_deref().unwrap() else {
+                panic!("expected one physical database member");
+            };
+            assert_eq!(member.id, db.id);
+            assert_eq!(member.path, vault.string("Db/Db.json"));
+            assert_eq!(member.item_type, "database");
+            assert!(db
+                .children
+                .unwrap()
+                .iter()
+                .any(|item| item.name == "Row One"));
+            result
+        });
+    }
+}
+
+#[test]
+fn disabled_supernotes_archive_exact_canvas_and_manifest() {
+    for file in [
+        "Bundle/Bundle.canvas",
+        "Bundle/Bundle.excalidraw",
+        "Db/Db.json",
+    ] {
+        let vault = fixture();
+        vault.write("Bundle/Bundle.excalidraw", "{}\n");
+        vault.write(
+            ".amby/workspace.json",
+            r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":["databases"]}"#,
+        );
+        assert_point_equals_full(&vault, |context, vault| {
+            let result = archive(context, vault, file);
+            assert!(!vault.path(file).exists());
+            assert!(vault.path(&format!(".amby/archive/{file}")).is_file());
+            assert!(vault.path("Bundle/Bundle.md").is_file());
+            assert!(vault.path("Db/Row One.md").is_file());
+            result
+        });
+    }
+}
+
+#[test]
+fn attaching_text_to_a_database_keeps_its_files_and_refreshes_its_note_identity() {
+    for with_sketch in [false, true] {
+        let vault = fixture();
+        vault.write(
+            ".amby/workspace.json",
+            r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":["supernotes","databases"]}"#,
+        );
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&database_manifest("Db")).unwrap();
+        manifest["containerKind"] = serde_json::json!(if with_sketch {
+            "attached"
+        } else {
+            "standalone"
+        });
+        let manifest = manifest.to_string();
+        vault.write("Db/Db.json", &manifest);
+        let entry = if with_sketch {
+            vault.write("Db/Db.excalidraw", "{}\n");
+            vault.path("Db/Db.excalidraw")
+        } else {
+            vault.path("Db")
+        };
+        let context = activate(&vault.0);
+        let runtime = DatabaseRuntimeState::default();
+        runtime.set_enabled(context.generation().unwrap(), true);
+        let (result, _) =
+            create_layer_inner(&context, &WatcherState::new(), &runtime, &entry, "note").unwrap();
+        let note_path = vault.string("Db/Db.md");
+        assert_eq!(result.layer_path, note_path);
+        assert!(result.path_changes.is_empty());
+        assert_eq!(
+            fs::read_to_string(vault.path("Db/Db.json")).unwrap(),
+            manifest
+        );
+        assert!(vault.path("Db/Row One.md").is_file());
+        let note_id = context
+            .with_active(|active| {
+                active
+                    .connection
+                    .query_row(
+                        "SELECT attached_note_id FROM db_databases WHERE name = 'Db'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap();
+        let tree = loaded_tree(&context);
+        if with_sketch {
+            let main = tree.iter().find(|item| item.path == note_path).unwrap();
+            assert_eq!(main.id, note_id);
+            assert_eq!(
+                fs::read_to_string(vault.path("Db/Db.excalidraw")).unwrap(),
+                "{}\n"
+            );
+        } else {
+            let db = tree
+                .iter()
+                .find(|item| item.path == vault.string("Db"))
+                .unwrap();
+            assert!(db.bundle_members.as_ref().unwrap().iter().any(|member| {
+                member.item_type == "file" && member.path == note_path && member.id == note_id
+            }));
+        }
+    }
+}
+
+#[test]
+fn deleting_a_manifest_rebuilds_the_database_projection() {
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":["databases"]}"#,
+    );
+    let context = activate(&vault.0);
+    let runtime = DatabaseRuntimeState::default();
+    runtime.set_enabled(context.generation().unwrap(), true);
+    let count = || {
+        context
+            .with_active(|active| {
+                active
+                    .connection
+                    .query_row("SELECT COUNT(*) FROM db_databases", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map_err(|error| error.to_string())
+            })
+            .unwrap()
+    };
+    assert_eq!(count(), 1);
+    let result = delete_item_inner(
+        &context,
+        &WatcherState::new(),
+        Some(&runtime),
+        vault.string("Db/Db.json"),
+        DeleteMode::Permanent,
+    )
+    .unwrap();
+    assert!(result.warnings.is_empty());
+    assert_eq!(count(), 0);
+    assert!(vault.path("Db/Row One.md").is_file());
+}
+
+#[test]
+fn disabled_supernote_folder_rename_preserves_the_group_and_folder_identity() {
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+    );
+    vault.write("Bundle/Bundle.excalidraw", "{}\n");
+    vault.write("Bundle/Bundle.json", &database_manifest("Bundle"));
+    assert_point_equals_full(&vault, |context, vault| {
+        let operation =
+            crate::commands::mutations::rename_operation_path(&vault.0, &vault.path("Bundle"))
+                .unwrap();
+        assert_eq!(operation, vault.path("Bundle/Bundle.md"));
+        let preview = crate::bundle::preview_rename_item(&vault.0, &operation, "Renamed").unwrap();
+        let result = rename(context, vault, "Bundle", "Renamed");
+        assert_eq!(
+            result.primary_path.as_deref(),
+            Some(vault.string("Renamed").as_str())
+        );
+        let paths = |changes: &[crate::model::PathChange]| {
+            changes
+                .iter()
+                .map(|change| (change.old_path.clone(), change.new_path.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&result.path_changes), paths(&preview.path_changes));
+        for ext in ["md", "canvas", "excalidraw", "json"] {
+            assert!(vault.path(&format!("Renamed/Renamed.{ext}")).is_file());
+        }
+        assert!(vault.path("Renamed/Child.md").is_file());
+        result
+    });
+}
+
+#[test]
+fn disabled_supernote_canvas_folder_rename_preserves_the_group() {
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+    );
+    vault.write("Solo/Solo.canvas", "{}\n");
+    vault.write("Solo/Solo.excalidraw", "{}\n");
+    assert_point_equals_full(&vault, |context, vault| {
+        let result = rename(context, vault, "Solo", "Renamed");
+        assert_eq!(
+            result.primary_path.as_deref(),
+            Some(vault.string("Renamed").as_str())
+        );
+        assert!(vault.path("Renamed/Renamed.canvas").is_file());
+        assert!(vault.path("Renamed/Renamed.excalidraw").is_file());
+        result
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn disabled_supernote_folder_rename_rejects_a_symlinked_main_document() {
+    use std::os::unix::fs::symlink;
+
+    let vault = fixture();
+    vault.write(
+        ".amby/workspace.json",
+        r#"{"profile":{"id":"custom","catalogRevision":"2026-11-21"},"enabledModules":[]}"#,
+    );
+    fs::create_dir(vault.path("Linked")).unwrap();
+    symlink(
+        vault.path("Projects/Alpha.md"),
+        vault.path("Linked/Linked.md"),
+    )
+    .unwrap();
+    let error = crate::commands::mutations::rename_operation_path(&vault.0, &vault.path("Linked"))
+        .unwrap_err();
+    assert!(error.contains("symbolic link"));
+    let context = activate(&vault.0);
+    let error = rename_item_inner(
+        &context,
+        &DatabaseRuntimeState::default(),
+        &WatcherState::new(),
+        &|_, _| panic!("a refused rename must not emit a sync hint"),
+        vault.string("Linked"),
+        "Renamed".into(),
+    )
+    .err()
+    .unwrap();
+    assert!(error.contains("symbolic link"));
+    assert!(vault.path("Projects/Alpha.md").is_file());
+    assert!(vault.path("Linked/Linked.md").is_symlink());
+}
+
+#[test]
 fn creating_a_child_in_an_existing_bundle() {
     assert_point_equals_full(&fixture(), |context, vault| {
         create(context, vault, "Bundle/Bundle.md", "Created in bundle")
@@ -466,6 +829,55 @@ fn creating_a_note_inside_a_database() {
     assert_point_equals_full(&fixture(), |context, vault| {
         create(context, vault, "Db", "Created row")
     });
+}
+
+/// Today's note in a folder that does not exist yet: the folder must come with the note in the
+/// same patch, or the window shows the note at the root until the folder arrives (a duplicate).
+fn daily(context: &VaultContext, vault: &Vault, folder: &str) -> FsMutationResult {
+    fs::create_dir_all(vault.path(".amby")).unwrap();
+    fs::write(
+        vault.path(".amby/workspace.json"),
+        // Daily notes are opt-in: the module list switches them on.
+        format!(
+            r#"{{"profile":{{"id":"custom","catalogRevision":"2026-11-20"}},"enabledModules":["amby.daily"],"moduleSettings":{{"daily":{{"folder":"{folder}"}}}}}}"#
+        ),
+    )
+    .unwrap();
+    let moment = amby_core::note_templates::Moment::on("2026-11-20").unwrap();
+    let (daily, _) =
+        crate::commands::note_templates::open_daily_inner(context, &WatcherState::new(), &moment)
+            .unwrap();
+    outcome(daily.mutation.expect("today's note is created"))
+}
+
+#[test]
+fn todays_note_in_a_new_folder() {
+    assert_point_equals_full(&fixture(), |context, vault| daily(context, vault, "Daily"));
+}
+
+#[test]
+fn todays_note_in_new_nested_folders() {
+    assert_point_equals_full(&fixture(), |context, vault| {
+        daily(context, vault, "Journal/2026")
+    });
+}
+
+#[test]
+fn a_new_template_in_a_new_templates_folder() {
+    assert_point_equals_full(&fixture(), |context, _vault| {
+        let (outcome_value, _) = crate::commands::note_templates::create_template_inner(
+            context,
+            &WatcherState::new(),
+            "Meeting".to_owned(),
+        )
+        .unwrap();
+        outcome(outcome_value)
+    });
+}
+
+#[test]
+fn todays_note_in_an_existing_folder() {
+    assert_point_equals_full(&fixture(), |context, vault| daily(context, vault, "Folder"));
 }
 
 // ── rename ─────────────────────────────────────────────────────────────────────────────────
@@ -629,11 +1041,20 @@ fn delete_with(
     path: &str,
     mode: DeleteMode,
 ) -> FsMutationResult {
-    outcome(delete_item_inner(context, &WatcherState::new(), vault.string(path), mode).unwrap())
+    outcome(
+        delete_item_inner(
+            context,
+            &WatcherState::new(),
+            None,
+            vault.string(path),
+            mode,
+        )
+        .unwrap(),
+    )
 }
 
 fn archive(context: &VaultContext, vault: &Vault, path: &str) -> FsMutationResult {
-    outcome(archive_item_inner(context, &WatcherState::new(), vault.string(path)).unwrap())
+    outcome(archive_item_inner(context, &WatcherState::new(), None, vault.string(path)).unwrap())
 }
 
 /// TREE-01: a folder with no note, canvas or sketch in it (empty, or only a workshop's `.json`
@@ -790,6 +1211,7 @@ fn creating_a_canvas_layer_for_a_note() {
                 deleted_ids: Vec::new(),
                 tree_patch: None,
                 also_touched: Vec::new(),
+                undo: None,
             },
         )
     });
@@ -1121,7 +1543,9 @@ fn a_move_reports_rewritten_sources_for_open_windows() {
     let (generation, paths) = result.rewritten_notes.expect("rewritten sources reported");
     assert_eq!(generation, context.generation().unwrap());
     assert!(paths.contains(&vault.path("Projects/Beta.md")));
-    assert!(paths.contains(&vault.path("Root note.md")));
+    assert!(paths.contains(&vault.path("Заметки/Гамма.md")));
+    // `[[Alpha]]` is still a unique name after the move, so the link stays as written.
+    assert!(!paths.contains(&vault.path("Root note.md")));
     assert!(!paths.contains(&vault.path("Folder/Loose.md")));
 }
 

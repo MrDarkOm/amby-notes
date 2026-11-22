@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, History, Settings2, SquarePen } from "lucide-react"
+import { ArrowLeft, MessagesSquare, Settings2, SquarePen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -42,6 +42,12 @@ import { Composer } from "./ai/composer"
 import { EmptyChat } from "./ai/empty-chat"
 import { AssistantAnswer, LiveAnswer, UserMessage } from "./ai/message-view"
 import { ChatList } from "./ai/chat-list"
+import { useAttachmentStore } from "./ai/attachments"
+import { ProposalCards } from "./ai/proposal-cards"
+import type { ProposalCard } from "@/lib/bindings"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { autoApplies, useProposalStore, type ApprovalMode } from "./ai/use-proposal-store"
 import { newChatModelId } from "./ai/connections"
 import { useAiChatStore } from "./ai/use-ai-chat-store"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "./settings-navigation"
@@ -77,6 +83,7 @@ export function AiPanel({
   vault,
   onSelect,
   onCreateNoteFromText,
+  deleteMode,
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
   const backendGeneration = useVaultStore((state) => state.backendGeneration)
@@ -95,6 +102,7 @@ export function AiPanel({
   const [liveStatus, setLiveStatus] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
   const [truncated, setTruncated] = React.useState<string[]>([])
+  const [contextBytes, setContextBytes] = React.useState(0)
   const [consent, setConsent] = React.useState<ConsentPrompt | null>(null)
   const [consentBusy, setConsentBusy] = React.useState(false)
   const [copied, setCopied] = React.useState<number | null>(null)
@@ -107,6 +115,15 @@ export function AiPanel({
     ? (ai.models.find((item) => item.id === chat.modelId) ?? null)
     : (ai.models.find((item) => item.id === newChatModelId(ai)) ?? null)
   const tools = model ? modelSupportsTools(model) : false
+  const approvalMode = useProposalStore((state) =>
+    chat ? (state.modes[chat.id] ?? "manual") : "manual",
+  )
+  const chooseApprovalMode = async (mode: ApprovalMode) => {
+    if (!chat) return
+    // Without stops applies everything at once, so it is asked about once.
+    if (mode === "turbo" && !(await confirm(confirmations.aiTurbo()))) return
+    useProposalStore.getState().setMode(chat.id, mode)
+  }
   const context = chat?.context
   // What the panel reads of the open notes: titles, and the lengths only while the attached notes come near
   // the limit. Typing far from it republishes `content` without changing this string, so it does not render.
@@ -258,10 +275,16 @@ export function AiPanel({
         language: i18n.language === "ru" ? "Russian" : "English",
       })
         .then((result) => {
-          if (active) setTruncated(result.truncated)
+          if (active) {
+            setTruncated(result.truncated)
+            setContextBytes(new TextEncoder().encode(result.system).length)
+          }
         })
         .catch(() => {
-          if (active) setTruncated([])
+          if (active) {
+            setTruncated([])
+            setContextBytes(0)
+          }
         })
     }, 200)
     return () => {
@@ -302,7 +325,12 @@ export function AiPanel({
         return
       const base = state.chat
       const now = new Date().toISOString()
-      const user: ChatMessage = { role: "user", content: text, steps: [], sources: [] }
+      // Text files attached to this message are sent with it; the chat keeps only their names.
+      const files = fromInput ? (useAttachmentStore.getState().files[chatId] ?? []) : []
+      const content = files.length
+        ? `${text}\n\n${files.map((file) => `📎 ${file.name}`).join("\n")}`
+        : text
+      const user: ChatMessage = { role: "user", content, steps: [], sources: [] }
       const next: Chat = {
         ...base,
         modelId: selected.id,
@@ -312,7 +340,10 @@ export function AiPanel({
         messages: [...base.messages, user],
       }
       state.replace(next)
-      if (fromInput) setInput("")
+      if (fromInput) {
+        setInput("")
+        useAttachmentStore.getState().clear(chatId)
+      }
       setError(null)
       setLoading(true)
       setStreaming("")
@@ -329,6 +360,7 @@ export function AiPanel({
       }
       runRef.current = run
       try {
+        const mode = useProposalStore.getState().modes[next.id] ?? "manual"
         const attached = await buildAttachedContext({
           context: next.context,
           items: treeItems,
@@ -336,10 +368,13 @@ export function AiPanel({
           vault,
           generation,
           language: i18n.language === "ru" ? "Russian" : "English",
+          files,
+          approvalMode: mode,
         })
         if (run.controller.signal.aborted || run.finalized) return
         run.sources = attached.sources
         setTruncated(attached.truncated)
+        setContextBytes(new TextEncoder().encode(attached.system).length)
         const messages = next.messages
           .filter(
             (message): message is ChatMessage & { role: "user" | "assistant" } =>
@@ -354,6 +389,7 @@ export function AiPanel({
           initialSources: attached.sources,
           supportsTools: modelSupportsTools(selected),
           searchEnabled,
+          approvalMode: mode,
           signal: run.controller.signal,
           onToken: (delta) => {
             if (!run.finalized) {
@@ -364,6 +400,19 @@ export function AiPanel({
           onEvent: (event: AiTurnEvent) => {
             if (run.finalized) return
             const payload = event.payload
+            if (event.kind === "proposal" && payload.id && payload.state) {
+              useProposalStore
+                .getState()
+                .add(
+                  chatId,
+                  payload as ProposalCard,
+                  next.messages.length,
+                  autoApplies(
+                    useProposalStore.getState().modes[chatId] ?? "manual",
+                    (payload as ProposalCard).kind,
+                  ),
+                )
+            }
             if (event.kind === "toolStart") setLiveStatus(payload.tool ?? "")
             if (event.kind === "toolEnd") {
               const step = {
@@ -648,7 +697,7 @@ export function AiPanel({
               onClick={openChatList}
               className="size-8 shrink-0 text-muted-foreground hover:bg-accent hover:text-white"
             >
-              <History className="size-3.5" />
+              <MessagesSquare className="size-4" />
             </Button>
           ) : undefined
         }
@@ -709,7 +758,17 @@ export function AiPanel({
                         ? () => void onCreateNoteFromText(message.content)
                         : undefined
                     }
-                  />
+                  >
+                    {backendGeneration !== null && (
+                      <ProposalCards
+                        chatId={chat.id}
+                        generation={backendGeneration}
+                        vault={vault}
+                        archiveDeletes={deleteMode === "archive"}
+                        show={(at) => at === index}
+                      />
+                    )}
+                  </AssistantAnswer>
                 ),
               )}
               {loading && (
@@ -720,6 +779,18 @@ export function AiPanel({
                   items={flat}
                   vault={vault}
                   onSelect={onSelect}
+                />
+              )}
+              {chat && backendGeneration !== null && (
+                <ProposalCards
+                  chatId={chat.id}
+                  generation={backendGeneration}
+                  vault={vault}
+                  archiveDeletes={deleteMode === "archive"}
+                  show={(at) =>
+                    // The answer being written, or one that was never saved (it had no text).
+                    at >= chat.messages.length || chat.messages[at]?.role !== "assistant"
+                  }
                 />
               )}
               {(error || storageError) && (
@@ -735,9 +806,13 @@ export function AiPanel({
           </ScrollArea>
           <Composer
             chat={chat}
+            treeItems={treeItems}
             flat={flat}
             openDocs={openDocs}
+            approvalMode={approvalMode}
+            onApprovalMode={(mode) => void chooseApprovalMode(mode)}
             truncated={truncated}
+            contextBytes={contextBytes}
             vault={vault}
             currentDoc={currentDoc}
             currentClipped={currentClipped}

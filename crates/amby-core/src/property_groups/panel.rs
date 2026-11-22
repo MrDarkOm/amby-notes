@@ -14,7 +14,7 @@ use super::header::{
 use super::{
     ActiveProperty, DormantProperty, NoteEntry, Panel, PanelWarning, RenameHint, StorageMode,
 };
-use crate::frontmatter::HeaderKey;
+use crate::frontmatter::{self, HeaderKey};
 use crate::model::CustomProperty;
 
 /// What is known of the group file of a note.
@@ -492,4 +492,14 @@ pub fn rebuild_cache(conn: &Connection, vault: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The properties of a header without a record: a note with no `amby-id`, whose look comes from
+/// the template alone. Reads only. `None` when the header cannot be read (З25).
+pub fn header_view(note_text: &str) -> Option<Vec<ActiveProperty>> {
+    match frontmatter::header_keys(note_text) {
+        frontmatter::HeaderKeys::Absent => Some(Vec::new()),
+        frontmatter::HeaderKeys::Unreadable => None,
+        frontmatter::HeaderKeys::Keys(keys) => Some(resolve_note(&keys, None, false).active),
+    }
 }

@@ -6,6 +6,7 @@ import type { StoragePort, WriteNoteOptions } from "./port"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
+import type { DailyNote, NoteTemplate } from "./note-modules-port"
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
@@ -105,6 +106,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -123,7 +125,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -888,6 +889,32 @@ export class DesktopAdapter implements StoragePort {
     return unwrapMutation(commands.createNote(parentPath, name))
   }
 
+  async listNoteTemplates(): Promise<NoteTemplate[]> {
+    return unwrapCommand(commands.listNoteTemplates())
+  }
+
+  async createNoteFromTemplate(
+    parentPath: string,
+    name: string,
+    template: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteFromTemplate(parentPath, name, template))
+  }
+
+  async createNoteTemplate(name: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteTemplate(name))
+  }
+
+  async openDailyNote(): Promise<DailyNote> {
+    const daily = await unwrapCommand<{
+      path: string
+      created: boolean
+      mutation: MutationOutcome | null
+    }>(commands.openDailyNote())
+    if (daily.mutation) reportIndexOutcome(daily.mutation)
+    return { path: daily.path, created: daily.created, mutation: daily.mutation?.mutation ?? null }
+  }
+
   async createFolder(_vaultPath: string, name: string): Promise<string> {
     const path = _vaultPath ? joinStoragePath(_vaultPath, name) : name
     await unwrapCommand(commands.createFolder(path))
@@ -940,6 +967,23 @@ export class DesktopAdapter implements StoragePort {
 
   async archiveItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
     return unwrapMutation(commands.archiveItem(path))
+  }
+
+  async undoMutation(record: UndoRecord): Promise<FsMutationResult> {
+    return unwrapMutation(commands.undoMutation(record))
+  }
+
+  async beginMerge(targetPath: string): Promise<string | null> {
+    return unwrapCommand<string>(commands.beginMerge(targetPath))
+  }
+
+  async finishMerge(
+    _vaultPath: string,
+    sourcePath: string,
+    targetPath: string,
+    snapshotId: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.finishMerge(sourcePath, targetPath, snapshotId))
   }
 
   async noteLayers(notePath: string): Promise<NoteLayers> {
@@ -1066,36 +1110,20 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.purgeTrash(trashId))
   }
 
-  async listArchive(): Promise<ArchiveEntry[]> {
-    return unwrapCommand(commands.listArchive())
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return unwrapCommand(commands.listArchive(vaultPath))
   }
 
   async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
     return unwrapCommand(commands.readArchivePreview(archiveId, relativePath))
   }
 
-  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
-    return unwrapMutation(commands.restoreArchive(archiveId))
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.restoreArchive(archiveId, vaultPath))
   }
 
   async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
     await unwrapCommand(commands.purgeArchive(archiveId, mode))
-  }
-
-  async previewRenameRefactor(
-    _vaultPath: string,
-    path: string,
-    newName: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewRenameRefactor(path, newName))
-  }
-
-  async previewMoveRefactor(
-    _vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewMoveRefactor(sourcePath, targetPath))
   }
 
   async openInExplorer(path: string): Promise<void> {

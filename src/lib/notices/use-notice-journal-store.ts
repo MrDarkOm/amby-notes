@@ -3,10 +3,12 @@ import { create } from "zustand"
 import { loadJournal, saveJournal } from "./journal-storage"
 import {
   addJournalEntry,
+  amendJournalEntry,
   mergeJournals,
   pruneJournal,
   type JournalEntry,
   type JournalInput,
+  type JournalKind,
 } from "./notice-journal"
 
 interface NoticeJournalState {
@@ -20,6 +22,8 @@ interface NoticeJournalState {
    */
   open: (vault: string) => Promise<void>
   record: (input: JournalInput, now?: number) => void
+  /** Adds words to the entry of a cause, if it is still there. */
+  amend: (kind: JournalKind, subject: string, params: Record<string, string>) => void
   clear: () => void
   /** Resolves when everything asked to be written has been written (for tests and for quitting). */
   settled: () => Promise<void>
@@ -59,6 +63,10 @@ export const useNoticeJournalStore = create<NoticeJournalState>((set, get) => {
     },
     record: (input, now = Date.now()) => {
       set((state) => ({ entries: pruneJournal(addJournalEntry(state.entries, input, now), now) }))
+      persist()
+    },
+    amend: (kind, subject, params) => {
+      set((state) => ({ entries: amendJournalEntry(state.entries, kind, subject, params) }))
       persist()
     },
     clear: () => {

@@ -70,6 +70,8 @@ pub mod error_code {
     pub const SERVER_STORAGE_FULL: &str = "server_storage_full";
     /// Too many large bodies are being read at once; try again later (appendix Х, Х4).
     pub const SERVER_BUSY: &str = "server_busy";
+    /// The request body stopped arriving for longer than the server waits (appendix Ч, Ч3).
+    pub const REQUEST_TIMEOUT: &str = "request_timeout";
     /// The plan of the user does not allow sending changes (appendix Н, Н4).
     pub const SUBSCRIPTION_REQUIRED: &str = "subscription_required";
     /// The user's quota would be exceeded (П42).

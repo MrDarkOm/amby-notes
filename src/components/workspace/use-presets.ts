@@ -20,6 +20,8 @@ import {
   parsePresetFile,
   presetFingerprint,
   serializePreset,
+  mergeMissingButtons,
+  uniqueButtons,
   visibleLayout,
   type Preset,
 } from "./presets"
@@ -88,42 +90,6 @@ const sanitizeSide = (saved: Record<Side, PanelId | null>): Record<Side, PanelId
   const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
     (v as string) === "search" ? fallback : v
   return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
-}
-
-/**
- * Union a persisted button layout with the preset's default buttons for active
- * modules, appending any that are missing. This is what makes a newly-added
- * module's button (e.g. AI) show up for users whose saved layout predates it —
- * while staying an ordinary, draggable activity-bar button they can move.
- */
-const uniqueButtons = (buttons: ActivityButton[]): ActivityButton[] => {
-  const seen = new Set<string>()
-  return buttons.filter((button) => {
-    if (seen.has(button.defId)) return false
-    seen.add(button.defId)
-    return true
-  })
-}
-
-const mergeMissingButtons = (
-  saved: ActivityButton[],
-  preset: Preset,
-  activeModules = preset.activeModules,
-): ActivityButton[] => {
-  const uniqueSaved = uniqueButtons(saved)
-  const have = new Set(uniqueSaved.map((b) => b.defId))
-  const missing = visibleLayout({ ...preset, activeModules }).filter((b) => !have.has(b.defId))
-  if (missing.length === 0) return uniqueSaved
-  const maxOrder: Record<string, number> = {}
-  for (const b of uniqueSaved) maxOrder[b.side] = Math.max(maxOrder[b.side] ?? -1, b.order)
-  return [
-    ...uniqueSaved,
-    ...missing.map((b) => {
-      const order = (maxOrder[b.side] ?? -1) + 1
-      maxOrder[b.side] = order
-      return { ...b, side: b.side, order }
-    }),
-  ]
 }
 
 /**
@@ -214,12 +180,14 @@ export function usePresets(
         DEFAULT_PRESET_ID
       const preset = all.find((p) => p.id === activeId) ?? getPreset(activeId)
       const rawStored =
-        activeId === "standard"
+        wsConfig?.enabledModules ??
+        (activeId === "standard"
           ? STANDARD_MODULES.map(toShortModuleId)
           : activeId === "minimal" || activeId === "simple"
             ? []
-            : (wsConfig?.enabledModules ??
-              (Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules))
+            : Array.isArray(layout.activeModules)
+              ? layout.activeModules
+              : preset.activeModules)
       const installedSet = await getInstalledModuleIds()
       const storedModules = rawStored
         .filter((id) => installedSet.has(toCanonicalModuleId(id)))

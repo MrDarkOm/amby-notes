@@ -5,7 +5,7 @@ use super::*;
 use tokio::io::AsyncWriteExt;
 
 fn allowed() -> Vec<String> {
-    allowed_tool_names(true)
+    allowed_tool_names(true, false)
 }
 
 const INIT: &str = r#"{"type":"system","subtype":"init","tools":["mcp__amby__read_note"],"mcp_servers":[{"name":"amby","status":"connected"}],"skills":[],"slash_commands":[]}"#;
@@ -115,11 +115,62 @@ fn a_hostile_model_name_never_reaches_the_command_line() {
 
 #[test]
 fn search_tools_are_allowed_only_when_search_is_on() {
+    let narrow = allowed_tool_names(false, false);
+    // Database reads by ID stay: they reach only a database in the context.
+    assert_eq!(narrow.len(), 10);
     assert_eq!(
-        allowed_tool_names(false),
+        narrow[..2],
         ["mcp__amby__read_note", "mcp__amby__get_links"]
     );
-    assert_eq!(allowed_tool_names(true).len(), 4);
+    for wide in ["search_notes", "list_folder", "list_tags", "list_databases"] {
+        assert!(!narrow.contains(&format!("mcp__amby__{wide}")), "{wide}");
+    }
+    assert_eq!(allowed_tool_names(true, false).len(), 14);
+    // With writes on, only the proposal tools join the reads.
+    let extra: Vec<String> = allowed_tool_names(true, true)
+        .into_iter()
+        .filter(|name| !allowed_tool_names(true, false).contains(name))
+        .collect();
+    assert_eq!(
+        extra,
+        [
+            "mcp__amby__new_note",
+            "mcp__amby__append_note",
+            "mcp__amby__edit_note",
+            "mcp__amby__set_property",
+            "mcp__amby__delete_property",
+            "mcp__amby__rename_property",
+            "mcp__amby__move_item",
+            "mcp__amby__rename_item",
+            "mcp__amby__archive_item",
+            "mcp__amby__delete_item",
+            "mcp__amby__create_database_row",
+            "mcp__amby__set_database_value"
+        ]
+    );
+    // Database changes join them with any writes: a database in the context is in reach.
+    let database: Vec<String> = allowed_tool_names(true, true)
+        .into_iter()
+        .filter(|name| name.contains("database_row") || name.contains("database_value"))
+        .collect();
+    assert_eq!(
+        database,
+        [
+            "mcp__amby__create_database_row",
+            "mcp__amby__set_database_value"
+        ]
+    );
+    assert!(allowed_tool_names(false, true)
+        .iter()
+        .any(|name| name.contains("database_row")));
+    // Reads only: no write tool is ever allowed.
+    for name in allowed_tool_names(true, false) {
+        for write in [
+            "edit", "write", "set_", "delete", "move", "restore", "append", "new_",
+        ] {
+            assert!(!name.contains(write), "{name}");
+        }
+    }
 }
 
 #[test]
@@ -323,7 +374,7 @@ async fn search_tools_are_a_boundary_violation_when_search_is_off() {
     let (_cancel, cancel_rx) = tokio::sync::watch::channel(false);
     let result = run_stream(
         rx,
-        &allowed_tool_names(false),
+        &allowed_tool_names(false, false),
         Duration::from_secs(5),
         cancel_rx,
         |_| {},

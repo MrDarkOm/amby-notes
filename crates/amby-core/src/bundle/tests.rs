@@ -549,6 +549,40 @@ fn rollback_bundle_rename_restores_every_bundle_file() {
 }
 
 #[test]
+fn rollback_canvas_bundle_rename_preserves_unrelated_json_names() {
+    let vault = temp_vault("rollback-canvas-bundle");
+    let bundle = vault.join("Old");
+    fs::create_dir(&bundle).unwrap();
+    fs::write(bundle.join("Old.canvas"), "canvas").unwrap();
+    fs::write(bundle.join("Old.excalidraw"), "sketch").unwrap();
+    fs::write(bundle.join("Old.json"), "{\"other\":1}\n").unwrap();
+    fs::write(bundle.join("New.json"), "unrelated").unwrap();
+    let original = bundle.join("Old.canvas");
+    let preview = preview_rename_item(&vault, &original, "New").unwrap();
+    let result = rename_item_impl(&vault, &original, "New").unwrap();
+    assert_eq!(preview.primary_path, result.primary_path);
+    assert_eq!(
+        fs::read_to_string(vault.join("New/Old.json")).unwrap(),
+        "{\"other\":1}\n"
+    );
+    assert_eq!(
+        fs::read_to_string(vault.join("New/New.json")).unwrap(),
+        "unrelated"
+    );
+    rollback_rename_item(&vault, &original, &result).unwrap();
+    for (name, content) in [
+        ("Old.canvas", "canvas"),
+        ("Old.excalidraw", "sketch"),
+        ("Old.json", "{\"other\":1}\n"),
+        ("New.json", "unrelated"),
+    ] {
+        assert_eq!(fs::read_to_string(bundle.join(name)).unwrap(), content);
+    }
+    assert!(!vault.join("New").exists());
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
 fn bundle_rename_failure_after_first_inner_step_rolls_back_every_file() {
     let vault = temp_vault("rollback-rename-mid-operation");
     let bundle = vault.join("Old");
@@ -744,6 +778,35 @@ fn create_sketch_and_attach_to_note() {
     assert!(note_path.exists());
     let bundle_dir = note_path.parent().unwrap();
     assert!(bundle_dir.join("Drawing.excalidraw").exists());
+}
+
+#[test]
+fn deleted_note_layer_can_be_reattached_without_moving_other_layers() {
+    let vault = temp_vault("reattach-text-layer").canonicalize().unwrap();
+    let bundle = vault.join("Project");
+    fs::create_dir_all(&bundle).unwrap();
+    let sketch = bundle.join("Project.excalidraw");
+    let sibling = bundle.join("Task.md");
+    fs::write(&sketch, "{}\n").unwrap();
+    fs::write(&sibling, "child").unwrap();
+    let note = PathBuf::from(create_layer_impl(&sketch, "note").unwrap().layer_path);
+    let result = super::layers::delete_layer_with(&vault, &note, "note", |root, file, scope| {
+        assert_eq!(file, note);
+        crate::archive::move_to_archive_scoped(root, file, scope)
+    })
+    .unwrap();
+    assert_eq!(result.primary_path.as_deref(), bundle.to_str());
+    assert_eq!(result.deleted_paths, vec![path_string(&note)]);
+    assert!(!note.exists());
+    assert!(vault.join(".amby/archive/Project/Project.md").is_file());
+    assert_eq!(fs::read_to_string(&sketch).unwrap(), "{}\n");
+    assert_eq!(fs::read_to_string(&sibling).unwrap(), "child");
+    assert_eq!(
+        create_layer_impl(&sketch, "note").unwrap().layer_path,
+        path_string(&note)
+    );
+    assert!(note.is_file());
+    let _ = fs::remove_dir_all(vault);
 }
 
 #[test]

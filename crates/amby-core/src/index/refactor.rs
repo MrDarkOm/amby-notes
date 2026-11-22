@@ -1,11 +1,12 @@
 use rusqlite::{Connection, OptionalExtension};
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-use super::links::{build_note_lookup, extract_links, protected_markdown_ranges};
+use super::links::{
+    build_note_lookup, extract_links, normalize_wiki_target, protected_markdown_ranges,
+};
 use super::note_index::relative_path;
 use crate::frontmatter;
 use crate::history;
@@ -16,13 +17,6 @@ pub struct PlannedWikiRewrite {
     pub source_path: PathBuf,
     pub replacements: Vec<(String, String)>,
     pub literal_replacements: Vec<(String, String)>,
-}
-
-#[derive(Clone, Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RefactorPreview {
-    pub notes: usize,
-    pub replacements: usize,
 }
 
 /// Database-only part of an inbound link refactor. Keeping this value separate
@@ -38,16 +32,6 @@ pub struct InboundWikiRewriteInputs {
     /// to no other, with the new target text. Archived notes are not indexed, so their wikilinks
     /// are matched against this instead.
     archive_targets: HashMap<String, String>,
-}
-
-pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
-    RefactorPreview {
-        notes: plan.len(),
-        replacements: plan
-            .iter()
-            .map(|rewrite| rewrite.replacements.len() + rewrite.literal_replacements.len())
-            .sum(),
-    }
 }
 
 pub fn replace_wiki_target(raw: &str, target: &str) -> String {
@@ -74,7 +58,7 @@ pub fn collect_inbound_wiki_rewrite_inputs(
     changes: &[crate::model::PathChange],
 ) -> Result<InboundWikiRewriteInputs, String> {
     let mut moved_sources = HashMap::<String, String>::new();
-    let mut targets = HashMap::<String, String>::new();
+    let mut targets = HashMap::<String, MovedNote>::new();
     for change in changes {
         let old = Path::new(&change.old_path);
         let new = Path::new(&change.new_path);
@@ -95,13 +79,24 @@ pub fn collect_inbound_wiki_rewrite_inputs(
             .optional()
             .map_err(|error| error.to_string())?;
         if let Some(id) = id {
-            targets.insert(id, new_rel.trim_end_matches(".md").to_string());
+            targets.insert(id, MovedNote::new(&old_rel, &new_rel));
         }
     }
 
-    let archive_targets = archive_wiki_targets(conn, &targets)?;
+    let notes = if targets.is_empty() {
+        Vec::new()
+    } else {
+        all_notes(conn)?
+    };
+    let owners = owners_after(&notes, &moved_sources);
+    for (id, _, title) in &notes {
+        if let Some(target) = targets.get_mut(id) {
+            target.old_title = title.to_lowercase();
+        }
+    }
+    let archive_targets = archive_wiki_targets(conn, &notes, &targets, &owners)?;
     let mut inbound_links = Vec::new();
-    for (target_id, replacement) in targets {
+    for (target_id, target) in &targets {
         let mut statement = conn
             .prepare(
                 "SELECT notes.path, links.raw FROM links JOIN notes ON notes.id = links.note_id WHERE links.target_note_id = ?1",
@@ -115,7 +110,11 @@ pub fn collect_inbound_wiki_rewrite_inputs(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?;
         for (source_rel, raw) in rows {
-            inbound_links.push((source_rel, raw, replacement.clone()));
+            if let Some(replacement) =
+                target.written_as(&normalize_wiki_target(&raw), target_id, &owners)
+            {
+                inbound_links.push((source_rel, raw, replacement));
+            }
         }
     }
 
@@ -157,16 +156,62 @@ fn note_link_keys(path: &str, title: &str) -> HashSet<String> {
     keys
 }
 
-/// For each moved note (`targets`: id to new target), the link names that unambiguously mean it.
-/// A name shared with another note is dropped: the archived note's own location is gone, so it
-/// cannot be decided and the link stays as written.
-fn archive_wiki_targets(
-    conn: &Connection,
-    targets: &HashMap<String, String>,
-) -> Result<HashMap<String, String>, String> {
-    if targets.is_empty() {
-        return Ok(HashMap::new());
+/// A moved or renamed note, with what a rewritten link to it may say.
+struct MovedNote {
+    /// The new vault-relative path without `.md`, as written in a path link.
+    full: String,
+    /// The new file name without `.md`, as written in a link by name.
+    stem: String,
+    old_stem: String,
+    /// Lowercase indexed title before the change (filled in after the paths are known).
+    old_title: String,
+}
+
+impl MovedNote {
+    fn new(old_rel: &str, new_rel: &str) -> Self {
+        let full = new_rel.trim_end_matches(".md").to_string();
+        let stem = full.rsplit('/').next().unwrap_or(&full).to_string();
+        let old = old_rel.trim_end_matches(".md");
+        Self {
+            old_stem: old.rsplit('/').next().unwrap_or(old).to_lowercase(),
+            full,
+            stem,
+            old_title: String::new(),
+        }
     }
+
+    /// The target text for a link that read `written` (normalized as the index reads it).
+    /// A link by path gets the new path. A link by name keeps a name when, after the change,
+    /// that name means this note alone: the same title after a move (a move never changes the
+    /// title), otherwise the new file name. Anything else falls back to the full path.
+    /// `None` leaves the link as written.
+    fn written_as(
+        &self,
+        written: &str,
+        id: &str,
+        owners: &HashMap<String, Vec<String>>,
+    ) -> Option<String> {
+        let only_this = |key: &str| {
+            owners
+                .get(key)
+                .is_some_and(|ids| ids.len() == 1 && ids[0] == id)
+        };
+        if written.contains('/') {
+            return Some(self.full.clone());
+        }
+        let moved_only = self.stem.to_lowercase() == self.old_stem;
+        if moved_only && written != self.old_stem && written == self.old_title && only_this(written)
+        {
+            return None;
+        }
+        if only_this(&self.stem.to_lowercase()) {
+            return Some(self.stem.clone());
+        }
+        Some(self.full.clone())
+    }
+}
+
+fn all_notes(conn: &Connection) -> Result<Vec<(String, String, String)>, String> {
     let mut statement = conn
         .prepare("SELECT id, path, title FROM notes")
         .map_err(|error| error.to_string())?;
@@ -181,22 +226,68 @@ fn archive_wiki_targets(
         .map_err(|error| error.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    drop(statement);
+    Ok(notes)
+}
+
+/// Which notes each link name would mean after the change. A moved note may lose its title
+/// (a rename can change an explicit title), so it is counted under both its old title and its
+/// new names: an overcount only makes a name ambiguous, which falls back to the full path.
+fn owners_after(
+    notes: &[(String, String, String)],
+    moved: &HashMap<String, String>,
+) -> HashMap<String, Vec<String>> {
+    let mut owners = HashMap::<String, Vec<String>>::new();
+    for (id, path, title) in notes {
+        let after = moved.get(path).unwrap_or(path);
+        let mut keys = note_link_keys(after, title);
+        if after != path {
+            keys.extend(note_link_keys(after, &file_stem_of(after)));
+        }
+        for key in keys {
+            let ids = owners.entry(key).or_default();
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    owners
+}
+
+fn file_stem_of(path: &str) -> String {
+    let path = path.trim_end_matches(".md");
+    path.rsplit('/').next().unwrap_or(path).to_string()
+}
+
+/// For each moved note, the link names that unambiguously mean it, with the target text a
+/// rewritten link gets (see [`MovedNote::written_as`]). A name shared with another note is
+/// dropped: the archived note's own location is gone, so it cannot be decided and the link
+/// stays as written.
+fn archive_wiki_targets(
+    conn: &Connection,
+    notes: &[(String, String, String)],
+    targets: &HashMap<String, MovedNote>,
+    owners_after: &HashMap<String, Vec<String>>,
+) -> Result<HashMap<String, String>, String> {
+    if targets.is_empty() {
+        return Ok(HashMap::new());
+    }
     let mut owners = HashMap::<String, usize>::new();
-    for (_, path, title) in &notes {
+    for (_, path, title) in notes {
         for key in note_link_keys(path, title) {
             *owners.entry(key).or_default() += 1;
         }
     }
     let lookup = build_note_lookup(conn)?;
     let mut keys = HashMap::new();
-    for (id, path, title) in &notes {
-        let Some(replacement) = targets.get(id) else {
+    for (id, path, title) in notes {
+        let Some(target) = targets.get(id) else {
             continue;
         };
         for key in note_link_keys(path, title) {
             if owners.get(&key) == Some(&1) && lookup.get(&key) == Some(id) {
-                keys.insert(key, replacement.clone());
+                if let Some(replacement) = target.written_as(&key, id, owners_after) {
+                    keys.insert(key, replacement);
+                }
             }
         }
     }
@@ -498,6 +589,27 @@ pub fn apply_planned_wiki_rewrites(
     vault: &Path,
     plan: &[PlannedWikiRewrite],
 ) -> Result<Vec<PathBuf>, String> {
+    Ok(apply_planned_wiki_rewrites_recorded(vault, plan)?
+        .into_iter()
+        .map(|note| note.path)
+        .collect())
+}
+
+/// A note whose links a rewrite changed: where it is, the version that holds its bytes from before,
+/// and the digest of what was written, so an undo can tell whether it was edited since.
+#[derive(Clone, Debug)]
+pub struct RecordedRewrite {
+    pub path: PathBuf,
+    pub snapshot_id: String,
+    pub digest: String,
+}
+
+/// Applies the plan; every note it changes first becomes a kept `link-refactor` version (even with
+/// the history switched off). A failure puts the notes already rewritten back.
+pub fn apply_planned_wiki_rewrites_recorded(
+    vault: &Path,
+    plan: &[PlannedWikiRewrite],
+) -> Result<Vec<RecordedRewrite>, String> {
     let mut proposed = Vec::<(PathBuf, String, String)>::new();
     for rewrite in plan {
         let original =
@@ -510,37 +622,35 @@ pub fn apply_planned_wiki_rewrites(
         }
     }
 
-    let mut applied = Vec::<(PathBuf, String)>::new();
+    let mut applied = Vec::<(RecordedRewrite, String)>::new();
     for (path, original, next) in proposed {
-        let result = history::snapshot_before_write(vault, &path, next.as_bytes(), "link-refactor")
-            .and_then(|_| frontmatter::atomic_write_bytes(&path, next.as_bytes()));
-        if let Err(error) = result {
-            for (applied_path, applied_original) in applied.into_iter().rev() {
-                let _ = frontmatter::atomic_write_bytes(&applied_path, applied_original.as_bytes());
+        let result = history::snapshot_before_write(
+            vault,
+            &path,
+            next.as_bytes(),
+            history::LINK_REFACTOR_REASON,
+        )
+        .and_then(|id| id.ok_or_else(|| "The link rewrite kept no version".to_string()))
+        .and_then(|id| frontmatter::atomic_write_bytes(&path, next.as_bytes()).map(|()| id));
+        match result {
+            Ok(snapshot_id) => applied.push((
+                RecordedRewrite {
+                    path,
+                    snapshot_id,
+                    digest: crate::undo::digest(next.as_bytes()),
+                },
+                original,
+            )),
+            Err(error) => {
+                for (applied, applied_original) in applied.into_iter().rev() {
+                    let _ =
+                        frontmatter::atomic_write_bytes(&applied.path, applied_original.as_bytes());
+                }
+                return Err(error);
             }
-            return Err(error);
         }
-        applied.push((path, original));
     }
-    Ok(applied.into_iter().map(|(path, _)| path).collect())
-}
-
-pub fn preview_refactor_links_for_rename(
-    conn: &Connection,
-    vault: &Path,
-    changes: &[crate::model::PathChange],
-) -> Result<RefactorPreview, String> {
-    let plan = plan_inbound_wiki_rewrites(conn, vault, changes)?;
-    Ok(refactor_preview(&plan))
-}
-
-pub fn preview_refactor_links_for_move(
-    conn: &Connection,
-    vault: &Path,
-    changes: &[crate::model::PathChange],
-) -> Result<RefactorPreview, String> {
-    let plan = plan_inbound_wiki_rewrites(conn, vault, changes)?;
-    Ok(refactor_preview(&plan))
+    Ok(applied.into_iter().map(|(note, _)| note).collect())
 }
 
 pub fn refactor_links_for_rename(

@@ -637,6 +637,28 @@ async fn a_system_error_after_some_text_still_fails_the_turn() {
     assert_eq!(result, Err(CodexError::Rejected));
 }
 
+#[tokio::test]
+async fn text_after_a_tool_call_is_a_new_paragraph_of_the_answer() {
+    let delta = |text: &str, item: &str| json!({"method":"item/agentMessage/delta","params":{"delta":text,"itemId":item,"threadId":"t1","turnId":"u1"}});
+    let turn = vec![
+        delta("I will check the note.", "a"),
+        json!({"method":"item/completed","params":{"item":{"type":"agentMessage","id":"a"}}}),
+        json!({"method":"item/started","params":{"item":{"type":"mcpToolCall","server":"amby","id":"c"}}}),
+        delta("It lists milk.", "b"),
+        json!({"method":"turn/completed","params":{"threadId":"t1","turn":{"id":"u1","status":"completed","items":[],"error":null}}}),
+    ];
+    let (reader, writer, _seen) = spawn_server(happy(turn));
+    let (_tx, cancel) = tokio::sync::watch::channel(false);
+    let mut streamed = String::new();
+    let output = within(run_turn(reader, writer, input(), cancel, |delta| {
+        streamed.push_str(delta)
+    }))
+    .await
+    .unwrap();
+    assert_eq!(output.text, "I will check the note.\n\nIt lists milk.");
+    assert_eq!(streamed, output.text);
+}
+
 // ---- signing in --------------------------------------------------------------
 
 #[test]

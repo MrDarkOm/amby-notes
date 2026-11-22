@@ -420,7 +420,35 @@ pub fn snapshot_before_write(
     replacement: &[u8],
     reason: &str,
 ) -> Result<Option<String>, String> {
+    // A property edit the AI panel applies leaves an `ai-edit` version, which is kept even when
+    // the vault's history is switched off.
+    let reason = if AI_PROPERTY_EDIT.with(std::cell::Cell::get)
+        && (reason == "cli-property"
+            || reason == "database-value"
+            || reason.starts_with("property-"))
+    {
+        AI_EDIT_REASON
+    } else {
+        reason
+    };
     snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
+}
+
+/// Keeps the current bytes of `source` as a version, whatever replaces them next (a merge, a
+/// rename that may rewrite a database description). `reason` must be one of the kept reasons, so
+/// the version exists even with the history switched off.
+pub fn snapshot_current(vault: &Path, source: &Path, reason: &str) -> Result<String, String> {
+    if !KEPT_REASONS.contains(&reason) {
+        return Err("Only a kept reason can take an unconditional snapshot".into());
+    }
+    // An empty replacement never equals a non-empty file; an empty file needs no version.
+    snapshot_before_write(vault, source, &[], reason)?
+        .ok_or_else(|| "Nothing to keep: the file is empty or missing".to_string())
+}
+
+/// The validated bytes of a version, for an undo that writes them back to a path it checked.
+pub fn read_snapshot_bytes(vault: &Path, id: &str) -> Result<Vec<u8>, String> {
+    Ok(prepare_snapshot_restore(vault, id)?.bytes)
 }
 
 /// The structural journal retains the snapshot ID across retries.
@@ -450,8 +478,53 @@ pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
 /// text becomes a version first.
 pub const RESTORE_REASON: &str = "restore";
 
+/// The links of a note were rewritten because a note or a folder it links to was renamed or moved.
+/// Kept even when the history is switched off: the undo of the rename or the move puts these exact
+/// bytes back (docs/notices.md, section 9).
+pub const LINK_REFACTOR_REASON: &str = "link-refactor";
+
+/// A renamed page's explicit title followed the new name, or a renamed database folder's
+/// description took the new name. Kept like [`LINK_REFACTOR_REASON`], for the same undo.
+pub const RENAME_REASON: &str = "rename";
+
+/// The text of a note before another note was merged into it. Kept like
+/// [`LINK_REFACTOR_REASON`]: the undo of the merge puts it back.
+pub const MERGE_REASON: &str = "merge";
+
+/// The reasons whose snapshot is the only copy an undo or a promise relies on: taken even when
+/// the history is switched off, and the newest of each kind per note is never cleaned up.
+const KEPT_REASONS: [&str; 6] = [
+    SOURCE_REWRITE_REASON,
+    SYNC_OVERWRITE_REASON,
+    RESTORE_REASON,
+    LINK_REFACTOR_REASON,
+    RENAME_REASON,
+    MERGE_REASON,
+];
+
 pub const CLI_EDIT_REASON: &str = "cli-edit";
 pub const AI_EDIT_REASON: &str = "ai-edit";
+
+thread_local! {
+    static AI_PROPERTY_EDIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, the property engine's versions on this thread are `ai-edit` ones. The panel
+/// applies its property proposals inside this scope, so every write leaves a version that undoes it.
+pub struct AiPropertyEdit(());
+
+impl AiPropertyEdit {
+    pub fn enter() -> Self {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(true));
+        Self(())
+    }
+}
+
+impl Drop for AiPropertyEdit {
+    fn drop(&mut self) {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(false));
+    }
+}
 
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
@@ -558,9 +631,7 @@ fn snapshot_before_write_with_id(
     created_at_ms: u64,
     id: Ulid,
 ) -> Result<Option<String>, String> {
-    if reason != SOURCE_REWRITE_REASON
-        && reason != SYNC_OVERWRITE_REASON
-        && reason != RESTORE_REASON
+    if !KEPT_REASONS.contains(&reason)
         && reason != CLI_EDIT_REASON
         && reason != AI_EDIT_REASON
         && !is_history_enabled(vault)
@@ -676,7 +747,7 @@ fn snapshot_before_write_with_id(
         if matches!(reason, CLI_EDIT_REASON | AI_EDIT_REASON) {
             protected.insert(id.clone());
         }
-        for reason in [SOURCE_REWRITE_REASON, SYNC_OVERWRITE_REASON, RESTORE_REASON] {
+        for reason in KEPT_REASONS {
             if let Some(newest) = manifest
                 .snapshots
                 .iter()

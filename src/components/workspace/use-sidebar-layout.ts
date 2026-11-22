@@ -31,7 +31,44 @@ function layoutModeFor(width: number): LayoutMode {
 function currentLayoutMode(): LayoutMode {
   return typeof window === "undefined" ? "wide" : layoutModeFor(window.innerWidth)
 }
-const SIDEBAR_HIDE_DELAY_MS = 280
+const SIDEBAR_HIDE_DELAY_MS = 1000
+const SIDEBAR_MENU_POLL_MS = 150
+const OPEN_FLOATING_MENU_SELECTOR = [
+  '[data-slot="context-menu-content"][data-state="open"]',
+  '[data-slot="dropdown-menu-content"][data-state="open"]',
+  '[data-slot="popover-content"][data-state="open"]',
+  '[data-slot="select-content"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+].join(", ")
+
+function hasOpenFloatingMenu(): boolean {
+  if (typeof document === "undefined") return false
+  return document.querySelector(OPEN_FLOATING_MENU_SELECTOR) !== null
+}
+
+function isPointerOverSidebarOverlay(
+  side: Side,
+  pointer: { x: number; y: number } | null,
+): boolean {
+  if (typeof document === "undefined") return false
+  const overlay = document.querySelector(`.amby-sidebar-overlay--${side}`)
+  if (!overlay) return false
+  try {
+    if (overlay.matches(":hover")) return true
+  } catch {
+    // Some test DOM environments do not implement :hover matching.
+  }
+  if (!pointer) return false
+  const rect = overlay.getBoundingClientRect()
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    pointer.x >= rect.left &&
+    pointer.x <= rect.right &&
+    pointer.y >= rect.top &&
+    pointer.y <= rect.bottom
+  )
+}
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
@@ -102,12 +139,25 @@ export function useSidebarLayout({
     left: null,
     right: null,
   })
+  const lastPointerRef = React.useRef<{ x: number; y: number } | null>(null)
 
   const clearHideTimer = React.useCallback((side: Side) => {
     const timer = hideTimersRef.current[side]
     if (timer) clearTimeout(timer)
     hideTimersRef.current[side] = null
   }, [])
+
+  const trackUnpinnedPointer =
+    (!dockPrefs.leftPinned && isLeftSidebarHover) || (!dockPrefs.rightPinned && isRightSidebarHover)
+
+  React.useEffect(() => {
+    if (!trackUnpinnedPointer || typeof window === "undefined") return
+    const onPointerMove = (event: PointerEvent) => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY }
+    }
+    window.addEventListener("pointermove", onPointerMove, { capture: true, passive: true })
+    return () => window.removeEventListener("pointermove", onPointerMove, { capture: true })
+  }, [trackUnpinnedPointer])
 
   React.useEffect(
     () => () => {
@@ -384,23 +434,6 @@ export function useSidebarLayout({
     [],
   )
   const dnd = useActivityDnD({ onDrop: reorderButton, zoneForButton })
-  const setSidebarHover = React.useCallback(
-    (side: Side, hovering: boolean) => {
-      clearHideTimer(side)
-      if (hovering) {
-        if (side === "left") setIsLeftSidebarHover(true)
-        else setIsRightSidebarHover(true)
-        return
-      }
-      hideTimersRef.current[side] = setTimeout(() => {
-        hideTimersRef.current[side] = null
-        if (side === "left") setIsLeftSidebarHover(false)
-        else setIsRightSidebarHover(false)
-      }, SIDEBAR_HIDE_DELAY_MS)
-    },
-    [clearHideTimer],
-  )
-
   const hideSidebarHoverNow = React.useCallback(
     (side: Side) => {
       clearHideTimer(side)
@@ -408,6 +441,56 @@ export function useSidebarLayout({
       else setIsRightSidebarHover(false)
     },
     [clearHideTimer],
+  )
+
+  const closeOtherSidebarIfCompact = React.useCallback(
+    (side: Side) => {
+      if (!isCompactLayout) return
+      const otherSide: Side = side === "left" ? "right" : "left"
+      if (otherSide === "left") setIsLeftSidebarOpen(false)
+      else setIsRightSidebarOpen(false)
+      hideSidebarHoverNow(otherSide)
+    },
+    [hideSidebarHoverNow, isCompactLayout],
+  )
+
+  const scheduleHideSidebarHover = React.useCallback(
+    (side: Side, delayMs: number, sawOpenMenu: boolean) => {
+      clearHideTimer(side)
+      hideTimersRef.current[side] = setTimeout(() => {
+        hideTimersRef.current[side] = null
+        if (hasOpenFloatingMenu()) {
+          // Portaled menus live outside the sidebar DOM and trigger mouseleave.
+          // Keep the unpinned sidebar visible until the menu closes.
+          scheduleHideSidebarHover(side, SIDEBAR_MENU_POLL_MS, true)
+          return
+        }
+        if (isPointerOverSidebarOverlay(side, lastPointerRef.current)) {
+          return
+        }
+        if (sawOpenMenu) {
+          scheduleHideSidebarHover(side, SIDEBAR_HIDE_DELAY_MS, false)
+          return
+        }
+        if (side === "left") setIsLeftSidebarHover(false)
+        else setIsRightSidebarHover(false)
+      }, delayMs)
+    },
+    [clearHideTimer],
+  )
+
+  const setSidebarHover = React.useCallback(
+    (side: Side, hovering: boolean) => {
+      clearHideTimer(side)
+      if (hovering) {
+        closeOtherSidebarIfCompact(side)
+        if (side === "left") setIsLeftSidebarHover(true)
+        else setIsRightSidebarHover(true)
+        return
+      }
+      scheduleHideSidebarHover(side, SIDEBAR_HIDE_DELAY_MS, hasOpenFloatingMenu())
+    },
+    [clearHideTimer, closeOtherSidebarIfCompact, scheduleHideSidebarHover],
   )
 
   function handleActivate(defId: string) {
@@ -433,6 +516,7 @@ export function useSidebarLayout({
       return
     }
     setActiveBySide((prev) => ({ ...prev, [side]: def.id }))
+    closeOtherSidebarIfCompact(side)
     setOpen(true)
     if (!dockPrefs[side === "left" ? "leftPinned" : "rightPinned"]) {
       setSidebarHover(side, true)
@@ -442,6 +526,7 @@ export function useSidebarLayout({
   function activatePanelAnywhere(panelId: PanelId) {
     const button = activityButtons.find((b) => b.defId === panelId)
     if (!button) return
+    closeOtherSidebarIfCompact(button.side)
     if (button.side === "left") setIsLeftSidebarOpen(true)
     else setIsRightSidebarOpen(true)
     if (!dockPrefs[button.side === "left" ? "leftPinned" : "rightPinned"])
@@ -479,6 +564,7 @@ export function useSidebarLayout({
       const pinned = isDockPinned(side)
       const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
       if (!open || (!pinned && !visible)) {
+        closeOtherSidebarIfCompact(side)
         setOpen(true)
         if (!pinned) setSidebarHover(side, true)
         return
@@ -487,6 +573,7 @@ export function useSidebarLayout({
       hideSidebarHoverNow(side)
     },
     [
+      closeOtherSidebarIfCompact,
       isDockPinned,
       isLeftSidebarOpen,
       isLeftSidebarVisible,

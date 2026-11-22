@@ -160,12 +160,29 @@ export function BackupPanel({ vault, port: given, missing = false }: Props) {
   }
   const reveal = (item: BackupInfo) =>
     void act(`show:${item.id}`, (current) => port.reveal(current.generation, item.id))
+  const date = (ms: number) => new Date(ms).toLocaleString(i18n.language)
+  // One question at a time: while it is open every action of the list waits, so clicks cannot queue a
+  // second deletion behind it (the questions are shown one after another and would look the same).
   const remove = async (item: BackupInfo) => {
-    if (!(await confirm(confirmations.deleteBackup()))) return
+    if (working.current || !catalog || catalog.vault !== vault) return
+    working.current = true
+    setBusy(`ask:${item.id}`)
+    let chosen: boolean
+    try {
+      const params = { date: date(item.createdMs) }
+      chosen = await confirm(
+        item.origin === "legacy"
+          ? confirmations.deleteOldBackup(params)
+          : confirmations.deleteBackup(params),
+      )
+    } finally {
+      working.current = false
+      if (scope.current === vault) setBusy(null)
+    }
+    if (!chosen) return
     await act(`delete:${item.id}`, (current) => port.remove(current.generation, item.id))
     if (scope.current === vault) void reload.current()
   }
-  const date = (ms: number) => new Date(ms).toLocaleString(i18n.language)
   const day = (ms: number) => new Date(ms).toLocaleDateString(i18n.language)
 
   return (

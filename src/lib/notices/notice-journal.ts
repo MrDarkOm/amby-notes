@@ -17,7 +17,17 @@ type JournalLevel = "info" | "success"
  * What happened. The text is made from the kind and the params when the journal is read, in the language
  * of the person at that time; an unknown kind (from a newer Amby) is shown with a general text.
  */
-type JournalKind = "restored" | "conflictOutcome" | "merged" | "backupReady" | "updateFailed"
+export type JournalKind =
+  | "restored"
+  | "conflictOutcome"
+  | "merged"
+  | "backupReady"
+  | "updateFailed"
+  // A rename, a move that rewrote links, a merge of two notes: with «Вернуть» (docs/notices.md, section 9)
+  | "renamedWithLinks"
+  | "movedWithLinks"
+  | "movedManyWithLinks"
+  | "notesMerged"
 
 export interface JournalEntry {
   id: string
@@ -78,6 +88,20 @@ export function addJournalEntry(
   if (input.target !== undefined) entry.target = input.target
   const rest = entries.filter((item) => item !== same)
   return byNewest([entry, ...rest]).slice(0, JOURNAL_MAX_ENTRIES)
+}
+
+/** Adds words to the entry of a cause (the snapshot to go back to, that it was given back). */
+export function amendJournalEntry(
+  entries: JournalEntry[],
+  kind: JournalKind,
+  subject: string,
+  params: Record<string, string>,
+): JournalEntry[] {
+  return entries.map((entry) =>
+    entry.kind === kind && entry.subject === subject
+      ? { ...entry, params: { ...entry.params, ...params } }
+      : entry,
+  )
 }
 
 /** Forgets what is older than the term. */

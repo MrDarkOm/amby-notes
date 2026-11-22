@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FolderOpen, RotateCcw, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -29,6 +30,9 @@ import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
 import { NoticeLine } from "../notices/notice-line"
 import { Row, selectTrigger } from "./settings-common"
+
+/** Matches the small outline buttons of the other settings rows. */
+const actionButton = "h-7 text-[12px] font-normal [&_svg:not([class*='size-'])]:size-3.5"
 
 export function DataTab({ vault }: { vault: string | null }) {
   const { t } = useTranslation()
@@ -57,46 +61,57 @@ export function DataTab({ vault }: { vault: string | null }) {
       .catch(() => {})
   }, [])
 
-  const btn =
-    "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-foreground hover:bg-card"
+  const path = dir || (isTauri() ? "…" : "localStorage (web)")
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div>
-        <div className="mb-1 text-[13px] text-foreground">{t("settings.data.location")}</div>
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded bg-card px-2 py-1.5 text-[12px] text-muted-foreground">
-            {dir || (isTauri() ? "…" : "localStorage (web)")}
-          </code>
-          {isTauri() && (
-            <button
-              type="button"
-              className={btn}
-              onClick={() => void openDataFolder()}
-              disabled={!dir}
-            >
-              <FolderOpen className="size-4" />
-              {t("settings.data.openFolder")}
-            </button>
-          )}
-        </div>
-        {openFailed && <NoticeLine text={t("settings.data.openFolderFailed")} className="mt-1" />}
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <button
+    <>
+      <Row
+        label={t("settings.data.location")}
+        hint={
+          <>
+            <span title={path} className="block truncate font-mono">
+              {path}
+            </span>
+            {openFailed && (
+              <NoticeLine text={t("settings.data.openFolderFailed")} className="mt-1" />
+            )}
+          </>
+        }
+      >
+        {isTauri() && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={actionButton}
+            onClick={() => void openDataFolder()}
+            disabled={!dir}
+          >
+            <FolderOpen />
+            {t("settings.data.openFolder")}
+          </Button>
+        )}
+      </Row>
+      <Row label={t("settings.data.reset")} hint={t("settings.data.resetHint")}>
+        <Button
           type="button"
-          className={btn}
+          variant="outline"
+          size="sm"
+          className={actionButton}
           onClick={async () => {
             if (await confirm(confirmations.resetSettings())) setPrefs({ ...DEFAULT_PREFS })
           }}
         >
-          <RotateCcw className="size-4" />
-          {t("settings.data.reset")}
-        </button>
-        <button
+          <RotateCcw />
+          {t("settings.data.resetAction")}
+        </Button>
+      </Row>
+      <Row label={t("settings.data.recent")} hint={t("settings.data.recentHint")}>
+        <Button
           type="button"
-          className={cn(btn, "text-destructive hover:bg-destructive/10")}
+          variant="outline"
+          size="sm"
+          className={cn(actionButton, "text-destructive hover:text-destructive")}
           onClick={() => {
             setVaults([])
             void saveWorkspaces({
@@ -106,11 +121,11 @@ export function DataTab({ vault }: { vault: string | null }) {
             })
           }}
         >
-          <Trash2 className="size-4" />
+          <Trash2 />
           {t("settings.data.clearRecent")}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Row>
+    </>
   )
 }
 

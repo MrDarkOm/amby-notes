@@ -794,3 +794,45 @@ fn a_set_whose_meta_names_a_path_outside_the_vault_is_not_listed_or_read() {
         assert!(matches!(conflicts.read(ID), Err(ConflictError::Incomplete)));
     }
 }
+
+/// A conflict whose file has become the same as the other version, byte for byte (both computers
+/// rewrote a database manifest the same way), is settled: it closes as "keep the file", which
+/// leaves the file as it is. A conflict that still differs stays open.
+#[test]
+fn a_conflict_whose_versions_now_match_closes_by_itself() {
+    let vault = TempVault::new("conflicts-settled");
+    vault.put("Db/Db.json", b"{\"same\":true}\n");
+    make_set(
+        &vault,
+        ID,
+        "bothCreated",
+        ITEM,
+        "Db/Db.json",
+        "other.json",
+        b"{\"same\":true}\n",
+        None,
+    );
+    vault.put("Notes/n.md", b"mine\n");
+    make_set(
+        &vault,
+        "abcdef012345",
+        "bothCreated",
+        "e4e73ba99658c22f9c501b589feeddb5",
+        "Notes/n.md",
+        "other.md",
+        b"theirs\n",
+        None,
+    );
+    let closed = store(&vault).close_settled().unwrap();
+    assert_eq!(closed, [ID.to_owned()]);
+    assert_eq!(vault.bytes("Db/Db.json").unwrap(), b"{\"same\":true}\n");
+    let open: Vec<String> = store(&vault)
+        .list()
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    assert_eq!(open, ["abcdef012345".to_owned()]);
+    assert_eq!(vault.bytes("Notes/n.md").unwrap(), b"mine\n");
+    assert!(store(&vault).close_settled().unwrap().is_empty());
+}

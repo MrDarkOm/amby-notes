@@ -18,7 +18,7 @@ describe("AI model tool defaults", () => {
     expect(isLocalAiModel(model("http://[::1]:1234"))).toBe(true)
     expect(isLocalAiModel(model("https://api.example.com"))).toBe(false)
     expect(isLocalAiModel(model("https://host.local"))).toBe(false)
-    expect(modelSupportsTools(model("http://localhost:1234"))).toBe(false)
+    expect(modelSupportsTools(model("http://localhost:1234"))).toBe(true)
     expect(modelSupportsTools(model("https://api.example.com"))).toBe(true)
     expect(modelSupportsTools({ ...model("https://api.example.com"), supportsTools: false })).toBe(
       false,

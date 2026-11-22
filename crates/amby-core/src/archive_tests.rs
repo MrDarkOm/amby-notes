@@ -54,6 +54,24 @@ fn k1_a_file_moves_to_the_archive_and_keeps_its_path() {
 }
 
 #[test]
+fn exact_bundle_file_archives_and_restores_without_moving_its_neighbors() {
+    let vault = Vault::new();
+    let main = vault.put("Note/Note.md", b"main");
+    vault.put("Note/Note.canvas", b"canvas");
+    vault.put("Note/Child.md", b"child");
+    move_to_archive_scoped(&vault.root, &main, recycle_bin::TrashScope::ExactFile).unwrap();
+    assert!(!vault.exists("Note/Note.md"));
+    assert_eq!(
+        vault.read("Note/Note.canvas").as_deref(),
+        Some(&b"canvas"[..])
+    );
+    let id = entry_of(&vault, "Note/Note.md").id;
+    restore(&vault.root, &id).unwrap();
+    assert_eq!(vault.read("Note/Note.md").as_deref(), Some(&b"main"[..]));
+    assert_eq!(vault.read("Note/Child.md").as_deref(), Some(&b"child"[..]));
+}
+
+#[test]
 fn k1_a_folder_moves_with_all_its_files_and_keeps_its_paths() {
     // К1: "файл (или папку)": the paths inside repeat the paths in the vault.
     let vault = Vault::new();

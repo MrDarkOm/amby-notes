@@ -374,6 +374,11 @@ pub fn create_database(
                 .transpose()
                 .map_err(failed("invalidNotePath"))?
                 .map(|path| path.to_string_lossy().to_string());
+            if request.mode == crate::database::mutations::DatabaseCreateMode::Attached {
+                use amby_core::vault_tools::modules::{Module, Modules};
+                Modules::require(root, Module::Supernotes)
+                    .map_err(|code| failed("databaseCreateFailed")(code.to_owned()))?;
+            }
             let mut created =
                 crate::database::mutations::create_database(root, &watcher.self_writes, &request)
                     .map_err(failed("databaseCreateFailed"))?;

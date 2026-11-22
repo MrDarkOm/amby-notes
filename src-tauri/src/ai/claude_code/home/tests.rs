@@ -1,14 +1,9 @@
 use super::*;
-use std::sync::atomic::{AtomicU32, Ordering};
-
-static NEXT: AtomicU32 = AtomicU32::new(0);
 
 fn scratch() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "amby-claude-home-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::SeqCst)
-    ));
+    // A ULID, not the process ID: macOS reuses process IDs, and a reused one would find the
+    // files an earlier run left behind.
+    let dir = std::env::temp_dir().join(format!("amby-claude-home-{}", ulid::Ulid::generate()));
     std::fs::create_dir_all(&dir).unwrap();
     dir.canonicalize().unwrap()
 }

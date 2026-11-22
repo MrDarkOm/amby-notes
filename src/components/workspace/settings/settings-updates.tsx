@@ -7,20 +7,15 @@ import { AmbySelect } from "@/components/ui/amby-select"
 import { MotionSpinner } from "@/lib/motion"
 import {
   checkForAppUpdate,
-  getCurrentAppVersion,
   isAppUpdaterAvailable,
   UpdateFlushError,
   type AvailableAppUpdate,
   type UpdateInstallProgress,
 } from "@/lib/app-updater"
-import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { ManualDownloadLink } from "../manual-download-link"
 import { useSettingsStore } from "../use-settings-store"
 import { Row } from "./settings-common"
-import { EmojiLicenses } from "./emoji-licenses"
 import type { UpdateChannelPref } from "../app-config"
-
-const SOURCE_CODE_URL = "https://github.com/MrDarkOm/amby-notes"
 
 type UpdateUiState =
   | { phase: "idle" }
@@ -39,7 +34,6 @@ export function UpdateSettings() {
   const prefs = useSettingsStore((state) => state.prefs)
   const setPrefs = useSettingsStore((state) => state.setPrefs)
   const supported = isAppUpdaterAvailable()
-  const [version, setVersion] = React.useState("…")
   const [update, setUpdate] = React.useState<AvailableAppUpdate | null>(null)
   const [state, setState] = React.useState<UpdateUiState>({ phase: "idle" })
   const [channel, setChannel] = React.useState<UpdateChannelPref>(prefs.updates.channel)
@@ -60,10 +54,6 @@ export function UpdateSettings() {
       mountedRef.current = false
       checkGenerationRef.current += 1
     }
-  }, [])
-
-  React.useEffect(() => {
-    void getCurrentAppVersion().then(setVersion)
   }, [])
 
   React.useEffect(() => {
@@ -244,9 +234,6 @@ export function UpdateSettings() {
           ]}
         />
       </Row>
-      <Row label={t("settings.updates.currentVersion")}>
-        <span className="text-[13px] tabular-nums text-muted-foreground">{version}</span>
-      </Row>
       <Row label={t("settings.updates.check")} hint={status}>
         <Button
           type="button"
@@ -264,19 +251,6 @@ export function UpdateSettings() {
             ? t("settings.updates.install", { version: update.version })
             : t("settings.updates.checkAction")}
         </Button>
-      </Row>
-      <Row label={t("settings.updates.license")} hint={t("settings.updates.licenseHint")}>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => void openWebAddressInBrowser(SOURCE_CODE_URL)}
-        >
-          {t("settings.updates.sourceAction")}
-        </Button>
-      </Row>
-      <Row label={t("settings.updates.thirdPartyLicenses")}>
-        <EmojiLicenses />
       </Row>
     </>
   )

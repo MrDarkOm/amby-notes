@@ -68,7 +68,7 @@ pub fn query(
     cursor: Option<String>,
     limit: u32,
 ) -> Result<Value, &'static str> {
-    database(root, id)?;
+    let found = database(root, id)?;
     let conn = crate::index::read_only::disk_catalog(root).map_err(|_| "unavailable")?;
     crate::database::projection::rebuild_database_projection(&conn, root)
         .map_err(|_| "unavailable")?;
@@ -103,7 +103,15 @@ pub fn query(
             })
         })
         .collect();
-    Ok(json!({"rows": rows, "nextCursor": result.next_cursor, "totalCount": result.total_count}))
+    // The database is named in the reply, so a step line can say which one was read.
+    Ok(
+        json!({"database": summary(&found), "rows": rows, "nextCursor": result.next_cursor, "totalCount": result.total_count}),
+    )
+}
+
+/// The vault-relative folder that holds a database.
+pub fn container(root: &Path, id: &str) -> Result<String, &'static str> {
+    relative(root, &database(root, id)?.container_path)
 }
 
 pub(super) fn writable_database(
@@ -259,6 +267,25 @@ pub fn rename_property(
     ))
 }
 
+/// The vault-relative path of a row of a writable database in the scope; deleting it is deleting the
+/// row's note, which goes to the system trash like any other note.
+pub fn row_path(
+    root: &Path,
+    scope: &Path,
+    database_id: &str,
+    note_id: &str,
+) -> Result<String, &'static str> {
+    let database = writable_database(root, scope, database_id)?;
+    let path = crate::database::mutations::resolve_note_path_for_id(
+        root,
+        &database.container_path,
+        note_id,
+    )
+    .map_err(domain_error)?;
+    allowed(scope, &path)?;
+    super::relative(root, &path)
+}
+
 pub fn set_value(
     root: &Path,
     scope: &Path,
@@ -376,6 +403,7 @@ pub fn create_relation(
         }),
         changed,
         archive_changed: false,
+        properties_changed: false,
     })
 }
 
@@ -422,6 +450,7 @@ pub fn set_relation(
         }),
         changed: if dry_run { Vec::new() } else { outcome.paths },
         archive_changed: false,
+        properties_changed: false,
     })
 }
 

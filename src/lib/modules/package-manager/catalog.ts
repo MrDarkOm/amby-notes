@@ -4,7 +4,7 @@ import { OFFICIAL_ED25519_KEY_ID } from "./validator"
 import type { CatalogModuleEntry, ModuleCatalog } from "./types"
 
 export const MODULE_CATALOG_FILE = "module-catalog.json"
-export const CATALOG_REVISION = "2026-09-24"
+export const CATALOG_REVISION = "2026-11-21"
 /** The release whose assets hold the official module packages. */
 export const CATALOG_RELEASE_TAG = "v0.1.4"
 
@@ -126,6 +126,18 @@ export const OFFICIAL_BUILTIN_CATALOG: ModuleCatalog = {
       "vault.read",
       "vault.write",
       "workspace.tabs",
+    ]),
+    "amby.supernotes": createOfficialEntry("amby.supernotes", "Supernotes", "1.0.0", 0, 0, [
+      "vault.read",
+      "vault.write",
+    ]),
+    "amby.templates": createOfficialEntry("amby.templates", "Templates", "1.0.0", 20_000, 30_000, [
+      "vault.read",
+      "vault.write",
+    ]),
+    "amby.daily": createOfficialEntry("amby.daily", "Daily notes", "1.0.0", 15_000, 20_000, [
+      "vault.read",
+      "vault.write",
     ]),
     "amby.creative": createOfficialEntry(
       "amby.creative",

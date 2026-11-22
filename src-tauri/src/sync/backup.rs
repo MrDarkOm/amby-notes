@@ -332,6 +332,20 @@ fn lookup(vault: &Path) -> Result<Found, SyncError> {
     Ok(Found::Nothing)
 }
 
+/// The copy beside the vault that the receipt inside the vault names, when that receipt belongs
+/// to this vault. It stays this vault's own after a newer app-data copy replaced it (sync was
+/// switched on again), so it can still be shown and deleted; any other folder beside the vault
+/// is not Amby's to touch.
+pub(crate) fn legacy_copy_id(vault: &Path) -> Result<Option<String>, SyncError> {
+    let Ok(Some(receipt)) = load_receipt_at(&vault.join(RECEIPT)) else {
+        return Ok(None);
+    };
+    if receipt.source_canonical != text(vault)? {
+        return Ok(None);
+    }
+    Ok(root_id(&legacy_container(vault)?, &receipt.backup_root))
+}
+
 /// The id of a copy root that sits directly inside `parent`.
 fn root_id(parent: &Path, root: &str) -> Option<String> {
     let root = Path::new(root);
@@ -542,6 +556,11 @@ pub fn delete(vault: &Path, id: &str, now_ms: u64) -> Result<(), SyncError> {
             // The record names a copy that is already gone: close it.
             receipt.removed_ms = Some(now_ms);
             write_receipt(&vault, &receipt)
+        }
+        // The old copy beside the vault after a newer app-data copy replaced it: the app-data
+        // receipt is about the new copy and stays as it is; the legacy receipt is never written.
+        Found::Receipt(_, Origin::AppData) if legacy_copy_id(&vault)?.as_deref() == Some(id) => {
+            remove_copy(&legacy_container(&vault)?, id)
         }
         Found::Receipt(receipt, Origin::Legacy) => {
             let container = legacy_container(&vault)?;

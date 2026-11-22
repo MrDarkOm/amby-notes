@@ -169,4 +169,37 @@ describe("HeaderTabs window controls and sidebar toggle alignment", () => {
     expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).toBeNull()
     expect(container.querySelector('[data-window-controls="right"]')).not.toBeNull()
   })
+
+  it("does not shift header tabs or view controls when compact overlay panels are open", () => {
+    document.documentElement.style.setProperty("--amby-left-panel-width", "300px")
+    document.documentElement.style.setProperty("--amby-right-panel-width", "300px")
+    try {
+      for (const side of ["left", "right", "none"] as const) {
+        const { container, unmount } = render(
+          <HeaderTabs
+            {...headerProps()}
+            windowControlsSide={side}
+            isLeftSidebarOpen
+            isRightSidebarOpen
+            isLeftDockPinned
+            isRightDockPinned
+            leftTreeWidth={0}
+            rightPanelWidth={0}
+          />,
+        )
+        const header = container.querySelector("header")
+        expect(header).not.toBeNull()
+        const styledChildren = Array.from(header!.querySelectorAll<HTMLElement>("[style]"))
+        for (const el of styledChildren) {
+          expect(el.style.width).not.toContain("--amby-left-panel-width")
+          expect(el.style.width).not.toContain("--amby-right-panel-width")
+          expect(el.style.right).not.toContain("--amby-right-panel-width")
+        }
+        unmount()
+      }
+    } finally {
+      document.documentElement.style.removeProperty("--amby-left-panel-width")
+      document.documentElement.style.removeProperty("--amby-right-panel-width")
+    }
+  })
 })

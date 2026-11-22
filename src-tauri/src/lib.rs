@@ -1,11 +1,14 @@
 mod ai;
 mod app_data;
 mod cli_open;
+mod cli_path;
 mod cli_structural;
 mod commands;
 mod credentials;
+mod dictation;
 mod keychain_access;
 pub mod logging;
+mod mcp_clients;
 pub mod package_manager;
 mod page_info;
 mod path_grants;
@@ -39,6 +42,12 @@ mod property_migration_flow_test;
 
 #[cfg(test)]
 mod tree_patch_tests;
+
+#[cfg(test)]
+mod note_modules_tests;
+
+#[cfg(test)]
+mod undo_tests;
 
 use amby_core::{
     archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
@@ -129,6 +138,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::ai_chats::ai_search_consent,
         commands::ai_chats::ai_set_search_consent,
         ai::turn::ai_run_turn,
+        ai::proposals::ai_apply_proposal,
+        ai::proposals::ai_reject_proposal,
+        ai::proposals::ai_undo_proposal,
+        dictation::start_system_dictation,
         ai::local_apps::ai_local_app_installed,
         ai::codex::launch::ai_codex_status,
         ai::codex::launch::ai_codex_login,
@@ -173,6 +186,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::notes::get_link_graph,
         commands::mutations::ensure_bundle,
         commands::mutations::create_note,
+        commands::note_templates::list_note_templates,
+        commands::note_templates::create_note_from_template,
+        commands::note_templates::open_daily_note,
+        commands::note_templates::create_note_template,
         commands::mutations::create_layer,
         commands::mutations::create_canvas,
         commands::mutations::attach_canvas_to_note,
@@ -182,13 +199,14 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::mutations::delete_layer,
         commands::mutations::note_layers,
         commands::mutations::move_item,
-        commands::history::preview_move_refactor,
         commands::mutations::create_file,
         commands::mutations::create_folder,
         commands::mutations::rename_item,
-        commands::history::preview_rename_refactor,
         commands::mutations::delete_item,
         commands::mutations::archive_item,
+        commands::undo::undo_mutation,
+        commands::undo::begin_merge,
+        commands::undo::finish_merge,
         commands::notes::get_file_metadata,
         commands::vault::open_vault,
         commands::vault::start_vault_watcher,
@@ -260,6 +278,12 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::external::reveal_app_data_folder,
         commands::external::save_attachment_copy,
         commands::external::open_web_address,
+        commands::cli_path::cli_path_status,
+        commands::cli_path::cli_path_install,
+        commands::cli_path::cli_path_remove,
+        commands::mcp_clients::mcp_clients_status,
+        commands::mcp_clients::mcp_client_connect,
+        commands::mcp_clients::mcp_client_disconnect,
         commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
@@ -368,6 +392,7 @@ pub fn run() {
         .manage(path_grants::PathGrants::default())
         .manage(cli_open::PendingCliOpens::default())
         .manage(ai::AiStreamState::default())
+        .manage(ai::proposals::ProposalStore::default())
         .manage(ai::codex::launch::LoginSlot::default())
         .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())

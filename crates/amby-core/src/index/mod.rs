@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod filter;
 pub mod identity;
 pub mod links;
 pub mod note_index;
@@ -13,6 +14,7 @@ pub mod sync_paths;
 pub mod tags;
 
 pub use connection::*;
+pub use filter::*;
 pub use identity::*;
 pub use links::*;
 pub use note_index::*;

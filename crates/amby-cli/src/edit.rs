@@ -41,6 +41,17 @@ pub fn execute(
     ai: bool,
 ) -> Result<EditResult, &'static str> {
     let edit = Edit::prepare(root, note, scope, kind, content)?;
+    finish(&edit, root, scope, dry_run, ai)
+}
+
+/// Preview (a unified diff, bounded for AI) or publish a prepared edit.
+pub fn finish(
+    edit: &Edit,
+    root: &Path,
+    scope: Option<&Path>,
+    dry_run: bool,
+    ai: bool,
+) -> Result<EditResult, &'static str> {
     let mut result = EditResult {
         path: edit.path().to_owned(),
         changed: edit.changed(),

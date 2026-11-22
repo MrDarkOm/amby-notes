@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use amby_core::index::read_only::{visible_folder, ReadVault};
 use amby_core::mcp::{handle_rpc, ToolHost};
@@ -15,7 +18,15 @@ struct VaultHost {
     root: PathBuf,
     write_root: Option<PathBuf>,
     grant: Option<String>,
+    subscriptions: Subscriptions,
 }
+
+/// Subscribed note resources and how each looked when last seen (size and modification time;
+/// `None` while the note is missing). Shared with the thread that reports changes.
+type Subscriptions = Arc<Mutex<BTreeMap<String, Option<(u64, SystemTime)>>>>;
+
+const MAX_SUBSCRIPTIONS: usize = 100;
+const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 const WRITE_TOOLS: [(&str, &str, EditKind); 3] = [
     (
@@ -62,8 +73,22 @@ impl VaultHost {
 impl ToolHost for VaultHost {
     fn tools(&self) -> Vec<Value> {
         let mut tools = amby_core::ai_tools::mcp_definitions(true);
+        tools.push(amby_core::ai_tools::list_tags_definition());
+        tools.push(mcp_tools::get_properties_definition());
         let modules = amby_core::vault_tools::modules::Modules::read(&self.root).ok();
         let enabled = |module| modules.is_some_and(|modules| modules.includes(module));
+        let offered = |tool: &Value| {
+            tool["name"]
+                .as_str()
+                .and_then(amby_core::tool_set::module_of)
+                .is_none_or(enabled)
+        };
+        tools.extend(amby_core::tool_set::notes_read_definitions());
+        tools.extend(
+            amby_core::tool_set::extra_read_definitions()
+                .into_iter()
+                .filter(offered),
+        );
         tools.extend(
             mcp_tools::DOMAIN_READS
                 .iter()
@@ -86,6 +111,19 @@ impl ToolHost for VaultHost {
                     .iter()
                     .map(|(name, description, fields)| {
                         mcp_tools::definition(name, description, fields, true, false)
+                    }),
+            );
+            tools.extend(amby_core::tool_set::notes_write_definitions());
+            tools.extend(
+                amby_core::tool_set::extra_write_definitions()
+                    .into_iter()
+                    .filter(offered),
+            );
+            tools.extend(
+                mcp_tools::PROPERTY_WRITES
+                    .iter()
+                    .map(|(name, description, fields)| {
+                        mcp_tools::property_definition(name, description, fields)
                     }),
             );
             tools.extend(WRITE_TOOLS.iter().map(|(name, description, kind)| json!({
@@ -123,6 +161,49 @@ impl ToolHost for VaultHost {
             return mcp_tools::structural_call(&self.root, grant, name, arguments)
                 .unwrap_or_else(|code| json!({"error":code}));
         }
+        if mcp_tools::PROPERTY_WRITES
+            .iter()
+            .any(|(tool, _, _)| *tool == name)
+        {
+            let Some(grant) = &self.grant else {
+                return json!({"error":"accessDenied"});
+            };
+            return mcp_tools::property_call(&self.root, grant, name, arguments)
+                .unwrap_or_else(|code| json!({"error":code}));
+        }
+        if crate::mcp_notes::is_read(name) {
+            return crate::mcp_notes::read(&self.root, name, arguments)
+                .unwrap_or_else(|code| json!({"error": code}));
+        }
+        if crate::mcp_notes::is_write(name) {
+            let Some(scope) = &self.write_root else {
+                return json!({"error":"accessDenied"});
+            };
+            return crate::mcp_notes::write(&self.root, scope, name, arguments)
+                .unwrap_or_else(|code| json!({"error": code}));
+        }
+        if crate::mcp_extra::is_read(name) {
+            return crate::mcp_extra::read(&self.root, name, arguments)
+                .unwrap_or_else(|code| json!({"error": code}));
+        }
+        if crate::mcp_extra::is_write(name) {
+            let (Some(scope), Some(grant)) = (&self.write_root, &self.grant) else {
+                return json!({"error":"accessDenied"});
+            };
+            return crate::mcp_extra::write(&self.root, scope, grant, name, arguments)
+                .unwrap_or_else(|code| json!({"error": code}));
+        }
+        if name == "get_properties" {
+            let path = match mcp_tools::validate_fields(arguments, &["path"], &[])
+                .and_then(|()| mcp_tools::argument(arguments, "path"))
+            {
+                Ok(path) => path.replace('\\', "/"),
+                Err(code) => return json!({"error": code}),
+            };
+            return ReadVault::open(&self.root)
+                .and_then(|vault| vault.properties(&path))
+                .unwrap_or_else(|code| json!({"error": code}));
+        }
         if mcp_tools::DOMAIN_WRITES
             .iter()
             .any(|(tool, _, _, _)| *tool == name)
@@ -145,6 +226,167 @@ impl ToolHost for VaultHost {
             Err(code) => json!({ "error": code }),
         }
     }
+
+    fn supports_resources(&self) -> bool {
+        true
+    }
+
+    fn list_resources(&self, cursor: Option<&str>) -> Result<Value, &'static str> {
+        self.note_resources(cursor)
+    }
+
+    fn read_resource(&self, uri: &str) -> Result<Value, &'static str> {
+        self.note_resource(uri)
+    }
+
+    fn supports_subscriptions(&self) -> bool {
+        true
+    }
+
+    fn subscribe(&self, uri: &str) -> Result<(), &'static str> {
+        let seen = fingerprint(&self.root, uri)?;
+        let mut subscriptions = self
+            .subscriptions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !subscriptions.contains_key(uri) && subscriptions.len() >= MAX_SUBSCRIPTIONS {
+            return Err("tooManySubscriptions");
+        }
+        subscriptions.insert(uri.to_owned(), Some(seen));
+        Ok(())
+    }
+
+    fn unsubscribe(&self, uri: &str) {
+        self.subscriptions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(uri);
+    }
+
+    fn supports_prompts(&self) -> bool {
+        true
+    }
+
+    fn list_prompts(&self) -> Value {
+        crate::mcp_extra::prompts()
+    }
+
+    fn get_prompt(&self, name: &str, arguments: &Value) -> Result<Value, &'static str> {
+        crate::mcp_extra::prompt(name, arguments)
+    }
+}
+
+const RESOURCE_PREFIX: &str = "amby://vault/";
+const RESOURCE_PAGE: usize = 100;
+const MAX_RESOURCE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// A vault-relative path as a resource URI: every byte but unreserved characters and `/`
+/// is percent-encoded.
+fn resource_uri(path: &str) -> String {
+    let mut uri = String::from(RESOURCE_PREFIX);
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
+}
+
+fn resource_path(uri: &str) -> Option<String> {
+    let encoded = uri.strip_prefix(RESOURCE_PREFIX)?.as_bytes();
+    let mut bytes = Vec::with_capacity(encoded.len());
+    let mut at = 0;
+    while at < encoded.len() {
+        if encoded[at] == b'%' {
+            let hex = std::str::from_utf8(encoded.get(at + 1..at + 3)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            at += 3;
+        } else {
+            bytes.push(encoded[at]);
+            at += 1;
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
+impl VaultHost {
+    fn note_resources(&self, cursor: Option<&str>) -> Result<Value, &'static str> {
+        let start = cursor.map_or(Ok(0), |cursor| {
+            cursor.parse::<usize>().map_err(|_| "invalidArguments")
+        })?;
+        let vault = ReadVault::open(&self.root)?;
+        let notes = vault.notes()?;
+        let mut resources = Vec::new();
+        for note in notes.iter().skip(start).take(RESOURCE_PAGE) {
+            let Ok(relative) = std::path::Path::new(&note.path).strip_prefix(&self.root) else {
+                continue;
+            };
+            let relative = amby_core::vault::scan::normalize_rel_path(relative);
+            if amby_core::index::read_only::visible_note(&self.root, &relative).is_err() {
+                continue;
+            }
+            resources.push(json!({
+                "uri": resource_uri(&relative), "name": note.title, "mimeType": "text/markdown"
+            }));
+        }
+        let mut page = json!({ "resources": resources });
+        if notes.len() > start + RESOURCE_PAGE {
+            page["nextCursor"] = json!((start + RESOURCE_PAGE).to_string());
+        }
+        Ok(page)
+    }
+
+    fn note_resource(&self, uri: &str) -> Result<Value, &'static str> {
+        use std::io::Read;
+        let path = resource_path(uri).ok_or("invalidArguments")?;
+        let file = amby_core::index::read_only::visible_note(&self.root, &path)?;
+        let mut bytes = Vec::new();
+        std::fs::File::open(file)
+            .map_err(|_| "unavailable")?
+            .take(MAX_RESOURCE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "unavailable")?;
+        if bytes.len() as u64 > MAX_RESOURCE_BYTES {
+            return Err("resultTooLarge");
+        }
+        let text = String::from_utf8(bytes).map_err(|_| "invalidEncoding")?;
+        Ok(json!([{ "uri": uri, "mimeType": "text/markdown", "text": text }]))
+    }
+}
+
+/// How a subscribed note looks now; an error when it is not a readable visible note.
+fn fingerprint(root: &Path, uri: &str) -> Result<(u64, SystemTime), &'static str> {
+    let path = resource_path(uri).ok_or("invalidArguments")?;
+    let file = amby_core::index::read_only::visible_note(root, &path)?;
+    let meta = std::fs::metadata(file).map_err(|_| "notFound")?;
+    Ok((meta.len(), meta.modified().map_err(|_| "unavailable")?))
+}
+
+/// The resources whose notes changed (written, deleted or created again) since the last look.
+fn changed_resources(root: &Path, subscriptions: &Subscriptions) -> Vec<String> {
+    let mut subscriptions = subscriptions
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut changed = Vec::new();
+    for (uri, seen) in subscriptions.iter_mut() {
+        let now = fingerprint(root, uri).ok();
+        if now != *seen {
+            *seen = now;
+            changed.push(uri.clone());
+        }
+    }
+    changed
+}
+
+fn send(output: &Mutex<impl Write>, message: &Value) -> io::Result<()> {
+    let mut output = output
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    serde_json::to_writer(&mut *output, message)?;
+    output.write_all(b"\n")?;
+    output.flush()
 }
 
 /// Read one newline-delimited message while draining oversized frames without
@@ -176,7 +418,7 @@ pub fn serve(
     root: PathBuf,
     write_access: Option<&WriteAccess>,
     mut input: impl BufRead,
-    mut output: impl Write,
+    output: impl Write + Send + 'static,
 ) -> Result<(), &'static str> {
     let write_root = match write_access {
         None => None,
@@ -194,9 +436,10 @@ pub fn serve(
             root,
             write_root,
             grant,
+            subscriptions: Arc::default(),
         },
         &mut input,
-        &mut output,
+        output,
     )
     .map_err(|_| "unavailable")
 }
@@ -204,13 +447,45 @@ pub fn serve(
 fn serve_frames(
     host: VaultHost,
     mut input: impl BufRead,
-    mut output: impl Write,
+    output: impl Write + Send + 'static,
+) -> io::Result<()> {
+    let output = Arc::new(Mutex::new(output));
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    // Reports changes of subscribed notes between requests; it ends with the session.
+    let watcher = {
+        let (root, subscriptions) = (host.root.clone(), Arc::clone(&host.subscriptions));
+        let output = Arc::clone(&output);
+        std::thread::spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                stopped.recv_timeout(POLL_INTERVAL)
+            {
+                for uri in changed_resources(&root, &subscriptions) {
+                    let note = json!({
+                        "jsonrpc":"2.0", "method":"notifications/resources/updated", "params":{"uri":uri}
+                    });
+                    if send(&output, &note).is_err() {
+                        return;
+                    }
+                }
+            }
+        })
+    };
+    let result = serve_requests(&host, &mut input, &output);
+    drop(stop);
+    let _ = watcher.join();
+    result
+}
+
+fn serve_requests(
+    host: &VaultHost,
+    mut input: impl BufRead,
+    output: &Mutex<impl Write>,
 ) -> io::Result<()> {
     let mut bytes = Vec::new();
     let mut structured_results = false;
     while read_frame(&mut input, &mut bytes)? {
         let reply = match serde_json::from_slice::<Value>(&bytes) {
-            Ok(message) => handle_rpc(&host, &message, env!("CARGO_PKG_VERSION")).map(|mut reply| {
+            Ok(message) => handle_rpc(host, &message, env!("CARGO_PKG_VERSION")).map(|mut reply| {
                 if message["method"] == "initialize" {
                     structured_results = matches!(reply["result"]["protocolVersion"].as_str(), Some("2025-06-18" | "2025-11-25"));
                 }
@@ -232,9 +507,7 @@ fn serve_frames(
             })),
         };
         if let Some(reply) = reply {
-            serde_json::to_writer(&mut output, &reply)?;
-            output.write_all(b"\n")?;
-            output.flush()?;
+            send(output, &reply)?;
         }
     }
     Ok(())

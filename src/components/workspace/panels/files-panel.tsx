@@ -11,6 +11,7 @@ import {
   Database,
   FilePlus,
   FileText,
+  Files,
   FolderOpen,
   FolderPlus,
   History,
@@ -82,6 +83,7 @@ import {
 import { useSettingsStore } from "../use-settings-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
+import { useNoteModulesStore } from "../note-modules/note-modules-store"
 import type { PanelRenderProps } from "../panel-registry"
 import { collectFavoriteItems } from "./favorites-items"
 import { FavoritesSection } from "./favorites-section"
@@ -202,6 +204,7 @@ export function FilesPanel(props: PanelRenderProps) {
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    supernotesEnabled,
     canCreateDatabaseLayer,
     databaseRuntimeEnabled,
     linkedLayersByDoc,
@@ -214,6 +217,9 @@ export function FilesPanel(props: PanelRenderProps) {
   const treeItems = fileTreeItems ?? vaultTreeItems
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
+  const templatesEnabled = useNoteModulesStore((state) => state.templatesEnabled)
+  const showTemplateDialog = useNoteModulesStore((state) => state.show)
+  const openDaily = useNoteModulesStore((state) => state.openDaily)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
   const [databaseParentId, setDatabaseParentId] = React.useState<string | null>(null)
   const [databaseName, setDatabaseName] = React.useState("")
@@ -541,6 +547,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
+                  supernotesEnabled={supernotesEnabled}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}
@@ -579,6 +586,18 @@ export function FilesPanel(props: PanelRenderProps) {
             <FileText className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newNote")}
           </ContextMenuItem>
+          {templatesEnabled && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (!vault) onOpenVault()
+                else window.setTimeout(() => showTemplateDialog(null), 80)
+              }}
+            >
+              <Files className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.newFromTemplate")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
@@ -736,6 +755,8 @@ export function FilesPanel(props: PanelRenderProps) {
         onCreateCanvas={() => onNewCanvas?.(null)}
         onCreateSketch={() => onNewSketch?.(null)}
         onCreateDatabase={handleNewDatabaseClick}
+        onCreateFromTemplate={templatesEnabled ? () => showTemplateDialog(null) : undefined}
+        onCreateDaily={openDaily ?? undefined}
         canCreateDatabase={canCreateDatabase}
         canvasEnabled={canvasEnabled}
         sketchEnabled={sketchEnabled}

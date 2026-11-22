@@ -1,12 +1,14 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, ChevronRight, HardDrive, RefreshCw, ShieldCheck } from "lucide-react"
+import { MotionSpinner } from "@/lib/motion"
 
 import { Button } from "@/components/ui/button"
 import { formatSize } from "@/lib/sync/format-size"
 import type { ApprovalKind, ConflictChoice, VaultSyncStatus } from "@/lib/sync/sync-port"
 import { appDataConflictKind, isPropertyGroupPath } from "./app-data-conflict"
 import { conflictName } from "./conflict-outcome"
+import { isLocalOnly } from "./local-only"
 import { GroupConflictChooser, type GroupConflictActions } from "./sync-group-conflict"
 
 type Stop = NonNullable<VaultSyncStatus["stop"]>
@@ -64,26 +66,125 @@ function reasonText(
   return t(`sync.vault.unsynced.${item.reason}`, { other: item.detail ?? "" })
 }
 
-/** The files that stay behind on this computer, with the reason of each (Р4, Р9). */
-export function UnsyncedList({ items }: { items: Unsynced[] }) {
+function UnsyncedRows({ items }: { items: Unsynced[] }) {
   const { t, i18n } = useTranslation()
-  if (items.length === 0) return null
+  return (
+    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+      {items.map((item) => (
+        <li key={`${item.path}\u0000${item.reason}`} className="px-3 py-2">
+          <p className="break-all text-[12px]">{item.path}</p>
+          <p className="text-[11px] text-muted-foreground">{reasonText(item, t, i18n.language)}</p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * The files that stay behind on this computer because something is wrong with them or waits (Р4, Р9).
+ * Files that stay local by a rule of sync are not listed here: see `LocalOnlyFiles`.
+ */
+export function UnsyncedList({ items }: { items: Unsynced[] }) {
+  const { t } = useTranslation()
+  const problems = items.filter((item) => !isLocalOnly(item))
+  if (problems.length === 0) return null
   return (
     <section data-testid="sync-unsynced" className="space-y-1.5">
       <h4 className="text-[12px] font-medium text-muted-foreground">
-        {t("sync.vault.unsynced.title", { count: items.length })}
+        {t("sync.vault.unsynced.title", { count: problems.length })}
       </h4>
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-        {items.map((item) => (
-          <li key={`${item.path}\u0000${item.reason}`} className="px-3 py-2">
-            <p className="break-all text-[12px]">{item.path}</p>
-            <p className="text-[11px] text-muted-foreground">
-              {reasonText(item, t, i18n.language)}
-            </p>
-          </li>
-        ))}
-      </ul>
+      <UnsyncedRows items={problems} />
     </section>
+  )
+}
+
+type FooterPart = "local" | "backups"
+
+/**
+ * The quiet line at the bottom of the sync card: files kept on this computer by a rule of sync (too big,
+ * links, service paths) on the left, the backups on the right. One opens at a time, below the line; opening
+ * the other replaces it.
+ */
+export function SyncVaultFooter({
+  items,
+  backups,
+  onRefresh,
+  refreshing = false,
+}: {
+  items: Unsynced[]
+  /** Checks the files again (a sync pass); the same place as the refresh of the backup list. */
+  onRefresh?: () => void
+  refreshing?: boolean
+  /** The backup manager, or nothing when there is nothing to manage. */
+  backups: React.ReactNode
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = React.useState<FooterPart | null>(null)
+  const id = React.useId()
+  const local = items.filter(isLocalOnly)
+  const hasLocal = local.length > 0
+  const hasBackups = Boolean(backups)
+  if (!hasLocal && !hasBackups) return null
+  const shown = (open === "local" && hasLocal) || (open === "backups" && hasBackups) ? open : null
+  const toggle = (part: FooterPart) => setOpen((current) => (current === part ? null : part))
+  const button = (part: FooterPart, Icon: typeof HardDrive, label: string) => (
+    <button
+      type="button"
+      className="sync-footer-toggle"
+      aria-expanded={shown === part}
+      aria-controls={`${id}-${part}`}
+      data-testid={`sync-footer-${part}`}
+      onClick={() => toggle(part)}
+    >
+      <Icon className="size-4" aria-hidden="true" />
+      <span>{label}</span>
+      <ChevronRight className="size-3.5" aria-hidden="true" />
+    </button>
+  )
+  return (
+    <div className="sync-vault-footer">
+      <div className="sync-footer-line">
+        {hasLocal &&
+          button(
+            "local",
+            HardDrive,
+            t("sync.vault.unsynced.localOnlyTitle", { count: local.length }),
+          )}
+        {hasBackups && button("backups", ShieldCheck, t("backups.title"))}
+      </div>
+      {shown === "local" && (
+        <div id={`${id}-local`} data-testid="sync-local-only" className="sync-footer-content">
+          <div className="backup-intro">
+            <p className="backup-caption">{t("sync.vault.unsynced.localOnlyHint")}</p>
+            {onRefresh && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                title={t("sync.vault.unsynced.refresh")}
+                aria-label={t("sync.vault.unsynced.refresh")}
+                disabled={refreshing}
+                onClick={onRefresh}
+              >
+                {refreshing ? (
+                  <MotionSpinner>
+                    <RefreshCw />
+                  </MotionSpinner>
+                ) : (
+                  <RefreshCw />
+                )}
+              </Button>
+            )}
+          </div>
+          <UnsyncedRows items={local} />
+        </div>
+      )}
+      {shown === "backups" && (
+        <div id={`${id}-backups`} className="sync-footer-content">
+          {backups}
+        </div>
+      )}
+    </div>
   )
 }
 

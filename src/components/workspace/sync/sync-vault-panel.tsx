@@ -1,13 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  RefreshCw,
-  CircleCheck,
-  Cloud,
-  TriangleAlert,
-  ShieldCheck,
-  ChevronRight,
-} from "lucide-react"
+import { RefreshCw, CircleCheck, Cloud, TriangleAlert } from "lucide-react"
 
 import { MotionSpinner } from "@/lib/motion"
 import { refreshSyncState } from "./use-refresh-sync"
@@ -28,7 +21,7 @@ import {
 } from "@/lib/sync/sync-port"
 import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
 import { SyncCompareDialog } from "./sync-compare-dialog"
-import { ConflictList, StopNotice, UnsyncedList } from "./sync-vault-parts"
+import { ConflictList, StopNotice, SyncVaultFooter, UnsyncedList } from "./sync-vault-parts"
 import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
 import { SubscriptionOffer } from "./subscription-offer"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
@@ -152,19 +145,11 @@ export function SyncVaultPanel({
   }
 
   const backupPath = status?.backupPath ?? null
+  // Shown while the vault is linked to sync, not only while the current copy exists: older copies and
+  // leftovers of an interrupted copy stay visible and can be deleted after the current one is gone.
   const backupInfo =
-    backupPath || status?.backupMissing ? (
-      <details className="sync-backup-details">
-        <summary>
-          <ShieldCheck className="size-4" aria-hidden="true" />
-          <span>{t("backups.title")}</span>
-
-          <ChevronRight className="size-3.5" aria-hidden="true" />
-        </summary>
-        <div className="sync-backup-content">
-          <BackupPanel vault={vault} missing={status?.backupMissing ?? false} />
-        </div>
-      </details>
+    backupPath || status?.backupMissing || status?.linked ? (
+      <BackupPanel vault={vault} missing={status?.backupMissing ?? false} />
     ) : null
   const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
   const canEnable = !busy && (mode === "new" || spaceId !== null)
@@ -303,7 +288,7 @@ export function SyncVaultPanel({
               })}
             />
           )}
-          {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
+          <SyncVaultFooter items={[]} backups={backupInfo} />
           {errorLine}
         </section>,
         true,
@@ -317,7 +302,7 @@ export function SyncVaultPanel({
         >
           {t("sync.vault.backupBeforeEnable")}
         </p>
-        {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
+        <SyncVaultFooter items={[]} backups={backupInfo} />
         <fieldset className="space-y-2">
           <legend className="mb-1 text-[12px] font-medium">{t("sync.vault.spaceLegend")}</legend>
           <label className="flex items-center gap-2 text-[13px]">
@@ -512,7 +497,12 @@ export function SyncVaultPanel({
       )}
       <UnsyncedList items={status.unsynced} />
 
-      {backupInfo && <div className="sync-vault-footer">{backupInfo}</div>}
+      <SyncVaultFooter
+        items={status.unsynced}
+        backups={backupInfo}
+        onRefresh={() => void act(() => port.runNow())}
+        refreshing={busy || status.phase === "running"}
+      />
     </section>,
     true,
   )

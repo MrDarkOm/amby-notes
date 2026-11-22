@@ -47,7 +47,7 @@ interface WorkspaceFocusLayoutProps {
     initialContent?: string,
   ) => Promise<void>
   handleNewFolderIn: (parentId: string | null, requestedName?: string) => Promise<void>
-  handleConvertFolderToNote: (folderId: string) => Promise<void>
+  handleConvertFolderToNote?: (folderId: string) => Promise<void>
   handleSetIcon: (id: string, icon: string) => void
   renderCachedTabSurfaces: (
     isFocusMode: boolean,
@@ -234,13 +234,14 @@ export function WorkspaceFocusLayout({
 
       {/* Left sidebar overlay. */}
       <motion.div
-        className="fixed inset-y-0 left-0 z-40 flex flex-col shadow-2xl"
+        className="amby-sidebar-overlay amby-sidebar-overlay--left fixed inset-y-0 left-0 z-40 flex flex-col py-2"
+        data-open={focusShowLeft ? "true" : "false"}
         initial={false}
-        animate={{ x: focusShowLeft ? 0 : "-100%" }}
+        animate={{ x: focusShowLeft ? 0 : "-100%", opacity: focusShowLeft ? 1 : 0 }}
         transition={motionTransitions.panel}
         onMouseLeave={() => setFocusShowLeft(false)}
       >
-        <div className="flex min-h-0 flex-1">
+        <div className="amby-sidebar-overlay-surface flex min-h-0 flex-1 overflow-hidden">
           <ActivityBar
             side="left"
             buttons={leftButtons}
@@ -270,33 +271,41 @@ export function WorkspaceFocusLayout({
       {/* Right sidebar overlay */}
       {rightPanelEnabled && (
         <motion.div
-          className="fixed inset-y-0 right-0 z-40 flex shadow-2xl"
+          className="amby-sidebar-overlay amby-sidebar-overlay--right fixed inset-y-0 right-0 z-40 flex py-2"
+          data-open={focusShowRight ? "true" : "false"}
           initial={false}
-          animate={{ x: focusShowRight ? 0 : "100%" }}
+          animate={{ x: focusShowRight ? 0 : "100%", opacity: focusShowRight ? 1 : 0 }}
           transition={motionTransitions.panel}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <div
-            data-help-area="right-panel"
-            style={{ width: "var(--amby-right-panel-width, 300px)" }}
-            className="shrink-0"
-          >
-            <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
+          <div className="amby-sidebar-overlay-surface flex min-h-0 flex-1 overflow-hidden">
+            <div
+              data-help-area="right-panel"
+              style={{ width: "var(--amby-right-panel-width, 300px)" }}
+              className="shrink-0"
+            >
+              <PanelHost
+                side="right"
+                activeId={activeBySide.right}
+                props={panelRenderProps}
+                flush
+              />
+            </div>
+            <ActivityBar
+              side="right"
+              buttons={rightButtons}
+              activeView={activeBySide.right}
+              isPanelOpen={focusShowRight}
+              onActivate={handleActivate}
+              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+              onPointerDownButton={dnd.onPointerDown}
+              draggingId={dnd.draggingId}
+              {...activityBarPresetProps}
+              {...activityDockProps("right")}
+              autoHideReveal={focusShowRight}
+              helpContext={currentHelpContext}
+            />
           </div>
-          <ActivityBar
-            side="right"
-            buttons={rightButtons}
-            activeView={activeBySide.right}
-            isPanelOpen={focusShowRight}
-            onActivate={handleActivate}
-            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-            onPointerDownButton={dnd.onPointerDown}
-            draggingId={dnd.draggingId}
-            {...activityBarPresetProps}
-            {...activityDockProps("right")}
-            autoHideReveal={focusShowRight}
-            helpContext={currentHelpContext}
-          />
         </motion.div>
       )}
 

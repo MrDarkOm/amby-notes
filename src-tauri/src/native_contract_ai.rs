@@ -65,7 +65,47 @@ fn respond(mut stream: TcpStream) -> std::io::Result<()> {
         .iter()
         .filter(|message| message["role"] == "tool")
         .collect();
+    let proposing = messages
+        .iter()
+        .any(|message| message["content"].as_str() == Some("Propose an edit"));
+    let proposing_property = messages
+        .iter()
+        .any(|message| message["content"].as_str() == Some("Propose a property"));
+    // "Propose a cell {json}": the test gives the tool its arguments, as the IDs are made at run time.
+    let cell_arguments = messages.iter().find_map(|message| {
+        let text = message["content"].as_str()?;
+        serde_json::from_str::<Value>(text.strip_prefix("Propose a cell ")?).ok()
+    });
+    // "Call tool NAME {json}": the test names any tool and its arguments; the provider echoes the
+    // tool's reply, so the test sees what the model would be told ("applied" or "pending").
+    let generic = messages.iter().find_map(|message| {
+        let rest = message["content"].as_str()?.strip_prefix("Call tool ")?;
+        let (name, arguments) = rest.split_once(' ')?;
+        Some((
+            name.to_string(),
+            serde_json::from_str::<Value>(arguments).ok()?,
+        ))
+    });
     let message = match results.len() {
+        0 if generic.is_some() => {
+            let (name, arguments) = generic.clone().unwrap();
+            json!({"content":"", "tool_calls":[{"function":{"name":name,"arguments":arguments}}]})
+        }
+        1 if generic.is_some() => {
+            json!({"content": format!("Reply: {}", results[0]["content"].as_str().unwrap_or(""))})
+        }
+        0 if cell_arguments.is_some() => {
+            json!({"content":"", "tool_calls":[{"function":{"name":"set_database_value","arguments":cell_arguments}}]})
+        }
+        1 if cell_arguments.is_some() => json!({"content":"Proposed."}),
+        0 if proposing_property => {
+            json!({"content":"", "tool_calls":[{"function":{"name":"set_property","arguments":{"path":"Mars.md","name":"status","value":"done"}}}]})
+        }
+        1 if proposing_property => json!({"content":"Proposed."}),
+        0 if proposing => {
+            json!({"content":"", "tool_calls":[{"function":{"name":"edit_note","arguments":{"path":"Venus.md","oldText":"venus is bright","newText":"venus is bright and hot"}}}]})
+        }
+        1 if proposing => json!({"content":"Proposed."}),
         0 => {
             json!({"content":"", "tool_calls":[{"function":{"name":"search_notes","arguments":{"query":"mercury","limit":10}}}]})
         }

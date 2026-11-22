@@ -10,7 +10,6 @@ import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { errorType, logger, configureLogger } from "@/lib/logger"
 import {
   APP_FONT_FAMILY,
-  APP_FONT_SCALE,
   EDITOR_CONTENT_WIDTH,
   EDITOR_FONT_SIZE,
   THEME_TOKENS,
@@ -182,8 +181,8 @@ export function useApplyPreferences(): boolean {
     root.dataset.fontScale = prefs.fontScale
     root.style.setProperty("--app-font-family", APP_FONT_FAMILY[prefs.fontFamily])
     root.style.removeProperty("font-size")
-    root.style.setProperty("--app-font-scale", APP_FONT_SCALE[prefs.fontScale])
-    root.style.setProperty("--editor-font-size", EDITOR_FONT_SIZE[prefs.fontScale])
+    root.style.setProperty("--app-font-scale", String(prefs.fontSize / 100))
+    root.style.setProperty("--editor-font-size", EDITOR_FONT_SIZE)
     root.style.setProperty("--content-max-width", EDITOR_CONTENT_WIDTH[prefs.editor.contentWidth])
     const theme = themeById(prefs.theme, themes)
     setTheme(theme.mode)

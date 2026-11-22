@@ -1,3 +1,4 @@
+import { findDocumentDatabaseLayer } from "../database/document-database-layer"
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import type { DeleteMode } from "../file-actions/use-document-crud"
 import type { LayerKind } from "../editor/document-actions"
@@ -13,7 +14,7 @@ import {
 import type { NoteLayers } from "@/lib/storage/types"
 import { type SplitPaneOptions, useTabsStore, type Tab } from "../use-tabs-store"
 import type { ViewModePref, ContentWidth } from "../app-config"
-import { isLayerDocument, naturalDocumentLayer } from "../layer-documents"
+import { isLayerDocument, visibleDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { GraphTabView, ProjectPage, SurfaceSuspense } from "./lazy-surfaces"
@@ -67,6 +68,7 @@ interface UsePaneRenderersParams {
   ) => Promise<void>
   handleNewCanvasIn: (parentId: string | null) => Promise<void>
   handleNewSketchIn: (parentId: string | null) => Promise<void>
+  supernotesEnabled: boolean
   databasesEnabled: boolean
   creativeEnabled: boolean
   activatePanelAnywhere: (panelId: PanelId) => void
@@ -98,7 +100,7 @@ interface UsePaneRenderersParams {
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
   handleMoveItem: (sourceIds: string[], targetId: string | null) => Promise<MoveOutcome>
   handleNewFolderIn: (parentId: string | null, requestedName?: string) => Promise<void>
-  handleConvertFolderToNote: (folderId: string) => Promise<void>
+  handleConvertFolderToNote?: (folderId: string) => Promise<void>
   handleMergeFile: (sourceId: string, targetId: string) => Promise<void>
   handleDeleteFile: (id: string, mode?: DeleteMode) => Promise<void>
   handleSelect: (fileId: string, displayTitle?: string) => Promise<void>
@@ -172,6 +174,7 @@ export function usePaneRenderers({
   handleNewFileIn,
   handleNewCanvasIn,
   handleNewSketchIn,
+  supernotesEnabled,
   databasesEnabled,
   creativeEnabled,
   activatePanelAnywhere,
@@ -277,6 +280,7 @@ export function usePaneRenderers({
     handleNewFileIn,
     handleNewCanvasIn,
     handleNewSketchIn,
+    supernotesEnabled,
     databasesEnabled,
     creativeEnabled,
     activatePanelAnywhere,
@@ -423,31 +427,14 @@ export function usePaneRenderers({
                   treeItem?.modified,
                 )
               : null)
-          const foundDatabase = databases.find(
-            (database) =>
-              (doc && (database.attachedNoteId === doc.id || database.databaseId === doc.id)) ||
-              database.databaseId === tab.fileId ||
-              database.attachedNoteId === tab.fileId ||
-              (treeItem?.id &&
-                (database.databaseId === treeItem.id || database.attachedNoteId === treeItem.id)) ||
-              (treeItem?.path &&
-                (database.databaseId === treeItem.path ||
-                  database.attachedNoteId === treeItem.path)),
-          )
-          const attachedDatabase: DatabaseSummary | undefined =
-            foundDatabase ??
+          const attachedDatabase =
+            findDocumentDatabaseLayer(databases, doc, treeItem, tab.fileId) ??
             (tab.kind === "database"
               ? {
                   databaseId: tab.fileId,
                   title: tab.title,
                   icon: treeItem?.icon ?? null,
                   attachedNoteId: null,
-                  manifestRevision: "0",
-                  locked: false,
-                  properties: [],
-                  views: [],
-                  templates: [],
-                  diagnostics: [],
                 }
               : undefined)
           const resolvedPrimaryLayer =
@@ -463,9 +450,6 @@ export function usePaneRenderers({
               ? primaryLayers[attachedDatabase.attachedNoteId]
               : undefined)
 
-          const defaultDocLayer: EditorLayer =
-            resolvedPrimaryLayer ?? naturalDocumentLayer(tab, doc?.path)
-
           const resolvedActiveLayer =
             (doc?.id ? activeLayers[doc.id] : undefined) ??
             (doc?.path ? activeLayers[doc.path] : undefined) ??
@@ -478,7 +462,13 @@ export function usePaneRenderers({
               ? activeLayers[attachedDatabase.attachedNoteId]
               : undefined)
 
-          const pageLayer = doc ? (resolvedActiveLayer ?? defaultDocLayer) : defaultDocLayer
+          const pageLayer = visibleDocumentLayer(
+            tab,
+            doc?.path,
+            (doc ? resolvedActiveLayer : undefined) ?? resolvedPrimaryLayer,
+            supernotesEnabled,
+            databasesEnabled,
+          )
           const widthKey =
             pageLayer === "database" && attachedDatabase
               ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -488,7 +478,10 @@ export function usePaneRenderers({
             doc,
             displayTreeItems,
             treeItem,
-            attachedDatabase,
+            attachedDatabase?.databaseId,
+            attachedDatabase?.attachedNoteId,
+            attachedDatabase?.title,
+            attachedDatabase?.icon,
             pageLayer,
             resolvedPrimaryLayer,
             resolvedActiveLayer,
@@ -521,6 +514,7 @@ export function usePaneRenderers({
               : defaultSketchJson(),
             vault,
             databasesEnabled,
+            supernotesEnabled,
             creativeEnabled,
             defaultViewMode,
             defaultContentWidth,

@@ -309,3 +309,88 @@ fn the_catalog_lists_the_copy_with_its_origin_and_expiry() {
     assert_eq!(list[0].expires_ms, Some(1_000 + RETENTION_MS));
     purge(&vault);
 }
+
+/// An old copy beside the vault that a newer app-data copy has replaced (sync switched on again)
+/// is still this vault's own: the receipt inside the vault names it, so it can be shown and
+/// deleted. Only it goes; the new copy and the notes stay.
+#[test]
+fn a_legacy_copy_replaced_by_an_app_data_copy_can_still_be_deleted() {
+    let temp = TestDir::new();
+    let vault = vault_at(temp.path(), "Notes", b"mine");
+    let legacy = make_legacy(&vault);
+    let aside = temp.path().join("aside");
+    fs::rename(&legacy, &aside).unwrap();
+    backup::prepare(&vault).unwrap();
+    let fresh = PathBuf::from(backup::read_path(&vault).expect("a new copy in app data"));
+    fs::rename(&aside, &legacy).unwrap();
+
+    let id = legacy.file_name().unwrap().to_str().unwrap().to_owned();
+    let listed = restore::list(&vault).unwrap();
+    let old = listed
+        .iter()
+        .find(|item| item.id == id)
+        .expect("the old copy is listed");
+    assert!(old.deletable, "the old copy can be shown and deleted");
+
+    backup::delete(&vault, &id, 5).unwrap();
+    assert!(!legacy.exists());
+    assert!(
+        fresh.join("manifest.json").is_file(),
+        "the new copy is untouched"
+    );
+    assert_eq!(backup::read_path(&vault).as_deref(), fresh.to_str());
+    assert_eq!(fs::read(vault.join("n.md")).unwrap(), b"mine");
+    purge(&vault);
+}
+
+/// Each deletion removes exactly the copy it names (owner report, 2026-11-20): deleting the new
+/// app-data copy leaves the old copy beside the vault, deleting a leftover of an interrupted copy
+/// leaves the current one, and deleting the old copy leaves both others.
+#[test]
+fn deleting_one_copy_never_removes_another() {
+    let temp = TestDir::new();
+    let vault = vault_at(temp.path(), "Notes", b"mine");
+    let legacy = make_legacy(&vault);
+    let aside = temp.path().join("aside");
+    fs::rename(&legacy, &aside).unwrap();
+    backup::prepare(&vault).unwrap();
+    let fresh = PathBuf::from(backup::read_path(&vault).expect("a new copy in app data"));
+    fs::rename(&aside, &legacy).unwrap();
+    // A copy that was interrupted: its folder stays with the INCOMPLETE marker.
+    let key = backup::key_dir(&vault, false).unwrap();
+    let leftover_id = ulid::Ulid::generate().to_string();
+    let leftover = key.join(&leftover_id);
+    fs::create_dir_all(leftover.join("vault")).unwrap();
+    fs::write(
+        leftover.join("INCOMPLETE"),
+        b"Incomplete backup; do not restore.",
+    )
+    .unwrap();
+
+    let ids: Vec<String> = restore::list(&vault)
+        .unwrap()
+        .into_iter()
+        .map(|item| item.id)
+        .collect();
+    assert!(ids.contains(&leftover_id), "the leftover is listed");
+
+    backup::delete(&vault, &leftover_id, 5).unwrap();
+    assert!(!leftover.exists());
+    assert!(
+        fresh.join("manifest.json").is_file(),
+        "the current copy stays"
+    );
+    assert!(legacy.is_dir(), "the old copy stays");
+    assert_eq!(backup::read_path(&vault).as_deref(), fresh.to_str());
+
+    let fresh_id = fresh.file_name().unwrap().to_str().unwrap().to_owned();
+    backup::delete(&vault, &fresh_id, 6).unwrap();
+    assert!(!fresh.exists());
+    assert!(legacy.is_dir(), "deleting the new copy leaves the old one");
+
+    let legacy_id = legacy.file_name().unwrap().to_str().unwrap().to_owned();
+    backup::delete(&vault, &legacy_id, 7).unwrap();
+    assert!(!legacy.exists());
+    assert_eq!(fs::read(vault.join("n.md")).unwrap(), b"mine");
+    purge(&vault);
+}

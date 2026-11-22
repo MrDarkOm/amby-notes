@@ -288,9 +288,9 @@ async purgeTrash(trashId: string) : Promise<Result<null, string>> {
 /**
  * The files of the archive `.amby/archive/` (docs/sync-plan.md, К6): the panel shows only these.
  */
-async listArchive() : Promise<Result<ArchiveEntry[], string>> {
+async listArchive(vaultPath: string) : Promise<Result<ArchiveEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("list_archive") };
+    return { status: "ok", data: await TAURI_INVOKE("list_archive", { vaultPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -311,9 +311,9 @@ async readArchivePreview(archiveId: string, relativePath: string) : Promise<Resu
  * «Вернуть» from the archive (К6): without replacing, a free name when the path is taken; the
  * final path is `primary_path` of the mutation.
  */
-async restoreArchive(archiveId: string) : Promise<Result<MutationOutcome, string>> {
+async restoreArchive(archiveId: string, vaultPath: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId }) };
+    return { status: "ok", data: await TAURI_INVOKE("restore_archive", { archiveId, vaultPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -394,6 +394,44 @@ async aiSetSearchConsent(generation: number, config: AiConfig, allowed: boolean)
 async aiRunTurn(request: AiTurnRequest) : Promise<Result<AiTurnResult, AiChatError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_run_turn", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Applies a pending proposal. `unsaved_paths` are the notes open with unsaved edits.
+ */
+async aiApplyProposal(generation: number, id: string, unsavedPaths: string[], deleteMode: DeleteMode | null) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_apply_proposal", { generation, id, unsavedPaths, deleteMode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiRejectProposal(generation: number, id: string) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_reject_proposal", { generation, id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aiUndoProposal(generation: number, id: string, unsavedPaths: string[]) : Promise<Result<ProposalCard, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_undo_proposal", { generation, id, unsavedPaths }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Starts the system's dictation into the focused text field. Takes no input.
+ */
+async startSystemDictation() : Promise<Result<null, DictationError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_system_dictation") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -764,6 +802,38 @@ async createNote(parentPath: string, name: string) : Promise<Result<MutationOutc
     else return { status: "error", error: e  as any };
 }
 },
+async listNoteTemplates() : Promise<Result<NoteTemplate[], StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_note_templates") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createNoteFromTemplate(parentPath: string, name: string, template: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_from_template", { parentPath, name, template }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openDailyNote() : Promise<Result<DailyNoteOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_daily_note") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createNoteTemplate(name: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_note_template", { name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createLayer(notePath: string, kind: string) : Promise<Result<LayerResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_layer", { notePath, kind }) };
@@ -836,14 +906,6 @@ async moveItem(sourcePath: string, targetPath: string) : Promise<Result<Mutation
     else return { status: "error", error: e  as any };
 }
 },
-async previewMoveRefactor(sourcePath: string, targetPath: string) : Promise<Result<RefactorPreview, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_move_refactor", { sourcePath, targetPath }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async createFile(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_file", { path }) };
@@ -868,14 +930,6 @@ async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome
     else return { status: "error", error: e  as any };
 }
 },
-async previewRenameRefactor(path: string, newName: string) : Promise<Result<RefactorPreview, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_rename_refactor", { path, newName }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_item", { path, mode }) };
@@ -887,6 +941,37 @@ async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcom
 async archiveItem(path: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("archive_item", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async undoMutation(record: UndoRecord) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("undo_mutation", { record }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The merge keeps the target's text as a version before the renderer writes the merged text.
+ */
+async beginMerge(targetPath: string) : Promise<Result<string, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("begin_merge", { targetPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * After the merged text is saved: the merged note goes to the archive, and the result carries
+ * the record that undoes the merge.
+ */
+async finishMerge(sourcePath: string, targetPath: string, snapshotId: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("finish_merge", { sourcePath, targetPath, snapshotId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1509,6 +1594,54 @@ async saveAttachmentCopy(notePath: string, attachmentPath: string) : Promise<Res
 async openWebAddress(address: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_web_address", { address }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cliPathStatus() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cliPathInstall() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_install") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cliPathRemove() : Promise<Result<CliPathStatus, CliPathError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cli_path_remove") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientsStatus() : Promise<Result<McpClientStatus[], McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_clients_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientConnect(client: McpClient, vault: string, write: boolean) : Promise<Result<McpClientStatus, McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_client_connect", { client, vault, write }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async mcpClientDisconnect(client: McpClient) : Promise<Result<McpClientStatus, McpClientError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("mcp_client_disconnect", { client }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2272,6 +2405,10 @@ export type AddedStoryLinks = { operationId: string; workshopId: string; section
  */
 link: string; propertyId: string; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type AddedTextStatus = { operationId: string; storyId: string; propertyId: string; storyRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
+/**
+ * How the panel applies the AI's proposals (see `autoApplies` in the panel).
+ */
+export type AiApprovalMode = "manual" | "auto" | "turbo"
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
@@ -2304,7 +2441,11 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string }
+export type AiTurnRequest = { generation: number; config: AiConfig; messages: AiMessage[]; system: string | null; noteIds: string[]; folders: string[]; initialSources: ChatSource[]; searchEnabled: boolean; supportsTools: boolean; streamId: string; 
+/**
+ * The conversation's approval mode, so the write tools tell the model what happens next.
+ */
+approvalMode: AiApprovalMode | null }
 export type AiTurnResult = { content: string; steps: ChatStep[]; sources: ChatSource[] }
 /**
  * Webview-owned Tauri updater resource; signed download details stay on the native side.
@@ -2368,6 +2509,7 @@ export type BackupOrigin = "appData" | "legacy"
  * A line of a group that cannot be used (З51).
  */
 export type BadLineView = { file: string; number: number; noteId: string | null }
+export type CardState = "pending" | "applied" | "rejected" | "undone" | "outdated"
 export type CatalogModel = { model: string; label: string; supportsTools: boolean | null }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
@@ -2382,6 +2524,44 @@ export type ChatStep = { tool: string; query: string; noteIds: string[]; error: 
  */
 export type ClaudeStatus = { installed: boolean; supported: boolean; signedIn: boolean }
 export type CliOpenNote = { vault: string; path: string }
+/**
+ * Stable codes for the interface; never raw OS text.
+ */
+export type CliPathError = "unavailable" | "taken" | "failed"
+/**
+ * Where the `amby` command stands for this person.
+ */
+export type CliPathState = 
+/**
+ * No bundled CLI next to this app (a development build, or an unsupported package).
+ */
+"unavailable" | 
+/**
+ * `amby` is not set up by Amby.
+ */
+"off" | 
+/**
+ * `amby` runs this app's CLI from a new terminal.
+ */
+"on" | 
+/**
+ * The link is in place but the shell does not search its folder, and Amby cannot add it (an
+ * unknown shell): the person adds the folder themself.
+ */
+"needsPath" | 
+/**
+ * Another program already has the name `amby` where Amby would put it.
+ */
+"taken"
+export type CliPathStatus = { state: CliPathState; 
+/**
+ * Where the command is (or would be) put: the link on macOS and Linux, the folder on Windows.
+ */
+location: string | null; 
+/**
+ * The shell profile that gets (or has) Amby's PATH line, when one is needed.
+ */
+profile: string | null }
 /**
  * What the settings screen shows about the user's Codex.
  */
@@ -2532,6 +2712,10 @@ export type CreatedWorkshopSection = { sectionId: string; role: string; name: st
 export type CreatedWorkshopSectionResult = { operationId: string; workshopId: string; section: CreatedWorkshopSection; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
+/**
+ * Today's note: where it is and, when it was just made, the creation to apply to the tree.
+ */
+export type DailyNoteOutcome = { path: string; created: boolean; mutation: MutationOutcome | null }
 export type DatabaseAffectedNote = { databaseId: string; noteId: string }
 export type DatabaseAggregateGroup = { key: string; label: string; count: number; value: string | null }
 export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number; contextPageId?: string | null }
@@ -2705,6 +2889,18 @@ lastSeenMs: number;
  */
 current: boolean }
 /**
+ * Why dictation did not start; a stable code for the interface.
+ */
+export type DictationError = 
+/**
+ * This system has no dictation Amby can start.
+ */
+"unsupported" | 
+/**
+ * The system did not accept the request (dictation is off in its settings).
+ */
+"notStarted"
+/**
  * A record without a key: grey, «нет в шапке» (З3).
  */
 export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
@@ -2843,7 +3039,13 @@ export type FsMutationResult = { primaryId: string | null; primaryPath: string |
  * the mutation or the change is not expressible as a patch: the renderer then reloads
  * the whole tree.
  */
-treePatch?: TreePatch | null }
+treePatch?: TreePatch | null; 
+/**
+ * How to undo this operation exactly, when it changed other notes (a rename or a move that
+ * rewrote links, a merge). The interface keeps it with the journal entry and hands it back to
+ * `undo_mutation` unchanged.
+ */
+undo?: UndoRecord | null }
 /**
  * One conflicting note of a group of note properties (З17, З69).
  */
@@ -2983,6 +3185,45 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type LoadedChat = { chat: Chat | null; raw: JsonValue | null; status: string; revision: string }
 export type LogLevel = "debug" | "info" | "warn" | "error"
 export type LogSource = "frontend" | "backend"
+export type McpClient = "claudeCode" | "codex" | "cursor" | 
+/**
+ * Google Antigravity, through its `agy` command.
+ */
+"antigravity"
+export type McpClientError = 
+/**
+ * No vault is open, or the request named another one.
+ */
+"noVault" | 
+/**
+ * This build has no bundled CLI to register.
+ */
+"noCli" | 
+/**
+ * The client is not installed.
+ */
+"clientMissing" | 
+/**
+ * Cursor removes servers in its own settings.
+ */
+"unsupported" | "failed"
+export type McpClientStatus = { client: McpClient; 
+/**
+ * The client is installed on this computer.
+ */
+found: boolean; 
+/**
+ * An `amby` server is registered in the client.
+ */
+connected: boolean; 
+/**
+ * The vault it serves, when it could be read.
+ */
+vault: string | null; 
+/**
+ * Whether it may write, when it could be read.
+ */
+write: boolean | null }
 /**
  * A value of the old file that differs from the header of the note (З58).
  */
@@ -3065,6 +3306,15 @@ snapshotsOnServer?: SnapshotOnServer[];
  * The file on the disk is the newest version on the server (И3а): one calm line.
  */
 currentOnServer?: boolean }
+export type NoteTemplate = { 
+/**
+ * The path under the templates folder without `.md` (`Work/Review`).
+ */
+name: string; 
+/**
+ * The vault-relative path.
+ */
+path: string }
 /**
  * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
  */
@@ -3304,6 +3554,19 @@ oldVersionWarning: string | null }
  * The template of basic properties and its number (З45, З48).
  */
 export type PropertyTemplate = { version: number; properties: TemplateEntry[] }
+export type ProposalCard = { id: string; path: string; 
+/**
+ * `new`, `append` or `replace`.
+ */
+kind: string; diff: string; diffTruncated: boolean; 
+/**
+ * Every file a move, rename, archive or deletion touches; empty for other changes.
+ */
+affected: string[]; affectedTruncated: boolean; 
+/**
+ * An applied change can be undone from the card; a deletion to the system trash cannot.
+ */
+canUndo: boolean; state: CardState }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
 /**
  * «У заметки сменился идентификатор. Привязать к ней её прежние свойства?» (З11, З35).
@@ -3320,7 +3583,6 @@ export type RecordReferenceState =
  */
 "missing"
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
-export type RefactorPreview = { notes: number; replacements: number }
 export type ReferenceDirection = 
 /**
  * Another page's relation points at this note.
@@ -3480,6 +3742,11 @@ export type RestoreVersionStatus =
  */
 "syncOff"
 export type RestoredBackup = { path: string }
+/**
+ * A file an operation rewrote: where it is now, the version with its previous bytes, and the
+ * SHA-256 of what the operation wrote (docs/notices.md, section 9).
+ */
+export type RewrittenNote = { path: string; snapshotId: string; digest: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 /**
  * What a rollback did (З42).
@@ -3721,7 +3988,19 @@ export type StorageError = { code: StorageErrorCode;
  * For the logs only; may contain paths. Never shown.
  */
 detail: string }
-export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed"
+export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed" | 
+/**
+ * An undo found the item gone from where the operation left it, or its old place taken.
+ */
+"undoItemMoved" | 
+/**
+ * An undo found a note the operation rewrote changed since.
+ */
+"undoNoteChanged" | 
+/**
+ * An undo cannot run: the version it needs is gone, or the record is not one it can follow.
+ */
+"undoUnavailable"
 /**
  * One storage (space) of the account.
  */
@@ -3932,7 +4211,12 @@ device: VersionDevice;
 deviceName: string | null }
 export type TrashPreview = { path: string; directory: boolean; text: string | null; children: TrashPreviewItem[]; truncated: boolean }
 export type TrashPreviewItem = { name: string; path: string; directory: boolean }
-export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null; 
+/**
+ * Physical siblings of the main document, projected as document rows when Supernotes is off.
+ * For a database container this also includes its manifest, even when it is the only file.
+ */
+bundleMembers?: TreeItem[] | null }
 export type TreePatch = { ops: TreePatchOp[] }
 /**
  * One change of the tree. Operations are applied in order: removals first, then insertions of
@@ -3950,6 +4234,12 @@ export type TreePatchOp =
  * with the same path is replaced; with `replaceChildren` off it keeps the children it has.
  */
 { kind: "upsert"; parentPath: string | null; item: TreeItem; replaceChildren: boolean }
+/**
+ * What `undo_mutation` needs to put an operation back exactly. It never rewrites links back: it
+ * moves the item back as it was and writes the previous bytes of every rewritten note, after
+ * checking that nothing changed since. Paths are absolute, as in `PathChange`.
+ */
+export type UndoRecord = { kind: "rename"; originalPath: string; primaryPath: string; pathChanges: PathChange[]; extraRenames: PathChange[]; rewritten: RewrittenNote[] } | { kind: "move"; sourcePath: string; targetPath: string; primaryPath: string; pathChanges: PathChange[]; rewritten: RewrittenNote[] } | { kind: "merge"; target: RewrittenNote; sourcePath: string; archiveId: string; sourceDigest: string | null }
 /**
  * A file that is not synchronised on this computer (Р4, Р9).
  */

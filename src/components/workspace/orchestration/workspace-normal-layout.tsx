@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils"
 import { PaneDropOverlay, SplitResizeHandle } from "../pane-tab-bar"
 import type { TreeItem } from "../sidebar-tree"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
+import { motionTransitions } from "@/lib/motion-config"
 import { motion, useTransform } from "motion/react"
 import { useOverlaysStore } from "../use-overlays-store"
 import { WorkspaceOverlays } from "./workspace-overlays"
@@ -163,18 +164,18 @@ export function WorkspaceNormalLayout({
   savePresetAs,
 }: WorkspaceNormalLayoutProps) {
   // One progress per side, for the pinned panel, its overlay and the header alike.
-  const leftPanel = usePanelPresence(isLeftSidebarVisible)
-  const rightPanel = usePanelPresence(rightPanelEnabled && isRightSidebarVisible)
-  const leftOverlayWidth = usePanelLength(
-    leftPanel.progress,
-    "4px",
-    "(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+  const leftPanel = usePanelPresence(
+    isLeftSidebarVisible,
+    !leftDockPinned ? motionTransitions.slow : undefined,
   )
-  const rightOverlayWidth = usePanelLength(
-    rightPanel.progress,
-    "4px",
-    "(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+  const rightPanel = usePanelPresence(
+    rightPanelEnabled && isRightSidebarVisible,
+    !rightDockPinned ? motionTransitions.slow : undefined,
   )
+  const leftOverlayOpacity = useTransform(leftPanel.progress, [0, 0.12, 1], [0, 1, 1])
+  const leftOverlayX = useTransform(leftPanel.progress, [0, 1], ["-100%", "0%"])
+  const rightOverlayOpacity = useTransform(rightPanel.progress, [0, 0.12, 1], [0, 1, 1])
+  const rightOverlayX = useTransform(rightPanel.progress, [0, 1], ["100%", "0%"])
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <ConnectedHeaderTabs
@@ -264,56 +265,73 @@ export function WorkspaceNormalLayout({
           )}
 
           {!leftDockPinned && (
-            <motion.div
-              className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
-              style={{ width: leftOverlayWidth }}
-              onMouseEnter={() => setSidebarHover("left", true)}
-              onMouseLeave={() => setSidebarHover("left", false)}
-            >
-              <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
+            <>
+              {!leftPanel.mounted && (
                 <div
-                  className="flex h-full shrink-0"
+                  className="fixed bottom-0 left-0 top-11 z-40 w-1"
+                  onMouseEnter={() => setSidebarHover("left", true)}
+                />
+              )}
+              {leftPanel.mounted && (
+                <motion.div
+                  className="amby-sidebar-overlay amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 pb-2"
+                  data-open={isLeftSidebarVisible ? "true" : "false"}
                   style={{
                     width: "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+                    opacity: leftOverlayOpacity,
+                    x: leftOverlayX,
                   }}
+                  onMouseEnter={() => setSidebarHover("left", true)}
+                  onMouseLeave={() => setSidebarHover("left", false)}
                 >
-                  <ActivityBar
-                    side="left"
-                    buttons={leftButtons}
-                    activeView={activeBySide.left}
-                    isPanelOpen={isLeftSidebarVisible}
-                    onActivate={handleActivate}
-                    onMoveToOtherSide={
-                      rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
-                    }
-                    onPointerDownButton={dnd.onPointerDown}
-                    draggingId={dnd.draggingId}
-                    {...activityBarPresetProps}
-                    {...activityDockProps("left")}
-                    helpContext={currentHelpContext}
-                    autoHideReveal
-                  />
-                  <div
-                    className="relative h-full shrink-0"
-                    style={{ width: "var(--amby-left-panel-width, 300px)" }}
-                  >
-                    <PanelHost
-                      side="left"
-                      activeId={activeBySide.left}
-                      props={panelRenderProps}
-                      flush
-                    />
-                    {!isCompactLayout && (
-                      <ResizeHandle
-                        side="right"
-                        active={resizingSide === "left"}
-                        onMouseDown={startResize("left")}
+                  <div className="amby-sidebar-overlay-surface flex h-full w-full overflow-hidden">
+                    <div
+                      className="flex h-full shrink-0"
+                      style={{
+                        width: "calc(var(--amby-left-panel-width, 300px) + var(--amby-dock-width))",
+                      }}
+                    >
+                      <ActivityBar
+                        side="left"
+                        buttons={leftButtons}
+                        activeView={activeBySide.left}
+                        isPanelOpen={isLeftSidebarVisible}
+                        onActivate={handleActivate}
+                        onMoveToOtherSide={
+                          rightPanelEnabled
+                            ? (defId) => moveButtonToSide(defId, "right")
+                            : undefined
+                        }
+                        onPointerDownButton={dnd.onPointerDown}
+                        draggingId={dnd.draggingId}
+                        {...activityBarPresetProps}
+                        {...activityDockProps("left")}
+                        helpContext={currentHelpContext}
+                        autoHideReveal
                       />
-                    )}
+                      <div
+                        className="relative h-full shrink-0"
+                        style={{ width: "var(--amby-left-panel-width, 300px)" }}
+                      >
+                        <PanelHost
+                          side="left"
+                          activeId={activeBySide.left}
+                          props={panelRenderProps}
+                          flush
+                        />
+                        {!isCompactLayout && (
+                          <ResizeHandle
+                            side="right"
+                            active={resizingSide === "left"}
+                            onMouseDown={startResize("left")}
+                          />
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            </motion.div>
+                </motion.div>
+              )}
+            </>
           )}
 
           <main
@@ -321,7 +339,8 @@ export function WorkspaceNormalLayout({
             ref={mainStageRef}
             className={cn(
               "amby-workspace-stage relative z-10 flex flex-1 gap-0 overflow-hidden bg-background",
-              !rightPanelEnabled && "pr-2",
+              !leftDockPinned && "pl-2",
+              (!rightPanelEnabled || !rightDockPinned) && "pr-2",
               isMultiPane && "-mt-11",
             )}
           >
@@ -382,54 +401,69 @@ export function WorkspaceNormalLayout({
         )}
 
         {rightPanelEnabled && !rightDockPinned && (
-          <motion.div
-            className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
-            style={{ width: rightOverlayWidth }}
-            onMouseEnter={() => setSidebarHover("right", true)}
-            onMouseLeave={() => setSidebarHover("right", false)}
-          >
-            <div className="flex h-full w-full justify-end overflow-hidden rounded-l-2xl bg-background">
+          <>
+            {!rightPanel.mounted && (
               <div
-                className="flex h-full shrink-0"
+                className="fixed bottom-0 right-0 top-11 z-40 w-1"
+                onMouseEnter={() => setSidebarHover("right", true)}
+              />
+            )}
+            {rightPanel.mounted && (
+              <motion.div
+                className="amby-sidebar-overlay amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 pb-2"
+                data-open={isRightSidebarVisible ? "true" : "false"}
                 style={{
                   width: "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+                  opacity: rightOverlayOpacity,
+                  x: rightOverlayX,
                 }}
+                onMouseEnter={() => setSidebarHover("right", true)}
+                onMouseLeave={() => setSidebarHover("right", false)}
               >
-                <div
-                  className="relative h-full shrink-0"
-                  style={{ width: "var(--amby-right-panel-width, 300px)" }}
-                >
-                  {!isCompactLayout && (
-                    <ResizeHandle
-                      side="left"
-                      active={resizingSide === "right"}
-                      onMouseDown={startResize("right")}
+                <div className="amby-sidebar-overlay-surface flex h-full w-full justify-end overflow-hidden">
+                  <div
+                    className="flex h-full shrink-0"
+                    style={{
+                      width: "calc(var(--amby-right-panel-width, 300px) + var(--amby-dock-width))",
+                    }}
+                  >
+                    <div
+                      className="relative h-full shrink-0"
+                      style={{ width: "var(--amby-right-panel-width, 300px)" }}
+                    >
+                      {!isCompactLayout && (
+                        <ResizeHandle
+                          side="left"
+                          active={resizingSide === "right"}
+                          onMouseDown={startResize("right")}
+                        />
+                      )}
+                      <PanelHost
+                        side="right"
+                        activeId={activeBySide.right}
+                        props={panelRenderProps}
+                        flush
+                      />
+                    </div>
+                    <ActivityBar
+                      side="right"
+                      buttons={rightButtons}
+                      activeView={activeBySide.right}
+                      isPanelOpen={isRightSidebarVisible}
+                      onActivate={handleActivate}
+                      onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+                      onPointerDownButton={dnd.onPointerDown}
+                      draggingId={dnd.draggingId}
+                      {...activityBarPresetProps}
+                      {...activityDockProps("right")}
+                      autoHideReveal
+                      helpContext={currentHelpContext}
                     />
-                  )}
-                  <PanelHost
-                    side="right"
-                    activeId={activeBySide.right}
-                    props={panelRenderProps}
-                    flush
-                  />
+                  </div>
                 </div>
-                <ActivityBar
-                  side="right"
-                  buttons={rightButtons}
-                  activeView={activeBySide.right}
-                  isPanelOpen={isRightSidebarVisible}
-                  onActivate={handleActivate}
-                  onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-                  onPointerDownButton={dnd.onPointerDown}
-                  draggingId={dnd.draggingId}
-                  {...activityBarPresetProps}
-                  {...activityDockProps("right")}
-                  autoHideReveal
-                  helpContext={currentHelpContext}
-                />
-              </div>
-            </div>
-          </motion.div>
+              </motion.div>
+            )}
+          </>
         )}
       </div>
 
@@ -477,6 +511,8 @@ function PinnedSidePanel({
   const animatedWidth = usePanelLength(presence.progress, "0px", width)
   const panelOpacity = useTransform(presence.progress, [0, 0.15, 1], [0, 0.25, 1])
   const panelScale = useTransform(presence.progress, [0, 1], [0.985, 1])
+  const compactOverlayOpacity = useTransform(presence.progress, [0, 0.2, 1], [0, 0.45, 1])
+  const compactOverlayScale = useTransform(presence.progress, [0, 1], [1.03, 1])
   const hover = {
     onMouseEnter: () => onHoverChange(true),
     onMouseLeave: () => onHoverChange(false),
@@ -486,16 +522,21 @@ function PinnedSidePanel({
     return (
       <motion.div
         data-help-area={`${side}-panel`}
-        style={{ width: animatedWidth }}
+        style={{
+          width,
+          opacity: compactOverlayOpacity,
+          scale: compactOverlayScale,
+          transformOrigin: "center center",
+        }}
         {...hover}
         className={cn(
-          "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl",
-          side === "left" ? "left-[var(--amby-dock-width)]" : "right-[var(--amby-dock-width)]",
+          "fixed bottom-0 top-11 z-40 max-w-[calc(100vw-2.5rem)]",
+          side === "left"
+            ? "amby-sidebar-overlay--compact-left left-[var(--amby-dock-width)]"
+            : "amby-sidebar-overlay--compact-right right-[var(--amby-dock-width)]",
         )}
       >
-        <div className="relative h-full shrink-0" style={{ width }}>
-          {children}
-        </div>
+        <div className="relative h-full w-full">{children}</div>
       </motion.div>
     )
   }

@@ -5,7 +5,6 @@ import type {
   HistoryCleanupResult,
   HistoryRetention,
   HistoryStats,
-  RefactorPreview,
   SnapshotEntry,
   SnapshotText,
   ArchiveEntry,
@@ -66,35 +65,19 @@ export class HistoryRepository {
     return this.port().purgeTrash(trashId)
   }
 
-  async listArchive(): Promise<ArchiveEntry[]> {
-    return this.port().listArchive()
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return this.port().listArchive(vaultPath)
   }
 
   async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
     return this.port().readArchivePreview(archiveId, relativePath)
   }
 
-  async restoreArchive(archiveId: string): Promise<FsMutationResult> {
-    return this.port().restoreArchive(archiveId)
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return this.port().restoreArchive(archiveId, vaultPath)
   }
 
   async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
     return this.port().purgeArchive(archiveId, mode)
-  }
-
-  async previewRenameRefactor(
-    vaultPath: string,
-    path: string,
-    newName: string,
-  ): Promise<RefactorPreview> {
-    return this.port().previewRenameRefactor(vaultPath, path, newName)
-  }
-
-  async previewMoveRefactor(
-    vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    return this.port().previewMoveRefactor(vaultPath, sourcePath, targetPath)
   }
 }

@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next"
 import type { SettingsNavigationTarget } from "../settings-navigation"
 import type { TreeItem } from "../sidebar-tree"
 import { useOverlaysStore } from "../use-overlays-store"
+import { useSettingsStore } from "../use-settings-store"
 
 interface UsePanelRenderPropsParams {
   displayTreeItems: TreeItem[]
@@ -54,6 +55,7 @@ interface UsePanelRenderPropsParams {
     layer: "canvas" | "database" | "sketch" | "note",
   ) => Promise<void>
   linkedLayersByDoc: Record<string, NoteLayers>
+  supernotesEnabled: boolean
   databasesEnabled: boolean
   canvasEnabled: boolean
   sketchEnabled: boolean
@@ -142,6 +144,7 @@ export function usePanelRenderProps({
   handleToggleFavorite,
   handleAttachLayerToFile,
   linkedLayersByDoc,
+  supernotesEnabled,
   databasesEnabled,
   canvasEnabled,
   sketchEnabled,
@@ -175,6 +178,7 @@ export function usePanelRenderProps({
   vaultName,
 }: UsePanelRenderPropsParams) {
   const { t } = useTranslation()
+  const deleteMode = useSettingsStore((state) => state.prefs.files.deleteMode)
   const panelRenderProps: PanelRenderProps = React.useMemo(
     () => ({
       treeItems: displayTreeItems,
@@ -192,23 +196,25 @@ export function usePanelRenderProps({
       onNewCanvas: handleNewCanvasIn,
       onNewSketch: handleNewSketchIn,
       onNewDatabase: handleNewDatabase,
-      onAttachCanvas: handleAttachCanvasToNote,
-      onAttachSketch: handleAttachSketchToNote,
+      onAttachCanvas: supernotesEnabled ? handleAttachCanvasToNote : undefined,
+      onAttachSketch: supernotesEnabled ? handleAttachSketchToNote : undefined,
       onOpenInNewTab: handleOpenInNewTab,
       onOpenSplitRight: handleOpenSplitRight,
       onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
-      onConvertFolderToNote: handleConvertFolderToNote,
+      onConvertFolderToNote: supernotesEnabled ? handleConvertFolderToNote : undefined,
       onOpenInExplorer: (path: string) => void showInFileManager(path),
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
+      deleteMode,
       triggerRenameId: pendingRenameId,
       readFile: async (id: string) => (vault ? (await readNote(vault, id)).content : readFile(id)),
       favorites,
       onToggleFavorite: handleToggleFavorite,
-      onAttachLayer: handleAttachLayerToFile,
+      onAttachLayer: supernotesEnabled ? handleAttachLayerToFile : undefined,
       linkedLayersByDoc,
+      supernotesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       databaseRuntimeEnabled: databasesEnabled,
       canvasEnabled,
@@ -281,6 +287,7 @@ export function usePanelRenderProps({
       ),
     }),
     [
+      deleteMode,
       displayTreeItems,
       fileTreeItems,
       selectedId,
@@ -311,6 +318,7 @@ export function usePanelRenderProps({
       handleToggleFavorite,
       handleAttachLayerToFile,
       linkedLayersByDoc,
+      supernotesEnabled,
       currentProperties,
       propertyError,
       attachments,

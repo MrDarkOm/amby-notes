@@ -217,6 +217,22 @@ fn parse_hex16(text: &str) -> Option<[u8; 16]> {
     Some(out)
 }
 
+/// A temporary file name of its own for one write (Ч4, Б8): two uploads of the same part, or two
+/// `complete` calls, never write into the same file. It starts with a dot and ends in `.tmp`, so
+/// [`FsBlobStore::list_parts`] never takes it for a part.
+fn temporary_name(of: &str) -> String {
+    let mut nonce = [0u8; 8];
+    // Without randomness the counter alone still keeps the writes of this process apart.
+    let _ = getrandom::fill(&mut nonce);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let count = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!(".{of}.{}{count:x}.tmp", hex_nonce(&nonce))
+}
+
+fn hex_nonce(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// Makes the creation, rename or removal of a file in `dir` durable.
 fn sync_dir(dir: &Path) {
     // A directory cannot be opened for syncing on every platform; the data is already synced.
@@ -234,26 +250,38 @@ impl BlobStore for FsBlobStore {
     fn put_part(&self, key: &BlobKey, part: u32, data: &[u8]) -> StoreResult<()> {
         let dir = self.dir(key);
         fs::create_dir_all(&dir)?;
-        let temporary = dir.join(format!("part-{part}.tmp"));
-        let mut file = File::create(&temporary)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-        fs::rename(&temporary, self.part_path(key, part))?;
+        let temporary = dir.join(temporary_name(&format!("part-{part}")));
+        let written = (|| -> io::Result<()> {
+            let mut file = File::create(&temporary)?;
+            file.write_all(data)?;
+            file.sync_all()?;
+            fs::rename(&temporary, self.part_path(key, part))
+        })();
+        if written.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        written?;
         sync_dir(&dir);
         Ok(())
     }
 
     fn assemble(&self, key: &BlobKey, parts: u32) -> StoreResult<()> {
         let dir = self.dir(key);
-        let temporary = dir.join("body.tmp");
-        let mut out = File::create(&temporary)?;
-        for part in 0..parts {
-            let mut input = File::open(self.part_path(key, part))?;
-            io::copy(&mut input, &mut out)?;
+        let temporary = dir.join(temporary_name("body"));
+        let joined = (|| -> io::Result<()> {
+            let mut out = File::create(&temporary)?;
+            for part in 0..parts {
+                let mut input = File::open(self.part_path(key, part))?;
+                io::copy(&mut input, &mut out)?;
+            }
+            out.sync_all()?;
+            drop(out);
+            fs::rename(&temporary, self.body_path(key))
+        })();
+        if joined.is_err() {
+            let _ = fs::remove_file(&temporary);
         }
-        out.sync_all()?;
-        drop(out);
-        fs::rename(&temporary, self.body_path(key))?;
+        joined?;
         sync_dir(&dir);
         Ok(())
     }

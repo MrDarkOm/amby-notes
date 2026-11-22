@@ -91,9 +91,9 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
       ? item.icon
       : isExpandableSuperNote(item)
         ? "supernote"
-        : isSuperCanvasItem(item)
+        : !item.bundleMember && isSuperCanvasItem(item)
           ? "supercanvas"
-          : isSuperSketchItem(item)
+          : !item.bundleMember && isSuperSketchItem(item)
             ? "supersketch"
             : item.type === "folder"
               ? "folder"

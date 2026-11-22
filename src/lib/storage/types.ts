@@ -13,6 +13,10 @@ export interface TreeItem {
   created?: number
   modified?: number
   children?: TreeItem[]
+  /** Other documents named as part of this on-disk bundle. An empty array marks a bundle. */
+  bundleMembers?: TreeItem[]
+  /** Display only. The containing folder owns rename and move for these files. */
+  bundleMember?: true
 }
 
 export interface FileMetadata {
@@ -80,11 +84,6 @@ export interface HistoryCleanupPreview {
   removedCount: number
   freedBytes: number
   remaining: HistoryStats
-}
-
-export interface RefactorPreview {
-  notes: number
-  replacements: number
 }
 
 /** A file of the hidden archive `.amby/archive/` (docs/sync-plan.md, К6). */
@@ -174,7 +173,45 @@ export interface FsMutationResult {
    * Absent when the change cannot be expressed as a patch: the caller reloads the tree.
    */
   treePatch?: TreePatch | null
+  /**
+   * How to undo this operation exactly, when it changed other notes (a rename or a move that rewrote
+   * links, a merge). Kept with the journal entry and handed back to `undoMutation` unchanged.
+   */
+  undo?: UndoRecord
 }
+
+/** A file an operation rewrote: where it is now, the version with its old bytes, a digest of the new. */
+interface RewrittenNote {
+  path: string
+  snapshotId: string
+  digest: string
+}
+
+/** Mirrors `UndoRecord` of the bindings (docs/notices.md, section 9). */
+export type UndoRecord =
+  | {
+      kind: "rename"
+      originalPath: string
+      primaryPath: string
+      pathChanges: PathChange[]
+      extraRenames: PathChange[]
+      rewritten: RewrittenNote[]
+    }
+  | {
+      kind: "move"
+      sourcePath: string
+      targetPath: string
+      primaryPath: string
+      pathChanges: PathChange[]
+      rewritten: RewrittenNote[]
+    }
+  | {
+      kind: "merge"
+      target: RewrittenNote
+      sourcePath: string
+      archiveId: string
+      sourceDigest: string | null
+    }
 
 /** One change of the tree; applied in order (see `applyTreePatchOps`). */
 export type TreePatchOp =

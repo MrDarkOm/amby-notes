@@ -22,6 +22,8 @@ import type { CentreEntry } from "./centre-entries"
 import { NoticeLevelIcon, NoticeShell } from "./notice-level"
 import { noticeCalmClass } from "./notice-look"
 import { requestOpenNote } from "./note-open-request"
+import { canRestore, restoreFromJournal, type RestoreOutcome } from "./restore-from-journal"
+import { canUndo, undoFromJournal } from "../file-actions/undo-operation"
 import { stopTitle } from "./stop-words"
 import { useAppNoticesStore } from "./use-app-notices-store"
 import { useNoticesCentre } from "./use-notices-centre"
@@ -213,7 +215,22 @@ function journalWords(
     case "merged":
       return t("notices.journal.merged", { name })
     case "backupReady":
-      return t("notices.journal.backupReady")
+      return entry.params.what === "properties"
+        ? t("notices.journal.propertiesBackup", { name })
+        : t("notices.journal.backupReady")
+    case "renamedWithLinks":
+    case "movedWithLinks":
+      return t(`notices.journal.${entry.kind}`, { name, count: Number(entry.params.count ?? 0) })
+    case "movedManyWithLinks":
+      return t("notices.journal.movedManyWithLinks", {
+        items: entry.params.items ?? "",
+        count: Number(entry.params.count ?? 0),
+      })
+    case "notesMerged":
+      return t("notices.journal.notesMerged", {
+        source: entry.params.source ?? "",
+        target: entry.params.target ?? "",
+      })
     case "updateFailed":
       // With a version, the update was found and could not be installed; without one, the check failed.
       return entry.params.version
@@ -238,6 +255,23 @@ function formatWhen(at: number, language: string): string {
 
 function JournalRow({ entry }: { entry: JournalEntry }) {
   const { t, i18n } = useTranslation()
+  const [busy, setBusy] = React.useState(false)
+  const [outcome, setOutcome] = React.useState<RestoreOutcome | null>(null)
+  const [undoRefusal, setUndoRefusal] = React.useState<{
+    key: string
+    params?: Record<string, unknown>
+  } | null>(null)
+  const restore = async () => {
+    setBusy(true)
+    setOutcome(await restoreFromJournal(entry))
+    setBusy(false)
+  }
+  const undo = async () => {
+    setBusy(true)
+    const result = await undoFromJournal(entry)
+    setUndoRefusal(result.outcome === "refused" ? { key: result.key, params: result.params } : null)
+    setBusy(false)
+  }
   return (
     <li
       data-testid="notices-journal-entry"
@@ -269,7 +303,31 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
           {entry.kind === "updateFailed" && entry.params.version && (
             <ManualDownloadLink version={entry.params.version} />
           )}
+          {canRestore(entry) && (
+            <button
+              type="button"
+              disabled={busy}
+              className="underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+              onClick={() => void restore()}
+            >
+              {t("notices.journal.restore")}
+            </button>
+          )}
+          {canUndo(entry) && (
+            <button
+              type="button"
+              disabled={busy}
+              className="underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+              onClick={() => void undo()}
+            >
+              {t("notices.journal.restore")}
+            </button>
+          )}
+          {entry.params.restored && <span>{t("notices.journal.restoredDone")}</span>}
         </div>
+        {outcome === "saveFirst" && <NoticeLine text={t("notices.journal.restoreSaveFirst")} />}
+        {outcome === "failed" && <NoticeLine text={t("notices.journal.restoreFailed")} />}
+        {undoRefusal && <NoticeLine text={t(undoRefusal.key, undoRefusal.params)} />}
       </div>
     </li>
   )

@@ -1,3 +1,5 @@
+import { projectBundleFolders } from "./tree/bundle-folders"
+import { treeItemTabTarget } from "./tab-target"
 import { dispatchArchiveChanged } from "./use-archive-tree-refresh"
 import { StorageOperationError } from "@/lib/storage/operation-error"
 import * as React from "react"
@@ -366,7 +368,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       const activePath = loaded.vaultPath
       const tree = loaded.tree
       const pathToId = loaded.sync.pathToId ?? {}
-      const allIds = flattenTree(tree)
+      const sessionTree = projectBundleFolders(tree)
+      const allIds = flattenTree(sessionTree)
+      for (const fileId of flattenTree(tree)) allIds.add(fileId)
 
       // Activation succeeded. Only now detach the old generation and clear
       // process-local data that must never cross vault boundaries.
@@ -408,6 +412,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       // icons, favorites and other vault view settings from the session.
       const restoreSession =
         ownsPersistence && useSettingsStore.getState().prefs.startup.restoreSession
+      for (const { fileId } of session.tabs) {
+        if (findTreeItem(sessionTree, fileId)?.bundleMember) allIds.add(fileId)
+      }
       const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
 
       hydrateFromSession({
@@ -434,14 +441,17 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         launchFileHandledRef.current = true
       }
       if (valid.length > 0) {
-        const newTabs: Tab[] = valid.map((e) => ({
-          key: newTabKey(),
-          kind: "document" as const,
-          fileId: e.fileId,
-          title: e.title,
-          history: [e.fileId],
-          historyIndex: 0,
-        }))
+        const newTabs: Tab[] = valid.map((entry) => {
+          const item = findTreeItem(sessionTree, entry.fileId)
+          return {
+            key: newTabKey(),
+            kind: item ? treeItemTabTarget(item).kind : "document",
+            fileId: entry.fileId,
+            title: entry.title,
+            history: [entry.fileId],
+            historyIndex: 0,
+          }
+        })
         setTabs(newTabs)
         const activeTab = newTabs.find((t) => t.fileId === mappedActiveFileId) ?? newTabs[0]
         setActiveTabKey(activeTab.key)

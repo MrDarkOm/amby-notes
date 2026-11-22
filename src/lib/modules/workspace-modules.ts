@@ -1,8 +1,11 @@
 import {
   createProfileSnapshot,
+  NOTE_MODULES,
+  NOTE_MODULES_REVISION,
   PROFILES,
   STANDARD_CATALOG_REVISION,
   STANDARD_MODULES,
+  SUPERNOTES_REVISION,
 } from "./profiles"
 import { toCanonicalModuleId, type ProfileId, type WorkspaceModuleConfig } from "./types"
 
@@ -88,15 +91,24 @@ export function readWorkspaceModuleConfig(raw: {
   const profile = raw.profile as { id?: unknown; catalogRevision?: unknown } | null | undefined
   if (profile && typeof profile.id === "string" && Array.isArray(raw.enabledModules)) {
     const profileId = profile.id as ProfileId
+    const enabledModules = (raw.enabledModules as string[]).map(toCanonicalModuleId)
+    const saved = typeof profile.catalogRevision === "string" ? profile.catalogRevision : null
+    // Each built-in added to Standard is inherited once by older non-Minimal workspaces.
+    const predates = (revision: string) =>
+      profileId !== "minimal" && (saved === null || saved < revision)
+    const addSupernotes = predates(SUPERNOTES_REVISION)
+    if (predates(NOTE_MODULES_REVISION)) {
+      for (const id of NOTE_MODULES) if (!enabledModules.includes(id)) enabledModules.push(id)
+    }
+    if (addSupernotes && !enabledModules.includes("amby.supernotes")) {
+      enabledModules.push("amby.supernotes")
+    }
     return {
       profile: {
         id: PROFILES[profileId] ? profileId : "custom",
-        catalogRevision:
-          typeof profile.catalogRevision === "string"
-            ? profile.catalogRevision
-            : STANDARD_CATALOG_REVISION,
+        catalogRevision: addSupernotes ? SUPERNOTES_REVISION : (saved ?? STANDARD_CATALOG_REVISION),
       },
-      enabledModules: (raw.enabledModules as string[]).map(toCanonicalModuleId),
+      enabledModules,
       moduleSettings,
     }
   }

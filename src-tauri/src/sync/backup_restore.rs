@@ -174,6 +174,11 @@ fn info(vault: &Path, backup_id: &str) -> Result<BackupInfo, SyncError> {
         item.origin = BackupOrigin::AppData;
         item.deletable = true;
     }
+    if root.parent() == Some(legacy_container(vault)?.as_path())
+        && super::legacy_copy_id(vault)?.as_deref() == Some(backup_id)
+    {
+        item.deletable = true;
+    }
     if let Some((r, origin)) = receipt(vault)? {
         if root_id(root.parent().unwrap_or(&root), &r.backup_root).as_deref() == Some(backup_id) {
             if origin == Origin::Legacy {

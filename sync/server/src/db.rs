@@ -185,7 +185,7 @@ impl Db {
 
     /// Runs `work` with the connection. Keep it short and never wait inside.
     pub fn call<R>(&self, work: impl FnOnce(&mut Connection) -> R) -> R {
-        work(&mut self.lock())
+        blocking(|| work(&mut self.lock()))
     }
 
     /// Runs `work` in one `BEGIN IMMEDIATE` transaction: it takes the write lock first, so the
@@ -198,11 +198,13 @@ impl Db {
     where
         E: From<rusqlite::Error>,
     {
-        let mut conn = self.lock();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = work(&tx)?;
-        tx.commit()?;
-        Ok(result)
+        blocking(|| {
+            let mut conn = self.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = work(&tx)?;
+            tx.commit()?;
+            Ok(result)
+        })
     }
 
     /// Like [`Db::write`], and then runs `after` in a second `BEGIN IMMEDIATE` transaction while
@@ -218,18 +220,33 @@ impl Db {
     where
         E: From<rusqlite::Error>,
     {
-        let mut conn = self.lock();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = work(&tx)?;
-        tx.commit()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        after(&tx, &result)?;
-        tx.commit()?;
-        Ok(result)
+        blocking(|| {
+            let mut conn = self.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let result = work(&tx)?;
+            tx.commit()?;
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            after(&tx, &result)?;
+            tx.commit()?;
+            Ok(result)
+        })
     }
 
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Runs database work, waiting for the lock included, so that it does not stall a worker of the
+/// async runtime (Ч1, Б6): on a multi-threaded runtime the worker hands its other tasks to
+/// another thread while this one blocks. Elsewhere (a command, a test without a runtime, a
+/// current-thread runtime) it simply runs.
+fn blocking<R>(work: impl FnOnce() -> R) -> R {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        _ => work(),
     }
 }
 
@@ -366,4 +383,56 @@ pub fn meta_value(conn: &Connection, key: &str) -> rusqlite::Result<Vec<u8>> {
     conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
         row.get(0)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn a_long_database_call_does_not_stop_the_other_requests() {
+        // Ч1: database work tells the runtime it blocks, so a long transaction on the only
+        // worker thread does not freeze the other tasks (pings of event streams included).
+        let dir = std::env::temp_dir().join(format!(
+            "amby-sync-db-ch1-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db = Arc::new(Db::open(&dir, 0).unwrap());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .unwrap();
+        let ticks = Arc::new(AtomicU32::new(0));
+        runtime.block_on(async {
+            let counter = ticks.clone();
+            let ticker = tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            let before = ticks.load(Ordering::SeqCst);
+            let slow = db.clone();
+            tokio::spawn(async move {
+                slow.call(|_| std::thread::sleep(Duration::from_millis(400)));
+            })
+            .await
+            .unwrap();
+            let during = ticks.load(Ordering::SeqCst) - before;
+            ticker.abort();
+            assert!(
+                during >= 10,
+                "other tasks ran only {during} times during a 400 ms database call"
+            );
+        });
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

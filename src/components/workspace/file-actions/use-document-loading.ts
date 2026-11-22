@@ -1,3 +1,4 @@
+import { naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, readRecoveryDraft } from "@/lib/recovery-drafts"
@@ -27,6 +28,7 @@ import {
 } from "../markdown-recovery-load"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore, type Document } from "../use-doc-store"
+import { findLayerItem } from "../use-layers"
 import { useTabsStore, type Tab } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
 import { useViewStateStore, type EditorLayer } from "../use-view-state-store"
@@ -51,6 +53,7 @@ type Params = Pick<
   UseFileActionsParams,
   | "vault"
   | "treeItems"
+  | "findNavigationFallback"
   | "loadCanvas"
   | "loadSketch"
   | "setPendingRenameId"
@@ -62,6 +65,7 @@ type Params = Pick<
 export function useDocumentLoading({
   vault,
   treeItems,
+  findNavigationFallback,
   loadCanvas,
   loadSketch,
   setPendingRenameId,
@@ -98,7 +102,7 @@ export function useDocumentLoading({
             current.backendGeneration === expectedBackendGeneration
           )
         }
-        const item = findTabTreeItem(treeItems, fileId)
+        const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
         const effectivePath = item?.path ?? fileId.replace(/^(canvas|sketch|database):/u, "")
         const dotIdx = effectivePath.lastIndexOf(".")
         const fileExt = dotIdx !== -1 ? effectivePath.slice(dotIdx) : ""
@@ -141,8 +145,8 @@ export function useDocumentLoading({
           // its tree gives to that file, the revision the one `read_note` returns. A pattern over the
           // text finds ordinary `id:` properties and body lines, and a revision of our own is not one
           // the backend accepts. Until the backend has answered, the layer is read only.
-          const layerItem = vault ? findTreeItem(treeItems, mdPath) : null
-          if (vault && layerItem?.path === mdPath && layerItem.type === "file") {
+          const layerItem = vault ? findLayerItem(treeItems, mdPath) : null
+          if (vault && layerItem) {
             try {
               const note = await readNote(vault, layerItem.id)
               noteId = layerItem.id
@@ -309,22 +313,24 @@ export function useDocumentLoading({
       recoveryScope,
       setDoc,
       treeItems,
+      findNavigationFallback,
       vault,
     ],
   )
   const openTreeItem = React.useCallback(
     async (fileId: string, inNewTab = false, displayTitle?: string) => {
       flushEditorSerializations()
-      const item = findTabTreeItem(treeItems, fileId)
+      const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
       if (!item) return
       const request = ++selectionRequestRef.current
       const initial = useTabsStore.getState()
       const initialTab = initial.tabs.find((tab) => tab.key === initial.activeTabKey)
       const target = { ...treeItemTabTarget(item), title: displayTitle ?? item.name }
-      const primary =
-        useViewStateStore.getState().primaryLayers[target.fileId] ??
-        useViewStateStore.getState().primaryLayers[item.id] ??
-        (item.path ? useViewStateStore.getState().primaryLayers[item.path] : undefined)
+      const primary = item.bundleMember
+        ? naturalDocumentLayer(target, item.path)
+        : (useViewStateStore.getState().primaryLayers[target.fileId] ??
+          useViewStateStore.getState().primaryLayers[item.id] ??
+          (item.path ? useViewStateStore.getState().primaryLayers[item.path] : undefined))
       if (primary) {
         useViewStateStore.getState().setActiveLayer(target.fileId, primary)
         useViewStateStore.getState().setActiveLayer(item.id, primary)
@@ -422,7 +428,15 @@ export function useDocumentLoading({
       openItem(target, inNewTab)
       void releaseUnusedDocumentBuffers()
     },
-    [backendGeneration, loadDoc, openItem, releaseUnusedDocumentBuffers, treeItems, vault],
+    [
+      backendGeneration,
+      findNavigationFallback,
+      loadDoc,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      treeItems,
+      vault,
+    ],
   )
   const handleSelect = React.useCallback(
     (fileId: string, displayTitle?: string) => {
@@ -493,7 +507,7 @@ export function useDocumentLoading({
   )
   const navigateToFile = React.useCallback(
     async (fileId: string) => {
-      const item = findTabTreeItem(treeItems, fileId)
+      const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
       if (!item) return
       try {
         if (item.type === "file") await loadDoc(item.id, item.name)
@@ -504,7 +518,7 @@ export function useDocumentLoading({
         /* navigation is best-effort */
       }
     },
-    [loadDoc, treeItems],
+    [loadDoc, treeItems, findNavigationFallback],
   )
   return { loadDoc, handleSelect, handleOpenInNewTab, handleCloneFile, navigateToFile }
 }

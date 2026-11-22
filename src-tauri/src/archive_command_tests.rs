@@ -25,6 +25,7 @@ fn k4_delete_with_the_archive_setting_does_what_the_archive_action_does() {
     crate::commands::mutations::delete_item_inner(
         &context,
         &WatcherState::new(),
+        None,
         vault.path("Notes/a.md").to_string_lossy().to_string(),
         DeleteMode::Archive,
     )
@@ -49,6 +50,7 @@ fn k1_the_archive_action_of_the_command_writes_the_archive() {
     crate::commands::mutations::archive_item_inner(
         &context,
         &WatcherState::new(),
+        None,
         vault.path("Notes/a.md").to_string_lossy().to_string(),
     )
     .unwrap();
@@ -63,4 +65,44 @@ fn k1_the_archive_action_of_the_command_writes_the_archive() {
         1,
         "К8: the record is written by the command too"
     );
+}
+
+#[test]
+fn restore_refuses_a_stale_workspace_even_if_the_archive_paths_match() {
+    let original = Vault::new();
+    let other = Vault::new();
+    let relative = "Project/Project.md";
+    original.put(".amby/archive/Project/Project.md", NOTE_ARCHIVED);
+    other.put(".amby/archive/Project/Project.md", NOTE_DELETED);
+    let context = active(&other);
+    let watcher = WatcherState::new();
+    let restore = crate::commands::history::restore_archive_inner;
+    assert!(restore(
+        &context,
+        &watcher,
+        relative,
+        original.root.to_str().unwrap()
+    )
+    .is_err());
+    assert!(!other.exists(relative));
+    assert_eq!(
+        other.read(".amby/archive/Project/Project.md").as_deref(),
+        Some(NOTE_DELETED)
+    );
+    context
+        .activate(original.root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+        .unwrap();
+    let restored = restore(
+        &context,
+        &watcher,
+        relative,
+        original.root.to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored.outcome.mutation.primary_path.as_deref(),
+        original.path(relative).to_str()
+    );
+    assert_eq!(original.read(relative).as_deref(), Some(NOTE_ARCHIVED));
+    assert!(!other.exists(relative));
 }

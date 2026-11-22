@@ -1,9 +1,11 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Check,
   Copy,
+  FilePen,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -72,11 +74,44 @@ export function UserMessage({ text }: { text: string }) {
   )
 }
 
+/** Tools that propose a change; their step says a change was prepared, the card says the rest. */
+const PROPOSING_TOOLS = new Set([
+  "new_note",
+  "append_note",
+  "edit_note",
+  "set_property",
+  "delete_property",
+  "rename_property",
+  "create_database_row",
+  "set_database_value",
+  "move_item",
+  "rename_item",
+  "archive_item",
+  "delete_item",
+])
+
 const STEP_KEYS: Record<string, string> = {
   search_notes: "searching",
   read_note: "reading",
   list_folder: "listing",
   get_links: "linking",
+  get_outline: "outlining",
+  read_section: "readingSection",
+  get_properties: "readingProperties",
+  get_note_info: "readingInfo",
+  list_versions: "readingHistory",
+  read_version: "readingVersion",
+  list_tags: "listingTags",
+  list_databases: "listingDatabases",
+  read_database: "readingDatabase",
+  query_database: "readingDatabase",
+  ...Object.fromEntries([...PROPOSING_TOOLS].map((tool) => [tool, "proposing"])),
+}
+
+/** A note path or file name as a title: the last segment without the Markdown extension. */
+function stepLabel(query: string): string {
+  const name = query.split("/").filter(Boolean).pop() ?? query
+  return name.replace(/\.md$/i, "")
 }
 
 function StepIcon({ tool }: { tool: string }) {
@@ -84,10 +119,20 @@ function StepIcon({ tool }: { tool: string }) {
   if (tool === "search_notes") return <Search className={className} aria-hidden="true" />
   if (tool === "list_folder") return <FolderOpen className={className} aria-hidden="true" />
   if (tool === "get_links") return <Link2 className={className} aria-hidden="true" />
+  if (PROPOSING_TOOLS.has(tool)) return <FilePen className={className} aria-hidden="true" />
   return <FileText className={className} aria-hidden="true" />
 }
 
 /** One quiet line per tool step; the notes it touched open on expand. */
+/** Failures that have their own wording; every other one is the general line. */
+const STEP_ERROR_KEYS: Record<string, string> = {
+  indexTooLarge: "ai.indexTooLarge",
+  // The notes the AI may read are the ones in the context, or all of them with search on.
+  accessDenied: "ai.toolOutsideContext",
+  notFound: "ai.toolNotFound",
+  ambiguous: "ai.toolAmbiguous",
+}
+
 export function StepLine({
   step,
   items,
@@ -100,7 +145,7 @@ export function StepLine({
   running?: boolean
 }) {
   const { t } = useTranslation()
-  const label = items.find((item) => item.id === step.query)?.name ?? step.query
+  const label = items.find((item) => item.id === step.query)?.name ?? stepLabel(step.query)
   const key = STEP_KEYS[step.tool] ?? "toolOther"
   return (
     <details className="group/step text-xs text-muted-foreground">
@@ -108,7 +153,7 @@ export function StepLine({
         <StepIcon tool={step.tool} />
         <span className="min-w-0 truncate">
           {step.error
-            ? t(step.error === "indexTooLarge" ? "ai.indexTooLarge" : "ai.toolFailed")
+            ? t(STEP_ERROR_KEYS[step.error] ?? "ai.toolFailed", { query: label })
             : t(`ai.${key}`, { query: label, count: step.noteIds.length, tool: step.tool })}
         </span>
         {running && (
@@ -146,6 +191,7 @@ export function AssistantAnswer({
   onCopy,
   onRetry,
   onSaveAsNote,
+  children,
 }: {
   message: ChatMessage
   items: TreeItem[]
@@ -156,6 +202,8 @@ export function AssistantAnswer({
   onCopy: () => void
   onRetry: () => void
   onSaveAsNote?: () => void
+  /** What belongs under this answer, such as the changes it proposed. */
+  children?: ReactNode
 }) {
   const { t } = useTranslation()
   const action =
@@ -186,6 +234,7 @@ export function AssistantAnswer({
           ))}
         </div>
       )}
+      {children}
       <div className="-ml-1 mt-1.5 flex gap-0.5">
         <button
           type="button"

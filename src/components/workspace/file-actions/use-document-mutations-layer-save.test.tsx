@@ -8,14 +8,12 @@ import { useVaultStore } from "../use-vault-store"
 import { useDocumentMutations } from "./use-document-mutations"
 
 const renameItem = vi.fn()
-const previewRenameRefactor = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
   return {
     ...original,
     renameItem: (...args: unknown[]) => renameItem(...args),
-    previewRenameRefactor: (...args: unknown[]) => previewRenameRefactor(...args),
   }
 })
 vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
@@ -43,7 +41,6 @@ describe("renaming a canvas whose save is still queued (SAVE-10)", () => {
   beforeEach(() => {
     events = []
     useVaultStore.setState({ vault: "/v", generation })
-    previewRenameRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     const firstWrite = new Promise<void>((resolve) => {
       releaseFirstWrite = resolve
     })

@@ -29,15 +29,19 @@ export const confirmations = {
   resetSettings: () => ask("resetSettings", {}, true),
   deleteDebugHistory: () => ask("deleteDebugHistory", {}, true),
   // The copy of the vault that is kept before sync
-  deleteBackup: () => ask("deleteBackup", {}, true),
+  deleteBackup: (params: { date: string }) => ask("deleteBackup", params, true),
+  // The amby command in the terminal (Settings → General): names exactly what changes on the computer
+  addCliToPath: (params: { change: string }) => ask("addCliToPath", params),
+  connectMcpClient: (params: { client: string; vault: string; access: string; how: string }) =>
+    ask("connectMcpClient", params),
+  deleteOldBackup: (params: { date: string }) => ask("deleteOldBackup", params, true),
   // Layers, connections
   deleteLayer: (params: { layer: string; title: string }) => ask("deleteLayer", params, true),
+  // The AI panel's mode that applies every change at once
+  aiTurbo: () => ask("aiTurbo", {}, true),
   removeAiConnection: (params: { name: string }) => ask("removeAiConnection", params, true),
-  // Notes: links that change, a merge, a deletion
-  renameRefactor: (params: { replacements: number; notes: number }) =>
-    ask("renameRefactor", params),
-  moveRefactor: (params: { replacements: number; notes: number }) => ask("moveRefactor", params),
-  mergeNotes: (params: { source: string; target: string }) => ask("mergeNotes", params),
+  // Notes: a deletion. A rename or a move that rewrites links, and a merge, are not asked about: they
+  // can be undone exactly from the line under the tree and the journal (docs/notices.md, section 9).
   deletePermanent: (params: { count: number; name: string }) =>
     ask(params.count > 1 ? "deletePermanentMany" : "deletePermanent", params, true),
   // The vault: a switch after a failed save, the migration of ids

@@ -1,4 +1,6 @@
 import { createBackupPort } from "./backup-repository"
+import { createCliPathPort } from "./cli-path-repository"
+import { createMcpClientsPort } from "./mcp-clients-repository"
 import { createDatabaseLayoutPort } from "./database-layout-repository"
 import { createAiChatRepository } from "./ai-chat-repository"
 import { DesktopAdapter } from "./desktop-adapter"
@@ -65,6 +67,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -83,7 +86,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SettingsReadResult,
   SnapshotEntry,
@@ -519,6 +521,17 @@ export const initWorkshop = (request: InitWorkshopRequest) => {
   })
   return getAdapter().initWorkshop(request)
 }
+export type { NoteTemplate } from "./note-modules-port"
+export const listNoteTemplates = () => getAdapter().listNoteTemplates()
+export const createNoteFromTemplate = (parentPath: string, name: string, template: string) => {
+  logger.info("storage.create_note_from_template", { parentPath, name })
+  return getAdapter().createNoteFromTemplate(parentPath, name, template)
+}
+export const openDailyNote = () => getAdapter().openDailyNote()
+export const createNoteTemplate = (name: string) => {
+  logger.info("storage.create_note_template", { name })
+  return getAdapter().createNoteTemplate(name)
+}
 export const resolveWorkshopFolder = (pickedPath: string) =>
   getAdapter().resolveWorkshopFolder(pickedPath)
 export const completeWorkshop = (request: CompleteWorkshopRequest) => {
@@ -721,6 +734,21 @@ export const deleteItem = (
 ): Promise<FsMutationResult> => mutationsRepository.deleteItem(vaultPath, path, mode)
 export const archiveItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
   mutationsRepository.archiveItem(vaultPath, path)
+export const undoMutation = (record: UndoRecord): Promise<FsMutationResult> => {
+  logger.info("storage.undo_mutation", { kind: record.kind })
+  return getAdapter().undoMutation(record)
+}
+export const beginMerge = (targetPath: string): Promise<string | null> =>
+  getAdapter().beginMerge(targetPath)
+export const finishMerge = (
+  vaultPath: string,
+  sourcePath: string,
+  targetPath: string,
+  snapshotId: string,
+): Promise<FsMutationResult> => {
+  logger.info("storage.finish_merge", { sourcePath, targetPath })
+  return getAdapter().finishMerge(vaultPath, sourcePath, targetPath, snapshotId)
+}
 export const noteLayers = (notePath: string): Promise<NoteLayers> =>
   mutationsRepository.noteLayers(notePath)
 export const createLayer = (notePath: string, kind: LayerKind): Promise<LayerResult> =>
@@ -760,24 +788,14 @@ export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTras
 export const restoreTrash = (trashId: string): Promise<FsMutationResult> =>
   historyRepository.restoreTrash(trashId)
 export const purgeTrash = (trashId: string): Promise<void> => historyRepository.purgeTrash(trashId)
-export const listArchive = (): Promise<ArchiveEntry[]> => historyRepository.listArchive()
+export const listArchive = (vaultPath: string): Promise<ArchiveEntry[]> =>
+  historyRepository.listArchive(vaultPath)
 export const readArchivePreview = (archiveId: string, relativePath = ""): Promise<TrashPreview> =>
   historyRepository.readArchivePreview(archiveId, relativePath)
-export const restoreArchive = (archiveId: string): Promise<FsMutationResult> =>
-  historyRepository.restoreArchive(archiveId)
+export const restoreArchive = (archiveId: string, vaultPath: string): Promise<FsMutationResult> =>
+  historyRepository.restoreArchive(archiveId, vaultPath)
 export const purgeArchive = (archiveId: string, mode: DeleteMode): Promise<void> =>
   historyRepository.purgeArchive(archiveId, mode)
-export const previewRenameRefactor = (
-  vaultPath: string,
-  path: string,
-  newName: string,
-): Promise<RefactorPreview> => historyRepository.previewRenameRefactor(vaultPath, path, newName)
-export const previewMoveRefactor = (
-  vaultPath: string,
-  sourcePath: string,
-  targetPath: string,
-): Promise<RefactorPreview> =>
-  historyRepository.previewMoveRefactor(vaultPath, sourcePath, targetPath)
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
@@ -862,6 +880,15 @@ export {
   type BackupInfo,
 } from "./backup-repository"
 export const resolveBackupPort = () => createBackupPort(isTauri())
+export { CliPathOperationError, type CliPathPort, type CliPathStatus } from "./cli-path-repository"
+export const resolveCliPathPort = () => createCliPathPort(isTauri())
+export {
+  McpClientOperationError,
+  type McpClient,
+  type McpClientStatus,
+  type McpClientsPort,
+} from "./mcp-clients-repository"
+export const resolveMcpClientsPort = () => createMcpClientsPort(isTauri())
 export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
 export const resolveAiChatRepository = () => createAiChatRepository(isTauri())
 

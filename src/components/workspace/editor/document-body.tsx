@@ -477,8 +477,8 @@ export function DocumentBody({
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground">{t(activeLayerMeta.labelKey)}</p>
-                <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                  {t("docEditor.layerCreated")}
+                <p role="status" className="mt-1 max-w-sm text-xs text-muted-foreground">
+                  {t("docEditor.loadingDatabaseLayer")}
                 </p>
               </div>
             </div>

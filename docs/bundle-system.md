@@ -4,13 +4,58 @@
 
 The system eliminates redundant folders in the early stages of content creation. A note is created as a single `Name.md` file. The transition to a "bundle" structure (a folder) happens only when additional data layers need to be stored.
 
+### Workspace module
+
+`amby.supernotes` controls the workspace commands for bundle creation, nesting via a
+document target, and layer management. Standard and pre-existing non-Minimal
+workspaces inherit it. With the module off, existing bundles appear as folders
+with separate rows for the main document and its layers. Their physical paths,
+identifiers, and local assets are preserved. Open and edit content from its file
+row. Deleting or archiving a file row acts on that file, preserving the directory
+and its other contents. A database stays a separate file row inside the folder
+even after its Markdown layer is removed. Selecting the folder row acts on
+the whole folder. With the module on, deleting a bundle's main document acts
+on the whole bundle.
+Rename and move linked files as a group from the folder row.
+
+### Module boundary audit (2026-11-22)
+
+Every entry point that creates, converts or widens an operation to a bundle, and how it
+follows the module:
+
+| Entry point                                                                                                                                                                      | With Supernotes off                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar menus, tree drag and drop, document header and menu, layer buttons, folder conversion                                                                                    | Hidden (`supernotesEnabled` through `workspace-orchestration`); the tree projects bundle folders.                                                                                                                                                                                  |
+| Desktop commands (`ensure_bundle`, `create_layer`, `attach_*`, `unlink_layer`, `delete_layer`, nesting `create_note`, `move_item`, `rename_item`, `delete_item`, `archive_item`) | Refuse with `moduleDisabled`, or act on the exact file.                                                                                                                                                                                                                            |
+| Browser adapter (`web-adapter-core.ts`)                                                                                                                                          | Same refusals.                                                                                                                                                                                                                                                                     |
+| CLI, MCP tools and AI-panel proposals: rename, move, archive and delete (`structural/plan.rs`, `vault_tools/delete.rs`)                                                          | Gap, closed 2026-11-22: they used to resolve a bundle's main note to the whole folder. A file row now stands for that file alone (delete, archive); renaming or moving the file alone is refused with `moduleDisabled`; the folder row still renames, moves and removes the group. |
+| Creative Studio story creation (`create_story`)                                                                                                                                  | Intentionally unchanged: it has its own workflow and module.                                                                                                                                                                                                                       |
+| Data when the module is toggled                                                                                                                                                  | Nothing is rewritten; the switch only changes the projection and which operations are offered.                                                                                                                                                                                     |
+
+Remaining by design: reading and indexing bundles (links, search, backlinks) is not gated,
+so existing bundles stay readable with the module off.
+
+The canonical tree and its incremental patches carry bundle membership from the
+filesystem. The workspace projects it without rewriting files. A same-named
+Markdown file written into a folder is still recognized by its layout, including
+after a remote move, restoration, or creation in another application. Creative
+Studio creates story bundles through its own workflow.
+
 ## 2. Transformation Triggers (Lazy Transformation)
 
-The conversion of the `Name.md` file into the `Name/Name.md` directory happens automatically when one of the following events occurs:
+Creating a child note, moving a document onto a note, or creating a missing
+layer can move `Name.md` to `Name/Name.md`. Converting a folder creates the
+same-named main note inside it. Attaching a standalone Canvas or Excalidraw also
+creates a bundle.
 
-- **Drop event:** Importing media files (images, PDF) into the editor.
-- **Layer switch:** Activating a visual mode (Canvas, Excalidraw, Database) with the button next to the edit-view switcher.
-- **Manual attachment:** Adding an attached file via the context menu.
+Adding a text layer to a database or an existing bundle creates the Markdown
+file beside the other layers. The sidebar uses the files on disk to decide
+which layers it can add, regardless of the layer used for the row's icon.
+Removing a layer from the document menu sends that file to the system trash
+and makes its attachment action available again.
+
+Media imported into a standalone note uses the vault's shared `assets/`.
+An existing bundle uses its local `assets/`.
 
 ### Storage structure on disk
 

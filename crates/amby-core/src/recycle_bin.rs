@@ -65,7 +65,7 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
 }
 
 /// Is this file one of those the renderer holds open buffers of (notes, sketches, canvases)?
-pub(crate) fn markdown_like(path: &Path) -> bool {
+pub fn markdown_like(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| matches!(extension.to_str(), Some("md" | "canvas" | "excalidraw")))
 }
@@ -95,12 +95,32 @@ fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrashScope {
+    Item,
+    ExactFile,
+}
+
 pub fn preview_move_to_trash(vault: &Path, path: &Path) -> Result<TrashMovePreview, String> {
+    preview_move_to_trash_scoped(vault, path, TrashScope::Item)
+}
+
+pub fn preview_move_to_trash_scoped(
+    vault: &Path,
+    path: &Path,
+    scope: TrashScope,
+) -> Result<TrashMovePreview, String> {
     let requested_path = path.canonicalize().map_err(|error| error.to_string())?;
     let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
-    let original_path = resolve_item_root(&vault_path, &requested_path)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
+    if scope == TrashScope::ExactFile && !requested_path.is_file() {
+        return Err("Exact deletion requires a file".to_string());
+    }
+    let original_path = match scope {
+        TrashScope::Item => resolve_item_root(&vault_path, &requested_path),
+        TrashScope::ExactFile => requested_path,
+    }
+    .canonicalize()
+    .map_err(|error| error.to_string())?;
     if !original_path.starts_with(&vault_path) {
         return Err("Cannot trash a path outside the vault".to_string());
     }
@@ -141,7 +161,15 @@ pub fn reject_symlink_for_permanent_delete(requested: &Path) -> Result<(), Strin
 /// entries are resolved exactly like a trash move so callers can report the
 /// same `deleted_paths`.
 pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
-    let preview = preview_move_to_trash(vault, path)?;
+    delete_permanently_scoped(vault, path, TrashScope::Item)
+}
+
+pub fn delete_permanently_scoped(
+    vault: &Path,
+    path: &Path,
+    scope: TrashScope,
+) -> Result<FsMutationResult, String> {
+    let preview = preview_move_to_trash_scoped(vault, path, scope)?;
     let deleted_paths = preview
         .deleted_paths
         .iter()
@@ -159,6 +187,7 @@ pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult,
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -264,6 +293,7 @@ pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, Stri
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
@@ -424,6 +454,7 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&primary_path)),
         path_changes,
@@ -470,6 +501,7 @@ fn finish_interrupted_restore(vault: &Path, id: &str) -> Result<Option<FsMutatio
     Ok(Some(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: Some(path_string(&destination)),
         path_changes: Vec::new(),

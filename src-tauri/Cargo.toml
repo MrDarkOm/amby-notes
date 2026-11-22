@@ -38,6 +38,7 @@ semver = "1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 tokio = { version = "1", features = ["sync", "macros", "net", "time", "rt", "io-util", "process"] }
 url = "2"
+base64 = "0.22"
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
 rfd = { version = "0.17", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"

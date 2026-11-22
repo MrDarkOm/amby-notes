@@ -105,6 +105,9 @@ describe("AI panel", () => {
     const options = vi.mocked(ai.aiRunTurn).mock.calls[0][2]
     expect(options.searchEnabled).toBe(false)
     expect(options.system).toContain("unsaved text")
+    // The tools are told the conversation's approval mode (manual unless chosen).
+    expect(options.approvalMode).toBe("manual")
+    expect(options.system).toContain("wait until the user applies them")
     expect(ai.aiSetSearchConsent).toHaveBeenCalledWith(201, expect.anything(), false)
     await screen.findByText("Answer [1]")
     fireEvent.click(screen.getByRole("button", { name: "Сохранить как заметку" }))

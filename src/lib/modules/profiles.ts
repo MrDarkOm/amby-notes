@@ -9,11 +9,18 @@ import {
 } from "./types"
 
 export const STANDARD_PROFILE_VERSION = "1.0.0"
-export const STANDARD_CATALOG_REVISION = "2026-09-20"
+export const SUPERNOTES_REVISION = "2026-11-21"
+export const STANDARD_CATALOG_REVISION = "2026-11-21"
+/**
+ * The revision that added Templates to the Standard modules: a module list saved before it gets it
+ * once (`readWorkspaceModuleConfig`; Rust: `vault_tools::modules`). Daily notes are opt-in.
+ */
+export const NOTE_MODULES_REVISION = "2026-11-20"
+export const NOTE_MODULES = ["amby.templates"]
 
 /**
- * The official modules the Standard profile turns on. Creative is ready but opt-in: it is
- * enabled from Settings → Modules, so a new workspace starts without the Workshop.
+ * The official modules the Standard profile turns on. Creative and Daily notes are ready but
+ * opt-in: they are enabled from Settings → Modules, so a new workspace starts without them.
  */
 export const STANDARD_MODULES: string[] = [
   "amby.tags",
@@ -24,6 +31,8 @@ export const STANDARD_MODULES: string[] = [
   "amby.graph",
   "amby.ai",
   "amby.excalidraw",
+  "amby.templates",
+  "amby.supernotes",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {

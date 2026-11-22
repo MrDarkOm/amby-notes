@@ -112,6 +112,11 @@ fn is_layer_extension(path: &Path) -> bool {
     is_markdown(path) || is_canvas(path) || is_sketch(path)
 }
 
+fn changes_container_shape(path: &Path, parent: &Path) -> bool {
+    let name = file_name(path);
+    file_stem(path) == file_name(parent) || name == "ambd.json" || name == "Metadata.md"
+}
+
 /// The paths one entry may have been listed under: itself, or, for a bundle, its main layer file.
 fn listed_paths(entry: &Path) -> Vec<String> {
     let name = file_name(entry);
@@ -169,6 +174,13 @@ pub fn patch_for_paths(
                 gone = parent;
             }
             entries.insert(gone.to_path_buf());
+            if gone == path {
+                if let Some(parent) = path.parent().filter(|parent| *parent != vault) {
+                    if changes_container_shape(path, parent) {
+                        entries.insert(parent.to_path_buf());
+                    }
+                }
+            }
             continue;
         }
         if path.is_dir() || is_layer_extension(path) {
@@ -176,9 +188,7 @@ pub fn patch_for_paths(
         }
         // A file named like its folder, or a database manifest, decides what the folder is.
         if let Some(parent) = path.parent().filter(|parent| *parent != vault) {
-            let name = file_name(path);
-            if file_stem(path) == file_name(parent) || name == "ambd.json" || name == "Metadata.md"
-            {
+            if changes_container_shape(path, parent) {
                 entries.insert(parent.to_path_buf());
             }
         }
