@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 
 use super::{allowed, relative, Published};
-use crate::recycle_bin::preview_move_to_trash;
+use crate::recycle_bin::{preview_move_to_trash_scoped, TrashScope};
 use crate::self_write::{PathFingerprint, SelfWriteTracker};
 use crate::system_recycle_bin::SystemTrash;
 
@@ -31,8 +31,15 @@ fn plan(
     path: &str,
 ) -> Result<(PathBuf, Vec<PathBuf>, Vec<String>), &'static str> {
     let item = visible_item(root, path)?;
-    let preview = preview_move_to_trash(root, &item).map_err(|_| "accessDenied")?;
-    // A note of a bundle takes the whole bundle; the grant must hold what really goes.
+    let scope_of_item = if super::modules::is_loose_bundle_file(root, &item)? {
+        TrashScope::ExactFile
+    } else {
+        TrashScope::Item
+    };
+    let preview =
+        preview_move_to_trash_scoped(root, &item, scope_of_item).map_err(|_| "accessDenied")?;
+    // With Supernotes on, a note of a bundle takes the whole bundle; the grant must hold what
+    // really goes.
     allowed(scope, &preview.original_path)?;
     if preview.original_path == scope {
         return Err("outsideWriteScope");
@@ -190,5 +197,68 @@ mod tests {
             assert_eq!(result.err(), Some(expected), "{path}");
         }
         assert!(trash.taken.lock().unwrap().is_empty());
+    }
+
+    fn bundle_vault(supernotes: bool) -> (Dir, PathBuf, PathBuf) {
+        let (dir, root, bin) = vault();
+        fs::create_dir_all(root.join("Project")).unwrap();
+        fs::create_dir_all(root.join(".amby")).unwrap();
+        fs::write(root.join("Project/Project.md"), "p").unwrap();
+        fs::write(root.join("Project/Project.canvas"), "{}").unwrap();
+        let modules = if supernotes {
+            r#"["amby.supernotes"]"#
+        } else {
+            "[]"
+        };
+        fs::write(
+            root.join(".amby/workspace.json"),
+            format!(
+                r#"{{"profile":{{"id":"custom","catalogRevision":"2026-11-21"}},"enabledModules":{modules}}}"#
+            ),
+        )
+        .unwrap();
+        (dir, root, bin)
+    }
+
+    /// With Supernotes on a bundle's main note takes the bundle; with it off the file row
+    /// removes that file alone, and the folder row still removes the whole folder.
+    #[test]
+    fn a_bundle_text_is_deleted_alone_when_supernotes_is_off() {
+        for (supernotes, affected) in [
+            (
+                true,
+                json!(["Project", "Project/Project.canvas", "Project/Project.md"]),
+            ),
+            (false, json!(["Project/Project.md"])),
+        ] {
+            let (_dir, root, bin) = bundle_vault(supernotes);
+            let trash = FolderTrash {
+                folder: bin,
+                taken: Mutex::new(Vec::new()),
+            };
+            let watcher = SelfWriteTracker::default();
+            let preview = preview(&root, &root, "Project/Project.md").unwrap();
+            assert_eq!(preview["affectedPaths"], affected, "preview {supernotes}");
+            let published = execute(&root, &root, &watcher, &trash, "Project/Project.md").unwrap();
+            assert_eq!(published.output["affectedPaths"], affected, "{supernotes}");
+            assert_eq!(root.join("Project").exists(), !supernotes);
+            if !supernotes {
+                assert!(root.join("Project/Project.canvas").exists());
+            }
+        }
+        let (_dir, root, bin) = bundle_vault(false);
+        let trash = FolderTrash {
+            folder: bin,
+            taken: Mutex::new(Vec::new()),
+        };
+        execute(
+            &root,
+            &root,
+            &SelfWriteTracker::default(),
+            &trash,
+            "Project",
+        )
+        .unwrap();
+        assert!(!root.join("Project").exists());
     }
 }

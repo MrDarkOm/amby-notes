@@ -143,3 +143,12 @@ impl Modules {
         }
     }
 }
+
+/// With Supernotes off a file row stands for that file alone, even when it is a bundle's main
+/// document: removing, archiving, renaming or moving it must not reach into the folder (the
+/// folder row is the explicit way to act on the group). `true` for such a bundle file.
+pub fn is_loose_bundle_file(root: &Path, path: &Path) -> Result<bool, &'static str> {
+    Ok(path.is_file()
+        && crate::bundle::resolve_item_root(root, path) != path
+        && !Modules::read(root)?.includes(Module::Supernotes))
+}

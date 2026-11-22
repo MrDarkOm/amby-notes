@@ -165,3 +165,148 @@ fn execute_with_scope(
     }
     Ok(outcome)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct TestVault(PathBuf);
+
+    impl TestVault {
+        /// A vault with a bundle `Project/` (text, canvas and a child note) and a plain note.
+        fn new(supernotes: bool) -> Self {
+            let directory =
+                std::env::temp_dir().join(format!("amby-bundle-ops-{}", ulid::Ulid::generate()));
+            fs::create_dir_all(directory.join("Project")).unwrap();
+            fs::create_dir_all(directory.join("Other")).unwrap();
+            fs::create_dir_all(directory.join(".amby")).unwrap();
+            fs::write(directory.join("Project/Project.md"), "# Project\n").unwrap();
+            fs::write(directory.join("Project/Project.canvas"), "{}").unwrap();
+            fs::write(directory.join("Project/Child.md"), "# Child\n").unwrap();
+            fs::write(directory.join("Plain.md"), "# Plain\n").unwrap();
+            let modules = if supernotes {
+                r#"["amby.supernotes","amby.databases"]"#
+            } else {
+                r#"["amby.databases"]"#
+            };
+            fs::write(
+                directory.join(".amby/workspace.json"),
+                format!(
+                    r#"{{"profile":{{"id":"custom","catalogRevision":"2026-11-21"}},"enabledModules":{modules}}}"#
+                ),
+            )
+            .unwrap();
+            Self(directory.canonicalize().unwrap())
+        }
+    }
+
+    impl Drop for TestVault {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn archiving_a_bundle_text_takes_the_whole_bundle_only_with_supernotes() {
+        let on = TestVault::new(true);
+        let outcome = execute(
+            &on.0,
+            Operation::Archive {
+                path: "Project/Project.md",
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(outcome.source, "Project");
+
+        let off = TestVault::new(false);
+        let outcome = execute(
+            &off.0,
+            Operation::Archive {
+                path: "Project/Project.md",
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(outcome.source, "Project/Project.md");
+    }
+
+    #[test]
+    fn archiving_a_file_with_supernotes_off_leaves_the_rest_of_the_folder() {
+        let off = TestVault::new(false);
+        execute(
+            &off.0,
+            Operation::Archive {
+                path: "Project/Project.md",
+            },
+            false,
+        )
+        .unwrap();
+        assert!(!off.0.join("Project/Project.md").exists());
+        assert!(off.0.join("Project/Project.canvas").exists());
+        assert_eq!(
+            fs::read_to_string(off.0.join("Project/Child.md")).unwrap(),
+            "# Child\n"
+        );
+    }
+
+    #[test]
+    fn a_bundle_file_is_not_renamed_or_moved_alone_with_supernotes_off() {
+        let off = TestVault::new(false);
+        let rename = Operation::Rename {
+            path: "Project/Project.md",
+            name: "Renamed",
+        };
+        let relocate = Operation::Move {
+            path: "Project/Project.md",
+            folder: "Other",
+        };
+        assert_eq!(execute(&off.0, rename, true).err(), Some("moduleDisabled"));
+        assert_eq!(
+            execute(&off.0, relocate, true).err(),
+            Some("moduleDisabled")
+        );
+        assert_eq!(execute(&off.0, rename, false).err(), Some("moduleDisabled"));
+        assert!(off.0.join("Project/Project.md").is_file());
+
+        let on = TestVault::new(true);
+        assert!(execute(&on.0, rename, true).is_ok());
+        assert!(execute(&on.0, relocate, true).is_ok());
+    }
+
+    #[test]
+    fn the_folder_row_and_plain_notes_keep_working_with_supernotes_off() {
+        let off = TestVault::new(false);
+        let outcome = execute(
+            &off.0,
+            Operation::Rename {
+                path: "Project",
+                name: "Renamed",
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(outcome.destination, "Renamed");
+        let outcome = execute(
+            &off.0,
+            Operation::Move {
+                path: "Plain.md",
+                folder: "Other",
+            },
+            true,
+        )
+        .unwrap();
+        assert_eq!(outcome.destination, "Other/Plain.md");
+        assert!(execute(
+            &off.0,
+            Operation::Rename {
+                path: "Plain.md",
+                name: "Fresh"
+            },
+            true
+        )
+        .is_ok());
+    }
+}
