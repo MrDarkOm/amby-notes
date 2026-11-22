@@ -20,9 +20,10 @@ to Stable while preserving the automatic-update setting.
 
 Native `updater.rs` owns fixed HTTPS endpoints and version comparison. JavaScript
 cannot supply an endpoint or enable downgrades through the check command. Only
-`main` and `settings` WebViews may check; they receive a WebView-owned updater
-resource for Tauri's normal signed download/install operation. Capabilities permit
-that operation and resource cleanup, without exposing the plugin's generic check.
+`main` and `settings` WebViews may check. They receive a WebView-owned updater
+resource and have permission for separate signed download and install commands
+and resource cleanup. The app checks the channel through its native command and
+flushes edits between the two commands.
 
 Release binaries embed `AMBY_RELEASE_TAG` during compilation, for example
 `v0.1.9-beta.2`. The displayed and compared version is `0.1.9-beta.2`, so beta 3

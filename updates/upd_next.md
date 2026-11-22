@@ -596,3 +596,5 @@
 - Prepared the 0.1.9 beta 8 notes for the bundled CLI and MCP, and enabled installer smoke checks on relevant pushes to dev. The watcher regression test waits for the poll callbacks before checking that the next refresh has no pending work.
 
 - For developers: sidebar layout tests unmount before restoring the window width, so resize events cannot schedule React updates during test teardown.
+
+- In-app updates can download the signed package and install it after open editors have saved their changes.

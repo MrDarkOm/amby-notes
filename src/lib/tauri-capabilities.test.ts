@@ -19,22 +19,29 @@ describe("Tauri window capabilities", () => {
       "core:window:allow-internal-toggle-maximize",
     )
     for (const capability of [defaultCapability, settingsWindowCapability]) {
-      expect(capability.permissions).not.toContain("updater:default")
-      expect(capability.permissions).not.toContain("updater:allow-check")
-      expect(capability.permissions).toContain("updater:allow-download-and-install")
       expect(capability.permissions).toContain("core:resources:allow-close")
     }
     expect(defaultCapability.permissions).toContain("process:allow-restart")
     expect(settingsWindowCapability.permissions).toContain("process:allow-restart")
     expect(defaultCapability.permissions).toContain("core:app:allow-version")
     expect(settingsWindowCapability.permissions).toContain("core:app:allow-version")
-    expect(noteWindowCapability.permissions).not.toContain("updater:default")
     expect(noteWindowCapability.permissions).not.toContain("process:allow-restart")
 
     for (const capability of [defaultCapability, noteWindowCapability, settingsWindowCapability]) {
       expect(capability.permissions).toContain("core:window:allow-close")
       expect(capability.permissions).toContain("core:window:allow-destroy")
     }
+  })
+
+  it("allows the two updater steps only in the main and settings windows", () => {
+    for (const capability of [defaultCapability, settingsWindowCapability]) {
+      expect(
+        capability.permissions.filter((permission) => permission.startsWith("updater:")),
+      ).toEqual(["updater:allow-download", "updater:allow-install"])
+    }
+    expect(
+      noteWindowCapability.permissions.some((permission) => permission.startsWith("updater:")),
+    ).toBe(false)
   })
 
   // Opening a note's attachment or a web address is done by Amby's own commands

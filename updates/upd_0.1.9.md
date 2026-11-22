@@ -2,6 +2,8 @@
 
 The ninth Amby 0.1.9 beta lets the AI panel propose changes to your notes, folders and databases, which you apply or undo. It also makes Supernotes an optional module, replaces several confirmation questions with Undo, and adds Templates and Daily notes. The command-line tool and local MCP server from beta 8 gain more tools.
 
+> **Updater fix, November 23.** If you run beta 8 or the original beta 9, install the refreshed beta 9 manually from this release. This build can download signed updates and install them after saving open edits.
+
 ## ✨ Highlights
 
 - **The AI panel can edit, with your approval.** It proposes new notes, added or replaced text, property changes, database rows and cells, moves, renames, archiving and deletions as cards. Apply each one yourself, or choose Auto or Turbo, and undo any applied change from its card.

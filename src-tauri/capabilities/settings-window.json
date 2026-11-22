@@ -22,7 +22,8 @@
     "core:webview:allow-print",
     "dialog:allow-open",
     "dialog:allow-save",
-    "updater:allow-download-and-install",
+    "updater:allow-download",
+    "updater:allow-install",
     "core:resources:allow-close",
     "process:allow-restart"
   ]
