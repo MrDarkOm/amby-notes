@@ -92,6 +92,18 @@ export async function buildAttachedContext(options: {
     }
     if ((chip.kind !== "note" && chip.kind !== "current") || noteIds.includes(chip.id)) continue
     noteIds.push(chip.id)
+    // A database chip names the database; the AI reads and changes it with the database tools.
+    const database = flat.find(
+      (candidate) => candidate.id === chip.id && candidate.type === "database",
+    )
+    if (database) {
+      const open =
+        chip.kind === "current" ? ' — open in the editor now; "this database" means this one' : ""
+      sections.push(
+        `Database ${database.name} (databaseId: ${chip.id})${open}. Read it with read_database and query_database; propose rows and cell values with create_database_row and set_database_value.`,
+      )
+      continue
+    }
     const item = flat.find((candidate) => candidate.id === chip.id && candidate.type === "file")
     const document = openDocs[chip.id]
     if (!item && !document) continue

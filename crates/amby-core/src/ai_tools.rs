@@ -69,7 +69,9 @@ const PANEL_NOTE_TOOLS: [&str; 6] = [
     "read_version",
 ];
 /// The panel's vault-wide read tools, offered with the conversation's search switch only.
-const PANEL_WIDE_TOOLS: [&str; 3] = ["list_databases", "read_database", "query_database"];
+const PANEL_WIDE_TOOLS: [&str; 1] = ["list_databases"];
+/// Database reads by ID: any database with search on, or one the user put in the context.
+const PANEL_DATABASE_TOOLS: [&str; 2] = ["read_database", "query_database"];
 
 /// The tools the AI panel offers every provider: the base set, `list_tags` with search, the
 /// note-level reads, and the database reads with search. Definitions come from `tool_set`.
@@ -80,6 +82,7 @@ pub fn panel_mcp_definitions(search: bool) -> Vec<Value> {
         tools.extend(shared("list_tags"));
     }
     tools.extend(PANEL_NOTE_TOOLS.iter().filter_map(|name| shared(name)));
+    tools.extend(PANEL_DATABASE_TOOLS.iter().filter_map(|name| shared(name)));
     if search {
         tools.extend(PANEL_WIDE_TOOLS.iter().filter_map(|name| shared(name)));
     }
@@ -196,7 +199,7 @@ pub fn panel_write_definitions(writes: Writes) -> Vec<Value> {
         tool("delete_item", "Propose deleting a note, bundle or folder with the user's deletion setting (the system trash, or the archive); never deleted for good. A deletion cannot be undone from the app: the user has to restore it by hand from the trash. If the user may want the item back, propose archive_item instead. This creates a proposal that lists every file it touches: the user applies it; it always waits for them.", json!({"path":path}), &["path"]),
     ]
     .into_iter()
-    .chain((writes == Writes::Vault).then(database_tools).into_iter().flatten())
+    .chain(database_tools())
     .collect()
 }
 
@@ -212,8 +215,8 @@ fn database_tools() -> Vec<Value> {
     };
     let id = |max: u64| json!({"type":"string","minLength":1,"maxLength":max});
     vec![
-        tool("create_database_row", "Propose a new blank row in a database by its ID from list_databases. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"title":id(1024)}), &["databaseId", "title"]),
-        tool("set_database_value", "Propose a typed value for one cell of a database row (IDs from list_databases, read_database and query_database), or null to clear it. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"noteId":id(1024),"propertyId":id(1024),"value":{"type":["object","null"],"description":"A scalar or choice value object as query_database shows, or null to clear."}}), &["databaseId", "noteId", "propertyId", "value"]),
+        tool("create_database_row", "Propose a new blank row in a database by its ID (from the context, or from list_databases with search on). This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"title":id(1024)}), &["databaseId", "title"]),
+        tool("set_database_value", "Propose a typed value for one cell of a database row (IDs from the context, list_databases, read_database and query_database), or null to clear it. This creates a proposal: the user applies it, or their approval mode applies it at once.", json!({"databaseId":id(1024),"noteId":id(1024),"propertyId":id(1024),"value":{"type":["object","null"],"description":"A scalar or choice value object as query_database shows, or null to clear."}}), &["databaseId", "noteId", "propertyId", "value"]),
     ]
 }
 
@@ -286,7 +289,7 @@ impl ToolBudget {
             .filter_map(|id| crate::index::note_by_id(conn, root, id).ok())
             .filter_map(|note| relative_path(root, &note))
             .collect();
-        let write = WriteScope {
+        let mut write = WriteScope {
             vault: scope.writes == Writes::Vault,
             notes,
             folders: scope.folders.clone(),
@@ -352,9 +355,16 @@ impl ToolBudget {
                 }
             }
             "create_database_row" | "set_database_value" => {
-                // A database is found by its ID, which only the whole vault's reads give.
+                // Any database with the whole vault in reach; otherwise one the user put in the
+                // context, whose rows are then in reach too.
+                let id = string_arg(args, "databaseId")?;
                 if scope.writes != Writes::Vault {
-                    return Err("accessDenied");
+                    if !database_in_scope(root, scope, id) {
+                        return Err("accessDenied");
+                    }
+                    write
+                        .folders
+                        .push(crate::vault_tools::database::container(root, id)?);
                 }
                 if name == "create_database_row" {
                     crate::tool_set::validate_fields(args, &["databaseId", "title"], &[])?;
@@ -512,6 +522,20 @@ fn indexed_note(
         (Some(_), Some(_)) => Err("ambiguous"),
         _ => Err("notFound"),
     }
+}
+
+/// Whether the AI may read and propose changes to a database: any with search on, or one the
+/// user put in the context (as a chip, whose ID is the database ID, or inside a chosen folder).
+fn database_in_scope(root: &Path, scope: &ToolScope, id: &str) -> bool {
+    if scope.search_enabled || scope.note_ids.contains(id) {
+        return true;
+    }
+    let Ok(container) = crate::vault_tools::database::container(root, id) else {
+        return false;
+    };
+    scope.folders.iter().any(|folder| {
+        !folder.is_empty() && (container == *folder || container.starts_with(&format!("{folder}/")))
+    })
 }
 
 /// The note with its file, when the AI's scope lets it read it.
@@ -792,8 +816,14 @@ fn run_tool(
             indexed_note(conn, root, scope, string_arg(&version, "path")?)?;
             Ok(version)
         }
-        "list_databases" | "read_database" | "query_database" => {
+        "list_databases" => {
             if !scope.search_enabled {
+                return Err("accessDenied");
+            }
+            crate::tool_set::domain_read(root, name, args)
+        }
+        "read_database" | "query_database" => {
+            if !database_in_scope(root, scope, string_arg(args, "databaseId")?) {
                 return Err("accessDenied");
             }
             crate::tool_set::domain_read(root, name, args)
@@ -1250,7 +1280,7 @@ mod tests {
     }
 
     #[test]
-    fn panel_database_tools_propose_only_with_the_whole_vault_in_view() {
+    fn panel_database_tools_propose_for_the_whole_vault_or_a_database_in_the_context() {
         use crate::vault_tools::{execute_offline, Mutation};
         let (root, conn) = panel_vault("panel-db");
         let created = execute_offline(
@@ -1289,12 +1319,41 @@ mod tests {
             "propertyId": property["propertyId"], "value": {"type":"checkbox","checked":true}
         });
         let add = json!({"databaseId": database, "title": "Second"});
-        let narrow = writing("folder", Writes::Context);
-        for (name, args) in [("set_database_value", &set), ("create_database_row", &add)] {
+        // A database outside the context is out of reach without the whole vault.
+        let elsewhere = writing("other", Writes::Context);
+        for (name, args) in [
+            ("set_database_value", &set),
+            ("create_database_row", &add),
+            ("read_database", &json!({"databaseId": database})),
+        ] {
             assert_eq!(
-                call(&conn, &root, &narrow, name, args.clone())["error"],
+                call(&conn, &root, &elsewhere, name, args.clone())["error"],
                 "accessDenied",
                 "{name}"
+            );
+        }
+        // The database as a context chip, or inside a chosen folder, is in reach.
+        let mut chip = writing("other", Writes::Context);
+        chip.note_ids.insert(database.clone());
+        for scope in [&chip, &writing("folder", Writes::Context)] {
+            let mut budget = ToolBudget::default();
+            assert_eq!(
+                budget.execute(
+                    &conn,
+                    &root,
+                    scope,
+                    "read_database",
+                    &json!({"databaseId": database})
+                )["database"]["name"],
+                "Tasks"
+            );
+            assert_eq!(
+                budget.execute(&conn, &root, scope, "set_database_value", &set)["status"],
+                "pending"
+            );
+            assert_eq!(
+                budget.execute(&conn, &root, scope, "create_database_row", &add)["status"],
+                "pending"
             );
         }
         let wide = writing("folder", Writes::Vault);
@@ -1357,6 +1416,8 @@ mod tests {
                 .collect()
         };
         assert!(names(Writes::Off).is_empty());
+        // Database tools are offered with any writes: a database in the context is in reach.
+        assert_eq!(names(Writes::Vault), names(Writes::Context));
         assert_eq!(
             names(Writes::Context),
             [
@@ -1369,13 +1430,11 @@ mod tests {
                 "move_item",
                 "rename_item",
                 "archive_item",
-                "delete_item"
+                "delete_item",
+                "create_database_row",
+                "set_database_value"
             ]
         );
-        // Database tools need a database ID, which only vault-wide reads can find.
-        let mut vault_wide = names(Writes::Context);
-        vault_wide.extend(["create_database_row".into(), "set_database_value".into()]);
-        assert_eq!(names(Writes::Vault), vault_wide);
         for tool in panel_write_definitions(Writes::Context) {
             assert_eq!(tool["annotations"]["readOnlyHint"], false);
             assert!(tool["description"].as_str().unwrap().contains("proposal"));
@@ -1400,7 +1459,9 @@ mod tests {
                 "get_properties",
                 "get_note_info",
                 "list_versions",
-                "read_version"
+                "read_version",
+                "read_database",
+                "query_database"
             ]
         );
         assert_eq!(
@@ -1417,9 +1478,9 @@ mod tests {
                 "get_note_info",
                 "list_versions",
                 "read_version",
-                "list_databases",
                 "read_database",
-                "query_database"
+                "query_database",
+                "list_databases"
             ]
         );
         let mcp = panel_mcp_definitions(true);

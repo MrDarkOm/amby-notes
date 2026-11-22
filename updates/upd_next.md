@@ -1,5 +1,6 @@
 # Amby — Next version
 
+- AI panel: a database in the context (its chip, or inside a chosen folder) can be read and changed by the AI without turning on vault search; other databases still need it.
 - AI panel, after a live check of database cards: steps of the database tools name the row or database instead of empty quotes; a cell card shows the value as text, not JSON; applied row and cell cards say what Undo does; the card header shows the file name with the full path as its tooltip; `read_note` finds a note by a path without `.md` or by its title when only one readable note has it (several give a clear "several notes" step).
 - For developers: updated the `url` crate to 2.5.9 in the app and sync lockfiles (RUSTSEC-2026-0592, a stack overflow on nested `blob:` URLs).
 - For developers: a native contract test covers AI proposals through the real Tauri commands: apply and undo of text, property, database cell and row, and rename with link rewriting, Apply and Undo refused while an affected note has unsaved edits, and the approval mode in the turn request ("applied" or "pending" in the tool reply). The loopback test provider can now call any tool.

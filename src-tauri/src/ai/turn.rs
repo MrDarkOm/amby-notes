@@ -956,13 +956,7 @@ mod tests {
             assert!(text.contains("read_note"));
             assert!(text.contains("get_links"));
             assert!(text.contains("get_outline"));
-            for wide in [
-                "search_notes",
-                "list_folder",
-                "list_tags",
-                "list_databases",
-                "query_database",
-            ] {
+            for wide in ["search_notes", "list_folder", "list_tags", "list_databases"] {
                 assert!(!text.contains(wide), "{wide} offered without search");
             }
         }
@@ -1140,6 +1134,8 @@ mod tests {
             "get_note_info",
             "list_versions",
             "read_version",
+            "read_database",
+            "query_database",
         ];
         assert_eq!(names(false), notes);
         let mut all = vec![
@@ -1150,7 +1146,7 @@ mod tests {
             "list_tags",
         ];
         all.extend(&notes[2..]);
-        all.extend(["list_databases", "read_database", "query_database"]);
+        all.push("list_databases");
         assert_eq!(names(true), all);
     }
 

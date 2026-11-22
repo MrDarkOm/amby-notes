@@ -100,6 +100,21 @@ describe("AI attached context", () => {
     expect(result.system).toContain("applied at once")
   })
 
+  it("names a database chip by its ID for the database tools, without reading it as a note", async () => {
+    const result = await buildAttachedContext({
+      context: [{ kind: "current", id: "db1" }],
+      items: [...items, { id: "db1", path: "/vault/Buy", name: "Buy", type: "database" as const }],
+      openDocs: {},
+      vault: "/vault",
+      generation: 9,
+      language: "English",
+    })
+    expect(result.noteIds).toEqual(["db1"])
+    expect(result.system).toContain("Database Buy (databaseId: db1)")
+    expect(result.sources).toEqual([])
+    expect(storage.readNote).not.toHaveBeenCalled()
+  })
+
   it("does not return text read after the vault changes", async () => {
     let finish!: (value: Awaited<ReturnType<typeof storage.readNote>>) => void
     vi.mocked(storage.readNote).mockImplementation(

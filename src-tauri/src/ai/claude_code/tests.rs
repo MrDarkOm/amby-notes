@@ -116,12 +116,13 @@ fn a_hostile_model_name_never_reaches_the_command_line() {
 #[test]
 fn search_tools_are_allowed_only_when_search_is_on() {
     let narrow = allowed_tool_names(false, false);
-    assert_eq!(narrow.len(), 8);
+    // Database reads by ID stay: they reach only a database in the context.
+    assert_eq!(narrow.len(), 10);
     assert_eq!(
         narrow[..2],
         ["mcp__amby__read_note", "mcp__amby__get_links"]
     );
-    for wide in ["search_notes", "list_folder", "list_tags", "query_database"] {
+    for wide in ["search_notes", "list_folder", "list_tags", "list_databases"] {
         assert!(!narrow.contains(&format!("mcp__amby__{wide}")), "{wide}");
     }
     assert_eq!(allowed_tool_names(true, false).len(), 14);
@@ -147,7 +148,7 @@ fn search_tools_are_allowed_only_when_search_is_on() {
             "mcp__amby__set_database_value"
         ]
     );
-    // Database changes join them only with the whole vault in view.
+    // Database changes join them with any writes: a database in the context is in reach.
     let database: Vec<String> = allowed_tool_names(true, true)
         .into_iter()
         .filter(|name| name.contains("database_row") || name.contains("database_value"))
@@ -159,7 +160,7 @@ fn search_tools_are_allowed_only_when_search_is_on() {
             "mcp__amby__set_database_value"
         ]
     );
-    assert!(!allowed_tool_names(false, true)
+    assert!(allowed_tool_names(false, true)
         .iter()
         .any(|name| name.contains("database_row")));
     // Reads only: no write tool is ever allowed.
