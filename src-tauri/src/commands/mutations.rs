@@ -16,11 +16,6 @@ use crate::vault_index;
 use crate::watcher::{self, PathFingerprint, WatcherState};
 use amby_core::vault_tools::modules::{Module, Modules};
 
-enum PreparedWikiPlan {
-    Cached(Vec<vault_index::PlannedWikiRewrite>),
-    Inputs(vault_index::InboundWikiRewriteInputs),
-}
-
 pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(primary) = &result.primary_path {
@@ -1146,42 +1141,18 @@ pub(crate) fn move_item_inner(
     if let Ok(root) = db.root() {
         note_renames(&root, &preview.path_changes);
     }
-    let (vault_root, generation, prepared_plan) = {
+    let (vault_root, generation, inputs) = {
         let conn_guard = db.conn.lock_or_recover();
         let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        let prepared_plan = conn
-            .pending_move_refactor
-            .lock_or_recover()
-            .take()
-            .filter(|cached| {
-                cached.source_path == source_path
-                    && cached.target_path == target_path
-                    && cached.path_changes.len() == preview.path_changes.len()
-                    && cached.path_changes.iter().zip(&preview.path_changes).all(
-                        |(cached, current)| {
-                            cached.old_path == current.old_path
-                                && cached.new_path == current.new_path
-                        },
-                    )
-            })
-            .map(|cached| PreparedWikiPlan::Cached(cached.plan))
-            .map(Ok)
-            .unwrap_or_else(|| {
-                vault_index::collect_inbound_wiki_rewrite_inputs(
-                    conn,
-                    &conn.root,
-                    &preview.path_changes,
-                )
-                .map(PreparedWikiPlan::Inputs)
-            })?;
-        (conn.root.clone(), conn.generation, prepared_plan)
+        let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
+            conn,
+            &conn.root,
+            &preview.path_changes,
+        )?;
+        (conn.root.clone(), conn.generation, inputs)
     };
-    let plan = match prepared_plan {
-        PreparedWikiPlan::Cached(plan) => plan,
-        PreparedWikiPlan::Inputs(inputs) => {
-            vault_index::build_inbound_wiki_rewrites(&vault_root, &preview.path_changes, inputs)?
-        }
-    };
+    let plan =
+        vault_index::build_inbound_wiki_rewrites(&vault_root, &preview.path_changes, inputs)?;
     if db.generation()? != generation {
         return Err("Vault changed before move".to_string());
     }

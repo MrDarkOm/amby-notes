@@ -24,8 +24,6 @@ const readNote = vi.fn()
 const beginMerge = vi.fn()
 const finishMerge = vi.fn()
 const deleteItem = vi.fn()
-const previewRenameRefactor = vi.fn()
-const previewMoveRefactor = vi.fn()
 const getNoteProperties = vi.fn()
 const getDatabaseNoteContext = vi.fn()
 const backupCustomProperties = vi.fn()
@@ -41,8 +39,6 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     beginMerge: (...args: unknown[]) => beginMerge(...args),
     finishMerge: (...args: unknown[]) => finishMerge(...args),
     deleteItem: (...args: unknown[]) => deleteItem(...args),
-    previewRenameRefactor: (...args: unknown[]) => previewRenameRefactor(...args),
-    previewMoveRefactor: (...args: unknown[]) => previewMoveRefactor(...args),
     getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
     getDatabaseNoteContext: (...args: unknown[]) => getDatabaseNoteContext(...args),
     backupCustomProperties: (...args: unknown[]) => backupCustomProperties(...args),
@@ -107,7 +103,6 @@ const moved: FsMutationResult = {
 describe("handleMoveItem reports how the move ended", () => {
   beforeEach(() => {
     moveItem.mockReset().mockResolvedValue(moved)
-    previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     getNoteProperties.mockReset().mockResolvedValue({ customProperties: [] })
     vi.mocked(confirm).mockReset().mockResolvedValue(true)
     useTreeMessageStore.getState().dismiss()
@@ -176,7 +171,6 @@ describe("handleMoveItem reports how the move ended", () => {
 describe("handleRenameFile reports how the rename ended", () => {
   beforeEach(() => {
     renameItem.mockReset().mockResolvedValue({ ...moved, primaryPath: "/v/A/Новое.md" })
-    previewRenameRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     vi.mocked(confirm).mockReset().mockResolvedValue(true)
   })
 
@@ -328,7 +322,6 @@ describe("the offer to carry the properties of a moved note to the database", ()
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
     moveItem.mockReset().mockResolvedValue(moved)
-    previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     getNoteProperties.mockReset().mockResolvedValue(PROPERTIES)
     getDatabaseNoteContext.mockReset().mockResolvedValue(CONTEXT)
     backupCustomProperties.mockReset().mockResolvedValue("backup")
@@ -476,7 +469,6 @@ describe("a move that does not happen puts back the raw tree, not the displayed 
 
   beforeEach(() => {
     moveItem.mockReset().mockResolvedValue(moved)
-    previewMoveRefactor.mockReset().mockResolvedValue({ replacements: 0, notes: 0 })
     getNoteProperties.mockReset().mockResolvedValue({ customProperties: [] })
     vi.mocked(confirm).mockReset().mockResolvedValue(true)
   })

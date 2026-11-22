@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest"
 // IPC-10: every pass-through in a repository and in index.ts is one more file to edit for each
 // new storage command. The budget only goes down. A new capability is a port in the style of
 // database-port.ts / project-port.ts, not another forwarder (see MAP.md).
-const REPOSITORY_FORWARDERS_BASE = 80
-const INDEX_FORWARDERS_BASE = 82
+const REPOSITORY_FORWARDERS_BASE = 78
+const INDEX_FORWARDERS_BASE = 80
 
 const dir = dirname(fileURLToPath(import.meta.url))
 

@@ -906,14 +906,6 @@ async moveItem(sourcePath: string, targetPath: string) : Promise<Result<Mutation
     else return { status: "error", error: e  as any };
 }
 },
-async previewMoveRefactor(sourcePath: string, targetPath: string) : Promise<Result<RefactorPreview, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_move_refactor", { sourcePath, targetPath }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async createFile(path: string) : Promise<Result<null, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_file", { path }) };
@@ -933,14 +925,6 @@ async createFolder(path: string) : Promise<Result<null, StorageError>> {
 async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, StorageError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("rename_item", { path, newName }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async previewRenameRefactor(path: string, newName: string) : Promise<Result<RefactorPreview, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_rename_refactor", { path, newName }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3599,7 +3583,6 @@ export type RecordReferenceState =
  */
 "missing"
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
-export type RefactorPreview = { notes: number; replacements: number }
 export type ReferenceDirection = 
 /**
  * Another page's relation points at this note.

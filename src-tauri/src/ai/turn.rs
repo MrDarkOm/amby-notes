@@ -1108,7 +1108,6 @@ mod tests {
             watcher_identity: None,
             index_health: Cell::new(crate::model::IndexState::Healthy),
             index_changes: Arc::new(Mutex::new(HashSet::new())),
-            pending_move_refactor: Mutex::new(None),
         };
         *context.conn.lock().unwrap() = Some(make_active(1));
         let (_sender, receiver) = tokio::sync::watch::channel(false);

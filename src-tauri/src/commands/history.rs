@@ -4,7 +4,7 @@ use crate::model::*;
 use crate::paths;
 use crate::recovery::RecoveryEntry;
 use crate::recycle_bin;
-use crate::vault_context::{PreparedMoveRefactor, VaultContext};
+use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
 use std::path::{Path, PathBuf};
@@ -408,73 +408,4 @@ pub fn purge_archive(
         mode,
         &crate::system_recycle_bin::OsTrash,
     )
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn preview_rename_refactor(
-    db: tauri::State<'_, VaultContext>,
-    path: String,
-    new_name: String,
-) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let path = paths::guard(&db, &path)?;
-    let root = db.root()?;
-    super::mutations::require_supernotes_item_root(&root, &path)?;
-    let operation_path = super::mutations::rename_operation_path(&root, &path)?;
-    let preview = crate::bundle::preview_rename_item(&root, &operation_path, &new_name)?;
-    let (vault, inputs) = {
-        let conn_guard = db.conn.lock_or_recover();
-        let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
-            conn,
-            &conn.root,
-            &preview.path_changes,
-        )?;
-        (conn.root.clone(), inputs)
-    };
-    let plan = vault_index::build_inbound_wiki_rewrites(&vault, &preview.path_changes, inputs)?;
-    Ok(vault_index::refactor_preview(&plan))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn preview_move_refactor(
-    db: tauri::State<'_, VaultContext>,
-    source_path: String,
-    target_path: String,
-) -> Result<vault_index::RefactorPreview, String> {
-    let _mutation_guard = db.mutation_gate.lock_or_recover();
-    let source_path = paths::guard(&db, &source_path)?;
-    let target_path = paths::guard(&db, &target_path)?;
-    let root = db.root()?;
-    super::mutations::require_supernotes_move_target(&root, &target_path)?;
-    super::mutations::require_supernotes_item_root(&root, &source_path)?;
-    let preview = crate::bundle::preview_move_item(&root, &source_path, &target_path)?;
-    let (vault, generation, inputs) = {
-        let conn_guard = db.conn.lock_or_recover();
-        let conn = conn_guard.as_ref().ok_or("No vault open")?;
-        let inputs = vault_index::collect_inbound_wiki_rewrite_inputs(
-            conn,
-            &conn.root,
-            &preview.path_changes,
-        )?;
-        (conn.root.clone(), conn.generation, inputs)
-    };
-    let plan = vault_index::build_inbound_wiki_rewrites(&vault, &preview.path_changes, inputs)?;
-    let summary = vault_index::refactor_preview(&plan);
-    let conn_guard = db.conn.lock_or_recover();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    if conn.generation != generation {
-        return Err("Vault changed while preparing move preview".to_string());
-    }
-    conn.pending_move_refactor
-        .lock_or_recover()
-        .replace(PreparedMoveRefactor {
-            source_path,
-            target_path,
-            path_changes: preview.path_changes,
-            plan,
-        });
-    Ok(summary)
 }

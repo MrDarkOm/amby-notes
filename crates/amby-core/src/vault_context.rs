@@ -7,10 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
-use crate::{
-    model::{IndexState, PathChange},
-    property_groups, vault_index,
-};
+use crate::{model::IndexState, property_groups, vault_index};
 
 /// The answer to a refresh of a few paths: the tree patch and the sync report for them.
 #[derive(serde::Serialize, specta::Type)]
@@ -19,13 +16,6 @@ pub struct PathsRefresh {
     pub generation: u64,
     pub patch: crate::vault::tree_patch::TreePatch,
     pub sync: vault_index::SyncReport,
-}
-
-pub struct PreparedMoveRefactor {
-    pub source_path: PathBuf,
-    pub target_path: PathBuf,
-    pub path_changes: Vec<PathChange>,
-    pub plan: Vec<vault_index::PlannedWikiRewrite>,
 }
 
 pub struct ActiveVault {
@@ -38,8 +28,6 @@ pub struct ActiveVault {
     pub index_health: Cell<IndexState>,
     /// Owned by this activation, so delayed callbacks cannot dirty a new vault.
     pub index_changes: Arc<Mutex<HashSet<PathBuf>>>,
-    /// Reuses the expensive link-refactor plan produced by the confirmation preview.
-    pub pending_move_refactor: Mutex<Option<PreparedMoveRefactor>>,
 }
 
 impl ActiveVault {
@@ -252,7 +240,6 @@ impl VaultContext {
             watcher_identity: None,
             index_health: Cell::new(IndexState::Healthy),
             index_changes: Arc::new(Mutex::new(HashSet::new())),
-            pending_move_refactor: Mutex::new(None),
         });
         if let Err(error) = after_commit(active.as_ref().expect("active vault was just set")) {
             *active = previous;

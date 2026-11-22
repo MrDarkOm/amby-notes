@@ -86,7 +86,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SettingsReadResult,
   SnapshotEntry,
@@ -797,17 +796,6 @@ export const restoreArchive = (archiveId: string, vaultPath: string): Promise<Fs
   historyRepository.restoreArchive(archiveId, vaultPath)
 export const purgeArchive = (archiveId: string, mode: DeleteMode): Promise<void> =>
   historyRepository.purgeArchive(archiveId, mode)
-export const previewRenameRefactor = (
-  vaultPath: string,
-  path: string,
-  newName: string,
-): Promise<RefactorPreview> => historyRepository.previewRenameRefactor(vaultPath, path, newName)
-export const previewMoveRefactor = (
-  vaultPath: string,
-  sourcePath: string,
-  targetPath: string,
-): Promise<RefactorPreview> =>
-  historyRepository.previewMoveRefactor(vaultPath, sourcePath, targetPath)
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
