@@ -34,6 +34,7 @@ fn move_to_system_trash_with(
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),

@@ -962,6 +962,37 @@ async archiveItem(path: string) : Promise<Result<MutationOutcome, StorageError>>
     else return { status: "error", error: e  as any };
 }
 },
+async undoMutation(record: UndoRecord) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("undo_mutation", { record }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The merge keeps the target's text as a version before the renderer writes the merged text.
+ */
+async beginMerge(targetPath: string) : Promise<Result<string, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("begin_merge", { targetPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * After the merged text is saved: the merged note goes to the archive, and the result carries
+ * the record that undoes the merge.
+ */
+async finishMerge(sourcePath: string, targetPath: string, snapshotId: string) : Promise<Result<MutationOutcome, StorageError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("finish_merge", { sourcePath, targetPath, snapshotId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getFileMetadata(path: string) : Promise<Result<FileMetadata, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_file_metadata", { path }) };
@@ -3024,7 +3055,13 @@ export type FsMutationResult = { primaryId: string | null; primaryPath: string |
  * the mutation or the change is not expressible as a patch: the renderer then reloads
  * the whole tree.
  */
-treePatch?: TreePatch | null }
+treePatch?: TreePatch | null; 
+/**
+ * How to undo this operation exactly, when it changed other notes (a rename or a move that
+ * rewrote links, a merge). The interface keeps it with the journal entry and hands it back to
+ * `undo_mutation` unchanged.
+ */
+undo?: UndoRecord | null }
 /**
  * One conflicting note of a group of note properties (З17, З69).
  */
@@ -3722,6 +3759,11 @@ export type RestoreVersionStatus =
  */
 "syncOff"
 export type RestoredBackup = { path: string }
+/**
+ * A file an operation rewrote: where it is now, the version with its previous bytes, and the
+ * SHA-256 of what the operation wrote (docs/notices.md, section 9).
+ */
+export type RewrittenNote = { path: string; snapshotId: string; digest: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 /**
  * What a rollback did (З42).
@@ -3963,7 +4005,19 @@ export type StorageError = { code: StorageErrorCode;
  * For the logs only; may contain paths. Never shown.
  */
 detail: string }
-export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed"
+export type StorageErrorCode = "notFound" | "alreadyExists" | "permissionDenied" | "invalidPath" | "failed" | 
+/**
+ * An undo found the item gone from where the operation left it, or its old place taken.
+ */
+"undoItemMoved" | 
+/**
+ * An undo found a note the operation rewrote changed since.
+ */
+"undoNoteChanged" | 
+/**
+ * An undo cannot run: the version it needs is gone, or the record is not one it can follow.
+ */
+"undoUnavailable"
 /**
  * One storage (space) of the account.
  */
@@ -4197,6 +4251,12 @@ export type TreePatchOp =
  * with the same path is replaced; with `replaceChildren` off it keeps the children it has.
  */
 { kind: "upsert"; parentPath: string | null; item: TreeItem; replaceChildren: boolean }
+/**
+ * What `undo_mutation` needs to put an operation back exactly. It never rewrites links back: it
+ * moves the item back as it was and writes the previous bytes of every rewritten note, after
+ * checking that nothing changed since. Paths are absolute, as in `PathChange`.
+ */
+export type UndoRecord = { kind: "rename"; originalPath: string; primaryPath: string; pathChanges: PathChange[]; extraRenames: PathChange[]; rewritten: RewrittenNote[] } | { kind: "move"; sourcePath: string; targetPath: string; primaryPath: string; pathChanges: PathChange[]; rewritten: RewrittenNote[] } | { kind: "merge"; target: RewrittenNote; sourcePath: string; archiveId: string; sourceDigest: string | null }
 /**
  * A file that is not synchronised on this computer (Р4, Р9).
  */

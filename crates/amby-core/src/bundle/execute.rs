@@ -134,6 +134,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
             path_changes,
@@ -155,6 +156,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: vec![PathChange {
@@ -200,6 +202,7 @@ pub fn rename_item_impl(
         Ok(FsMutationResult {
             tree_patch: None,
             also_touched: Vec::new(),
+            undo: None,
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes,
@@ -296,6 +299,7 @@ fn move_item_to_dir(
     Ok(FsMutationResult {
         tree_patch: None,
         also_touched: Vec::new(),
+        undo: None,
         primary_id: None,
         primary_path,
         path_changes,

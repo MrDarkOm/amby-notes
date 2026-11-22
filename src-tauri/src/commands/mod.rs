@@ -15,4 +15,5 @@ pub mod notes;
 pub mod project;
 pub mod properties;
 pub mod sync;
+pub mod undo;
 pub mod vault;

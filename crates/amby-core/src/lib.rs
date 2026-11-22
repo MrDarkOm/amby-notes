@@ -31,6 +31,7 @@ pub mod storage_error;
 pub mod structural;
 pub mod system_recycle_bin;
 pub mod tool_set;
+pub mod undo;
 pub mod vault;
 pub mod vault_context;
 pub mod vault_index;

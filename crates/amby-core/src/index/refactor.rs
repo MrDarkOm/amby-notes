@@ -607,6 +607,27 @@ pub fn apply_planned_wiki_rewrites(
     vault: &Path,
     plan: &[PlannedWikiRewrite],
 ) -> Result<Vec<PathBuf>, String> {
+    Ok(apply_planned_wiki_rewrites_recorded(vault, plan)?
+        .into_iter()
+        .map(|note| note.path)
+        .collect())
+}
+
+/// A note whose links a rewrite changed: where it is, the version that holds its bytes from before,
+/// and the digest of what was written, so an undo can tell whether it was edited since.
+#[derive(Clone, Debug)]
+pub struct RecordedRewrite {
+    pub path: PathBuf,
+    pub snapshot_id: String,
+    pub digest: String,
+}
+
+/// Applies the plan; every note it changes first becomes a kept `link-refactor` version (even with
+/// the history switched off). A failure puts the notes already rewritten back.
+pub fn apply_planned_wiki_rewrites_recorded(
+    vault: &Path,
+    plan: &[PlannedWikiRewrite],
+) -> Result<Vec<RecordedRewrite>, String> {
     let mut proposed = Vec::<(PathBuf, String, String)>::new();
     for rewrite in plan {
         let original =
@@ -619,19 +640,35 @@ pub fn apply_planned_wiki_rewrites(
         }
     }
 
-    let mut applied = Vec::<(PathBuf, String)>::new();
+    let mut applied = Vec::<(RecordedRewrite, String)>::new();
     for (path, original, next) in proposed {
-        let result = history::snapshot_before_write(vault, &path, next.as_bytes(), "link-refactor")
-            .and_then(|_| frontmatter::atomic_write_bytes(&path, next.as_bytes()));
-        if let Err(error) = result {
-            for (applied_path, applied_original) in applied.into_iter().rev() {
-                let _ = frontmatter::atomic_write_bytes(&applied_path, applied_original.as_bytes());
+        let result = history::snapshot_before_write(
+            vault,
+            &path,
+            next.as_bytes(),
+            history::LINK_REFACTOR_REASON,
+        )
+        .and_then(|id| id.ok_or_else(|| "The link rewrite kept no version".to_string()))
+        .and_then(|id| frontmatter::atomic_write_bytes(&path, next.as_bytes()).map(|()| id));
+        match result {
+            Ok(snapshot_id) => applied.push((
+                RecordedRewrite {
+                    path,
+                    snapshot_id,
+                    digest: crate::undo::digest(next.as_bytes()),
+                },
+                original,
+            )),
+            Err(error) => {
+                for (applied, applied_original) in applied.into_iter().rev() {
+                    let _ =
+                        frontmatter::atomic_write_bytes(&applied.path, applied_original.as_bytes());
+                }
+                return Err(error);
             }
-            return Err(error);
         }
-        applied.push((path, original));
     }
-    Ok(applied.into_iter().map(|(path, _)| path).collect())
+    Ok(applied.into_iter().map(|(note, _)| note).collect())
 }
 
 pub fn preview_refactor_links_for_rename(

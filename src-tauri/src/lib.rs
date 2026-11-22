@@ -46,6 +46,9 @@ mod tree_patch_tests;
 #[cfg(test)]
 mod note_modules_tests;
 
+#[cfg(test)]
+mod undo_tests;
+
 use amby_core::{
     archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
     paths, project, property_groups, property_template, recovery, recycle_bin, storage_error,
@@ -203,6 +206,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::preview_rename_refactor,
         commands::mutations::delete_item,
         commands::mutations::archive_item,
+        commands::undo::undo_mutation,
+        commands::undo::begin_merge,
+        commands::undo::finish_merge,
         commands::notes::get_file_metadata,
         commands::vault::open_vault,
         commands::vault::start_vault_watcher,

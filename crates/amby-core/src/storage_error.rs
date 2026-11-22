@@ -15,6 +15,12 @@ pub enum StorageErrorCode {
     PermissionDenied,
     InvalidPath,
     Failed,
+    /// An undo found the item gone from where the operation left it, or its old place taken.
+    UndoItemMoved,
+    /// An undo found a note the operation rewrote changed since.
+    UndoNoteChanged,
+    /// An undo cannot run: the version it needs is gone, or the record is not one it can follow.
+    UndoUnavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]

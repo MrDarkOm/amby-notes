@@ -67,6 +67,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -734,6 +735,21 @@ export const deleteItem = (
 ): Promise<FsMutationResult> => mutationsRepository.deleteItem(vaultPath, path, mode)
 export const archiveItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
   mutationsRepository.archiveItem(vaultPath, path)
+export const undoMutation = (record: UndoRecord): Promise<FsMutationResult> => {
+  logger.info("storage.undo_mutation", { kind: record.kind })
+  return getAdapter().undoMutation(record)
+}
+export const beginMerge = (targetPath: string): Promise<string | null> =>
+  getAdapter().beginMerge(targetPath)
+export const finishMerge = (
+  vaultPath: string,
+  sourcePath: string,
+  targetPath: string,
+  snapshotId: string,
+): Promise<FsMutationResult> => {
+  logger.info("storage.finish_merge", { sourcePath, targetPath })
+  return getAdapter().finishMerge(vaultPath, sourcePath, targetPath, snapshotId)
+}
 export const noteLayers = (notePath: string): Promise<NoteLayers> =>
   mutationsRepository.noteLayers(notePath)
 export const createLayer = (notePath: string, kind: LayerKind): Promise<LayerResult> =>

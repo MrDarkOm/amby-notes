@@ -1211,6 +1211,7 @@ fn creating_a_canvas_layer_for_a_note() {
                 deleted_ids: Vec::new(),
                 tree_patch: None,
                 also_touched: Vec::new(),
+                undo: None,
             },
         )
     });

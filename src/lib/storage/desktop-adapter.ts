@@ -106,6 +106,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -967,6 +968,23 @@ export class DesktopAdapter implements StoragePort {
 
   async archiveItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
     return unwrapMutation(commands.archiveItem(path))
+  }
+
+  async undoMutation(record: UndoRecord): Promise<FsMutationResult> {
+    return unwrapMutation(commands.undoMutation(record))
+  }
+
+  async beginMerge(targetPath: string): Promise<string | null> {
+    return unwrapCommand<string>(commands.beginMerge(targetPath))
+  }
+
+  async finishMerge(
+    _vaultPath: string,
+    sourcePath: string,
+    targetPath: string,
+    snapshotId: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.finishMerge(sourcePath, targetPath, snapshotId))
   }
 
   async noteLayers(notePath: string): Promise<NoteLayers> {
