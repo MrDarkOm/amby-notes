@@ -24,8 +24,10 @@ pub enum CliPathState {
     On,
     /// The link is in place but the shell does not search its folder, and Amby cannot add it (an
     /// unknown shell): the person adds the folder themself.
+    #[cfg_attr(not(unix), allow(dead_code))]
     NeedsPath,
     /// Another program already has the name `amby` where Amby would put it.
+    #[cfg_attr(not(unix), allow(dead_code))]
     Taken,
 }
 
@@ -44,6 +46,7 @@ pub struct CliPathStatus {
 #[serde(rename_all = "camelCase")]
 pub enum CliPathError {
     Unavailable,
+    #[cfg_attr(not(unix), allow(dead_code))]
     Taken,
     Failed,
 }
@@ -54,10 +57,14 @@ pub use unix::{install, remove, status, UnixEnv};
 #[cfg(windows)]
 pub use windows::{install, remove, status};
 
+#[cfg_attr(not(unix), allow(dead_code))]
 const BLOCK_START: &str = "# >>> Amby: the amby command >>>";
+#[cfg_attr(not(unix), allow(dead_code))]
 const BLOCK_END: &str = "# <<< Amby: the amby command <<<";
+#[cfg_attr(not(unix), allow(dead_code))]
 const WRAPPER_MARK: &str = "# Amby: runs the CLI inside the AppImage";
 
+#[cfg_attr(not(unix), allow(dead_code))]
 /// The profile text with Amby's block appended (a separating newline when the file does not end in one).
 fn with_block(profile: &str) -> String {
     let mut text = profile.to_owned();
@@ -71,10 +78,12 @@ fn with_block(profile: &str) -> String {
     text
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 fn has_block(profile: &str) -> bool {
     profile.lines().any(|line| line.trim_end() == BLOCK_START)
 }
 
+#[cfg_attr(not(unix), allow(dead_code))]
 /// The profile without Amby's block, or `None` when it has none (or an unfinished one, which is left alone).
 /// Every other byte, line endings included, stays as it was.
 fn without_block(profile: &str) -> Option<String> {
