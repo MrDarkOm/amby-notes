@@ -2429,5 +2429,6 @@ all three. The outside behaviour changes only where stated (Ч2, Ч3); the proto
   body whose row was deleted in between (`404`, the number of updated rows is checked).
 
 Tests (written first and seen failing on the old code): `sync/server/src/db.rs` (Ч1) and
-`sync/conformance/tests/server_limits_ch.rs` (Ч2–Ч4). Deploying to Omlet is a separate step with the
-owner's permission.
+`sync/conformance/tests/server_limits_ch.rs` (Ч2–Ч4). Deployed to Omlet on 22 November 2026: image `ch-20261122`, backup `pre-ch-20261122`, schema 3 and table
+counts unchanged; 371 conformance tests passed against a QA container of the image first. The public image was
+not published (the owner's choice).

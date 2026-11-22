@@ -1,5 +1,6 @@
 # Amby — Next version
 
+- Notifications: a journal entry about a change sync made by itself (merged edits, a version chosen in a comparison) has a "Restore" button that puts back the version sync replaced, from the note's history.
 - Sync server (security review, appendix Ч): database work no longer stalls other requests; a device keeps at most four event streams (the oldest ends); a request body that stops arriving for `AMBY_SYNC_BODY_TIMEOUT_SECS` (60 s) gets `408 request_timeout`; parallel uploads of the same body use their own temporary files.
 - Folder view: database and sketch cards are labelled as such instead of "Note".
 - AI panel and MCP: `query_database` names the database it read (as `read_database` does), so the step line says which one.

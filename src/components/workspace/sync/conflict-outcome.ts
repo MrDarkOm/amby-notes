@@ -1,3 +1,4 @@
+import { rememberSyncSnapshot } from "../notices/remember-sync-snapshot"
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { useDocStore } from "../use-doc-store"
@@ -39,4 +40,5 @@ export function recordConflictOutcome(conflict: SyncConflict, choice: OutcomeCho
     params: { name, choice },
     target: path,
   })
+  rememberSyncSnapshot("conflictOutcome", conflict.id, path)
 }

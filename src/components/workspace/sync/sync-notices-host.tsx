@@ -2,6 +2,7 @@ import { reportSyncListenFailed } from "./listen-failure"
 import * as React from "react"
 
 import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
+import { rememberSyncSnapshot } from "../notices/remember-sync-snapshot"
 import { resolveSyncPort, type SyncPort } from "@/lib/sync/sync-port"
 import { relativeToVault } from "../editor/document-breadcrumbs-utils"
 import { stopTitle } from "../notices/stop-words"
@@ -232,6 +233,7 @@ export function SyncNoticesHost({ port: given }: { port?: SyncPort }) {
             params: { name: noteName(normalized) },
             target: normalized,
           })
+          rememberSyncSnapshot("merged", normalized, normalized)
           if (isOpen(normalized)) useNoteNoticesStore.getState().markMerged(normalized)
         }
       })

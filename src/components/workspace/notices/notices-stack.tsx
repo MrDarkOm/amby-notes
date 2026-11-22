@@ -22,6 +22,7 @@ import type { CentreEntry } from "./centre-entries"
 import { NoticeLevelIcon, NoticeShell } from "./notice-level"
 import { noticeCalmClass } from "./notice-look"
 import { requestOpenNote } from "./note-open-request"
+import { canRestore, restoreFromJournal, type RestoreOutcome } from "./restore-from-journal"
 import { stopTitle } from "./stop-words"
 import { useAppNoticesStore } from "./use-app-notices-store"
 import { useNoticesCentre } from "./use-notices-centre"
@@ -238,6 +239,13 @@ function formatWhen(at: number, language: string): string {
 
 function JournalRow({ entry }: { entry: JournalEntry }) {
   const { t, i18n } = useTranslation()
+  const [busy, setBusy] = React.useState(false)
+  const [outcome, setOutcome] = React.useState<RestoreOutcome | null>(null)
+  const restore = async () => {
+    setBusy(true)
+    setOutcome(await restoreFromJournal(entry))
+    setBusy(false)
+  }
   return (
     <li
       data-testid="notices-journal-entry"
@@ -269,7 +277,20 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
           {entry.kind === "updateFailed" && entry.params.version && (
             <ManualDownloadLink version={entry.params.version} />
           )}
+          {canRestore(entry) && (
+            <button
+              type="button"
+              disabled={busy}
+              className="underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+              onClick={() => void restore()}
+            >
+              {t("notices.journal.restore")}
+            </button>
+          )}
+          {entry.params.restored && <span>{t("notices.journal.restoredDone")}</span>}
         </div>
+        {outcome === "saveFirst" && <NoticeLine text={t("notices.journal.restoreSaveFirst")} />}
+        {outcome === "failed" && <NoticeLine text={t("notices.journal.restoreFailed")} />}
       </div>
     </li>
   )

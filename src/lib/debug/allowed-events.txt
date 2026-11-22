@@ -184,6 +184,8 @@ note_written.open_document_reload_failed
 notices.journal_damaged
 notices.journal_unreadable
 notices.journal_write_failed
+notices.restore_failed
+notices.snapshot_lookup_failed
 operation.failed
 project_change_event_failed
 project_index_rebuild_failed

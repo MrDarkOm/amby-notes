@@ -1990,6 +1990,10 @@ const ru = {
     journal: {
       merged: "«{{name}}»: правки двух компьютеров объединены",
       backupReady: "Резервная копия готова",
+      restore: "Вернуть",
+      restoredDone: "Возвращено",
+      restoreSaveFirst: "Сначала сохраните заметку, потом верните прежнюю версию.",
+      restoreFailed: "Не удалось вернуть прежнюю версию. Она осталась в истории заметки.",
       updateFailed: "Не удалось проверить обновления, попробуем позже",
       updateInstallFailed: "Не удалось установить обновление {{version}}",
       unknown: "Событие",
@@ -6538,6 +6542,10 @@ const en: LocaleShape<typeof ru> = {
     journal: {
       merged: "“{{name}}”: the edits of two computers were merged",
       backupReady: "The backup is ready",
+      restore: "Restore",
+      restoredDone: "Restored",
+      restoreSaveFirst: "Save the note first, then restore the previous version.",
+      restoreFailed: "Could not restore the previous version. It is still in the note's history.",
       updateFailed: "Could not check for updates; we will try later",
       updateInstallFailed: "Could not install the update {{version}}",
       unknown: "Event",
