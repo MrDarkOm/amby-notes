@@ -1990,6 +1990,7 @@ const ru = {
     journal: {
       merged: "«{{name}}»: правки двух компьютеров объединены",
       backupReady: "Резервная копия готова",
+      propertiesBackup: "Свойства заметки «{{name}}» сохранены в резервной копии",
       restore: "Вернуть",
       restoredDone: "Возвращено",
       restoreSaveFirst: "Сначала сохраните заметку, потом верните прежнюю версию.",
@@ -6542,6 +6543,7 @@ const en: LocaleShape<typeof ru> = {
     journal: {
       merged: "“{{name}}”: the edits of two computers were merged",
       backupReady: "The backup is ready",
+      propertiesBackup: "The properties of the note “{{name}}” are saved in a backup",
       restore: "Restore",
       restoredDone: "Restored",
       restoreSaveFirst: "Save the note first, then restore the previous version.",

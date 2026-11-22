@@ -214,7 +214,9 @@ function journalWords(
     case "merged":
       return t("notices.journal.merged", { name })
     case "backupReady":
-      return t("notices.journal.backupReady")
+      return entry.params.what === "properties"
+        ? t("notices.journal.propertiesBackup", { name })
+        : t("notices.journal.backupReady")
     case "updateFailed":
       // With a version, the update was found and could not be installed; without one, the check failed.
       return entry.params.version

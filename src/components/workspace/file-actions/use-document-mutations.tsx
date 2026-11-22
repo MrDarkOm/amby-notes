@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import {
   backupCustomProperties,
   deleteItem,
@@ -183,6 +184,13 @@ export function useDocumentMutations({
           await migratePropertiesToDatabase(vault, databaseContext, properties)
         } else {
           await backupCustomProperties(vault, noteId)
+          // A backup the person asked for: the journal says it is there (docs/notices.md, section 5).
+          useNoticeJournalStore.getState().record({
+            kind: "backupReady",
+            level: "success",
+            subject: `properties:${noteId}`,
+            params: { name, what: "properties" },
+          })
         }
       } catch (error) {
         keepInNote("file.move_properties_write_failed", error)
