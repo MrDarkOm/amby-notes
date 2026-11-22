@@ -1215,8 +1215,10 @@ pub(crate) fn move_item_inner(
         || rollback_move_item(&vault, &source_path, &target_path, &result),
     )?;
     let rewritten = recorded.iter().map(|note| note.path.clone()).collect();
-    // Undoing a move that rewrote links puts those notes' bytes back (docs/notices.md, section 9).
-    let undo = (!recorded.is_empty()).then(|| UndoRecord::Move {
+    // Every move can be undone exactly: the notes whose links it rewrote get their bytes back
+    // (docs/notices.md, section 9). A move with no rewrites still carries its record, so a move of
+    // several items is undone as a whole when any of them changed links.
+    let undo = Some(UndoRecord::Move {
         source_path: path_string(&source_path),
         target_path: path_string(&target_path),
         primary_path: result.primary_path.clone().unwrap_or_default(),

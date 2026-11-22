@@ -61,14 +61,14 @@ const TREE: TreeItem[] = [
   { id: "/v/B", path: "/v/B", name: "B", type: "folder", children: [] },
 ]
 
-function setup() {
+function setup(tree: TreeItem[] = TREE) {
   const handleApplyMutation = vi.fn()
   const setTreeItems = vi.fn()
-  const refreshTree = vi.fn().mockResolvedValue(TREE)
+  const refreshTree = vi.fn().mockResolvedValue(tree)
   const hook = renderHook(() =>
     useDocumentMutations({
       vault: "/v",
-      treeItems: TREE,
+      treeItems: tree,
       setTreeItems,
       refreshTree,
       backendGeneration: 1,
@@ -547,5 +547,106 @@ describe("handleMergeFile", () => {
     const message = useTreeMessageStore.getState().message
     expect(i18n.t(message!.titleKey, message!.params)).toBe("Текст «Черновик» добавлен в «Итог»")
     expect(useNoticeJournalStore.getState().entries[0].kind).toBe("notesMerged")
+  })
+})
+
+describe("a move of several items is undone with one «Вернуть»", () => {
+  const TWO: TreeItem[] = [
+    {
+      id: "/v/A",
+      path: "/v/A",
+      name: "A",
+      type: "folder",
+      children: [
+        { id: "n1", path: "/v/A/Идея.md", name: "Идея", type: "file" },
+        { id: "n2", path: "/v/A/План.md", name: "План", type: "file" },
+      ],
+    },
+    { id: "/v/B", path: "/v/B", name: "B", type: "folder", children: [] },
+  ]
+  const record = (name: string, rewritten: string[]): UndoRecord => ({
+    kind: "move",
+    sourcePath: `/v/A/${name}.md`,
+    targetPath: "/v/B",
+    primaryPath: `/v/B/${name}.md`,
+    pathChanges: [{ oldPath: `/v/A/${name}.md`, newPath: `/v/B/${name}.md` }],
+    rewritten: rewritten.map((path, index) => ({ path, snapshotId: `S${index}`, digest: "d" })),
+  })
+  const first = record("Идея", ["/v/Ссылки.md"])
+  const second = record("План", ["/v/Ссылки.md", "/v/Ещё.md"])
+  const result = (undo: UndoRecord): FsMutationResult => ({
+    primaryPath: undo.kind === "move" ? undo.primaryPath : null,
+    pathChanges: undo.kind === "move" ? undo.pathChanges : [],
+    deletedPaths: [],
+    undo,
+  })
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+    moveItem.mockReset().mockResolvedValueOnce(result(first)).mockResolvedValueOnce(result(second))
+    getNoteProperties.mockReset().mockResolvedValue({ customProperties: [] })
+    undoMutation.mockReset().mockResolvedValue({ pathChanges: [], deletedPaths: [] })
+    useTreeMessageStore.getState().dismiss()
+    useNoticeJournalStore.getState().clear()
+  })
+
+  it("records one entry naming the items and every note whose links changed", async () => {
+    const { hook } = setup(TWO)
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1", "n2"], "/v/B")
+    })
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe("movedManyWithLinks")
+    expect(JSON.parse(entries[0].params.undo)).toEqual([first, second])
+    const message = useTreeMessageStore.getState().message!
+    expect(i18n.t(message.titleKey, message.params)).toBe("Перенесено выбранное (2) в «B»")
+    expect(i18n.t(message.lineKey!, message.params)).toBe("Ссылки обновлены в 2 заметках.")
+  })
+
+  it("undoes the moves in reverse order and marks the entry done", async () => {
+    const { hook } = setup(TWO)
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1", "n2"], "/v/B")
+    })
+    await act(async () => {
+      await useTreeMessageStore.getState().message!.action!.run()
+    })
+    expect(undoMutation.mock.calls.map(([undo]) => undo)).toEqual([second, first])
+    expect(useNoticeJournalStore.getState().entries[0].params.restored).toBe("1")
+  })
+
+  it("says how much came back when one undo is refused, and keeps the rest undoable", async () => {
+    undoMutation
+      .mockReset()
+      .mockResolvedValueOnce({ pathChanges: [], deletedPaths: [] })
+      .mockRejectedValueOnce(new StorageOperationError("undoNoteChanged", "Changed since"))
+    const { hook } = setup(TWO)
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1", "n2"], "/v/B")
+    })
+    await act(async () => {
+      await useTreeMessageStore.getState().message!.action!.run()
+    })
+    const message = useTreeMessageStore.getState().message!
+    expect(i18n.t(message.lineKey!, message.params)).toBe(
+      "Вернулось 1 из 2, остальное осталось на новом месте. Ничего не потеряно.",
+    )
+    const entry = useNoticeJournalStore.getState().entries[0]
+    expect(entry.params.restored).toBeUndefined()
+    expect(JSON.parse(entry.params.undo)).toEqual([first])
+  })
+
+  it("offers nothing when no links changed", async () => {
+    moveItem
+      .mockReset()
+      .mockResolvedValueOnce(result(record("Идея", [])))
+      .mockResolvedValueOnce(result(record("План", [])))
+    const { hook } = setup(TWO)
+    await act(async () => {
+      await hook.result.current.handleMoveItem(["n1", "n2"], "/v/B")
+    })
+    expect(useNoticeJournalStore.getState().entries).toHaveLength(0)
+    expect(useTreeMessageStore.getState().message).toBeNull()
   })
 })

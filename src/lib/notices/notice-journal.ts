@@ -26,6 +26,7 @@ export type JournalKind =
   // A rename, a move that rewrote links, a merge of two notes: with «Вернуть» (docs/notices.md, section 9)
   | "renamedWithLinks"
   | "movedWithLinks"
+  | "movedManyWithLinks"
   | "notesMerged"
 
 export interface JournalEntry {

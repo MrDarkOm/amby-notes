@@ -9,8 +9,9 @@ import { useTreeMessageStore } from "../tree/use-tree-message-store"
 // with a button that undoes it exactly. The record that undoes it comes from the backend with the result and
 // is kept in the entry; the undo itself runs in the document mutations hook, which registers it here.
 
-/** How an undo ended; `key` is the text to show when it did not happen. */
-export type UndoOutcome = { outcome: "restored" } | { outcome: "refused"; key: string }
+/** How an undo ended; `key` (with `params`) is the text to show when it did not all happen. */
+export type UndoOutcome =
+  { outcome: "restored" } | { outcome: "refused"; key: string; params?: Record<string, unknown> }
 
 type UndoApplier = (record: UndoRecord) => Promise<UndoOutcome>
 
@@ -26,7 +27,7 @@ export function registerUndoApplier(next: UndoApplier): () => void {
 
 export type UndoableKind = Extract<
   JournalKind,
-  "renamedWithLinks" | "movedWithLinks" | "notesMerged"
+  "renamedWithLinks" | "movedWithLinks" | "movedManyWithLinks" | "notesMerged"
 >
 
 let counter = 0
@@ -36,37 +37,66 @@ export function canUndo(entry: JournalEntry): boolean {
   return Boolean(entry.params.undo && !entry.params.restored)
 }
 
-function readRecord(raw: string | undefined): UndoRecord | null {
-  if (!raw) return null
-  try {
-    const record = JSON.parse(raw) as UndoRecord
-    return typeof record === "object" && record !== null && "kind" in record ? record : null
-  } catch {
-    // A damaged entry offers nothing; the journal keeps the line itself.
-    return null
-  }
+function isRecord(value: unknown): value is UndoRecord {
+  return typeof value === "object" && value !== null && "kind" in value
 }
 
-/** Runs the undo of an entry and marks it done. */
-export async function undoFromJournal(entry: JournalEntry): Promise<UndoOutcome> {
-  const record = readRecord(entry.params.undo)
-  if (!record || !applier) return { outcome: "refused", key: "notices.journal.undoFailed" }
-  const result = await applier(record)
-  if (result.outcome === "restored") {
-    useNoticeJournalStore.getState().amend(entry.kind, entry.subject, { restored: "1" })
+/** The records of an entry, in the order the operations ran: one, or one per moved item. */
+function readRecords(raw: string | undefined): UndoRecord[] {
+  if (!raw) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    const records = Array.isArray(parsed) ? parsed : [parsed]
+    return records.every(isRecord) ? records : []
+  } catch {
+    // A damaged entry offers nothing; the journal keeps the line itself.
+    return []
   }
-  return result
 }
 
 /**
- * The notes whose links the operation rewrote, other than the item itself and a database description.
- * This is the number the line and the entry name.
+ * Runs the undo of an entry and marks it done. The operations are undone from the last to the first, each
+ * exactly or not at all (the backend checks it). When one is refused, the ones already undone stay undone,
+ * the entry keeps the rest, and the outcome says how many came back: nothing is lost either way.
  */
-export function rewrittenNoteCount(record: UndoRecord): number {
-  if (record.kind === "merge") return 1
-  return record.rewritten.filter(
-    (note) => note.path !== record.primaryPath && /\.md$/iu.test(note.path),
-  ).length
+export async function undoFromJournal(entry: JournalEntry): Promise<UndoOutcome> {
+  const records = readRecords(entry.params.undo)
+  if (!records.length || !applier) return { outcome: "refused", key: "notices.journal.undoFailed" }
+  const journal = useNoticeJournalStore.getState()
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const result = await applier(records[index])
+    if (result.outcome === "restored") continue
+    const done = records.length - 1 - index
+    if (done === 0) return result
+    journal.amend(entry.kind, entry.subject, {
+      undo: JSON.stringify(records.slice(0, index + 1)),
+    })
+    return {
+      outcome: "refused",
+      key: "notices.journal.undoPartial",
+      params: { done, total: records.length },
+    }
+  }
+  journal.amend(entry.kind, entry.subject, { restored: "1" })
+  return { outcome: "restored" }
+}
+
+/**
+ * The notes whose links the operations rewrote, other than the moved or renamed items themselves and a
+ * database description. This is the number the line and the entry name.
+ */
+export function rewrittenNoteCount(records: UndoRecord[]): number {
+  const items = new Set(
+    records.map((record) => (record.kind === "merge" ? record.target.path : record.primaryPath)),
+  )
+  const notes = new Set<string>()
+  for (const record of records) {
+    if (record.kind === "merge") return 1
+    for (const note of record.rewritten) {
+      if (!items.has(note.path) && /\.md$/iu.test(note.path)) notes.add(note.path)
+    }
+  }
+  return notes.size
 }
 
 interface Announcement {
@@ -83,20 +113,22 @@ interface Announcement {
 
 /**
  * Says that an operation which changed other notes is done: a journal entry and a line under the tree, each
- * with «Вернуть». Does nothing when the result carries no record (nothing else was changed).
+ * with «Вернуть». `results` are the mutations of one action in the order they ran (several for a move of
+ * several items); they are undone together. Nothing is said when no other note was changed.
  */
-export function announceUndoable(result: FsMutationResult, announcement: Announcement): void {
-  const record = result.undo
-  if (!record) return
+export function announceUndoable(results: FsMutationResult[], announcement: Announcement): void {
+  const records = results.flatMap((result) => (result.undo ? [result.undo] : []))
+  if (!records.length) return
+  const count = rewrittenNoteCount(records)
+  if (count === 0) return
   counter += 1
   const subject = `${Date.now().toString(36)}-${counter.toString(36)}`
-  const count = String(rewrittenNoteCount(record))
-  const params = { ...announcement.params, count, undo: JSON.stringify(record) }
+  const undo = JSON.stringify(records.length === 1 ? records[0] : records)
   useNoticeJournalStore.getState().record({
     kind: announcement.kind,
     level: "info",
     subject,
-    params,
+    params: { ...announcement.params, count: String(count), undo },
     ...(announcement.target ? { target: announcement.target } : {}),
   })
   const entryOf = () =>
@@ -107,22 +139,23 @@ export function announceUndoable(result: FsMutationResult, announcement: Announc
     id: `undo:${subject}`,
     level: "info",
     titleKey: announcement.titleKey,
-    params: { ...announcement.params, count: Number(count) },
+    params: { ...announcement.params, count },
     lineKey: announcement.lineKey,
     action: {
       labelKey: "notices.journal.restore",
       run: async () => {
         const entry = entryOf()
-        const outcome = entry
+        const outcome: UndoOutcome = entry
           ? await undoFromJournal(entry)
-          : ({ outcome: "refused", key: "notices.journal.undoFailed" } as const)
+          : { outcome: "refused", key: "notices.journal.undoFailed" }
         if (outcome.outcome === "restored") return
-        logger.info("file.undo_refused", { kind: record.kind, key: outcome.key })
+        logger.info("file.undo_refused", { kind: announcement.kind, key: outcome.key })
         useTreeMessageStore.getState().show({
           id: `undo-failed:${subject}`,
           level: "warning",
           titleKey: "notices.tree.undoFailed",
           lineKey: outcome.key,
+          ...(outcome.params ? { params: outcome.params } : {}),
         })
       },
     },
