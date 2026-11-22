@@ -354,8 +354,11 @@ not the file size.
 non-string is `400`). A real user with a password gets their own salt and parameters. Everyone else
 (unknown, invalid, still waiting for the first enrolment) gets a **fake but stable salt** — the first 16
 bytes of `HMAC-SHA256(prelogin_secret, "amby-sync/prelogin/1" ‖ canonical name)`, with a secret the server
-keeps — and the default parameters. Prelogin is not counted as a sign-in attempt. Known limitation: the
-real salt changes when the password changes, the fake one does not.
+keeps — and the default parameters. Prelogin is not counted as a sign-in attempt. Known limitations: the
+real salt changes when the password changes, the fake one does not; an account created with non-default
+Argon2 parameters is told apart by them; and on a server with open registration the name check of
+registration (`409`) tells whether a name is taken anyway, so the fake salt hides names only on a server
+with invitations.
 
 **`POST /v1/auth/enroll`** creates the account and its first device in one transaction:
 
@@ -467,7 +470,9 @@ Plan, effective limits, usage and spaces of the signed-in user. Answer `200`:
 ### 3.10 Spaces
 
 - `POST /v1/spaces` `{"space_id": hex16, "name_enc": hex105, "key_epoch": 1, "wrapped_vk": hex73}` →
-  `201 {"space_id", "seq": 0, "created_ms"}`. Errors: `409 space_exists` (checked before the limit);
+  `201 {"space_id", "seq": 0, "created_ms"}`. Errors: `409 space_exists` (checked before the limit; also for
+  somebody else's space with this id — an exception to "foreign objects are `404`", harmless because the id is
+  128 random bits);
   `403 subscription_required` (3.15); `403 space_limit` with `details: {"max_spaces", "spaces"}`;
   `507 server_storage_full` (3.16). `key_epoch` must be 1.
 - `GET /v1/spaces` → `200 {"spaces": [{"space_id", "name_enc", "key_epoch", "wrapped_vk", "seq",

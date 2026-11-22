@@ -118,6 +118,7 @@ These promises will go into the interface and the documentation in plain words. 
   names are encrypted on the device before sending and are decrypted only on your devices.
 - **О2. What the server does see:** the user name, how many files you have, their approximate size, when they
   changed, and from which devices and IP addresses the changes come. This cannot be hidden, and we say so plainly.
+  On a server with open registration anyone can also learn whether a user name is taken (Б11).
 - **О3. Password and recovery code.** The password is needed to connect a new device. The recovery code is for
   when the password is forgotten. **If both the password and the code are lost, nobody can recover the data on the server: neither we
   nor the server owner.** The files on your devices remain.

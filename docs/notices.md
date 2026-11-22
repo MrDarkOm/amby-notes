@@ -1,7 +1,8 @@
 # Notices: rules
 
-Status: the rules were accepted by the owner on 2026-11-07. New code follows them right away. Existing code has not
-yet been brought in line with them: what differs and in what order it is being converted is in the section ["Transition"](#16-transition).
+Status: the rules were accepted by the owner on 2026-11-07. Existing code was brought in line with them on
+2026-11-07–09, and a guard test keeps it so; the few things not done yet (a "Restore" button on journal entries,
+the remaining questions, a notice when a later property edit wins) are listed in ["Transition"](#16-transition).
 
 This document answers the question "how does the program tell a person about something other than the content itself":
 an error, a warning, a conflict, a question, an event, the result of an action. Not notices: loading

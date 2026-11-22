@@ -28,7 +28,7 @@ synchronization of someone else's space (not read it — only stop it).
 | Б8  | Parallel uploads of the same body share a temporary file                | fixed (Ч4)        | server                |
 | Б9  | Omlet also answers over plain `http://`                                 | fixed (NPM)       | Omlet settings        |
 | Б10 | Dangerous actions need only a token, no password                        | fixed (Ц)         | protocol              |
-| Б11 | Minor differences in refusals and metadata                              | information       | server, documentation |
+| Б11 | Minor differences in refusals and metadata                              | documented        | server, documentation |
 
 ## Findings
 
@@ -104,7 +104,7 @@ server's memory (on Omlet 7.7 GB for all services).
 **Proposal.** For the login and registration routes — 64 KiB; for the rest — a limit consistent with
 Б2 (for example 16 MiB); an overall limit on concurrent requests (a semaphore, for example 64) answering `503`.
 
-### Б5. Record headers do not count toward the quota — medium (mostly closed 13 November: Х6; Х5 cancelled)
+### Б5. Record headers do not count toward the quota — medium (closed 13 November: Х6; the rest accepted by the owner, Х5 cancelled)
 
 **What was found.** The quota counts only bodies. A record header is up to 16 KiB, a commit can carry thousands of
 deletion records without bodies, and versions are kept for 30 days.
