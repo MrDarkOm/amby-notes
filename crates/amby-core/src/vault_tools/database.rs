@@ -68,7 +68,7 @@ pub fn query(
     cursor: Option<String>,
     limit: u32,
 ) -> Result<Value, &'static str> {
-    database(root, id)?;
+    let found = database(root, id)?;
     let conn = crate::index::read_only::disk_catalog(root).map_err(|_| "unavailable")?;
     crate::database::projection::rebuild_database_projection(&conn, root)
         .map_err(|_| "unavailable")?;
@@ -103,7 +103,10 @@ pub fn query(
             })
         })
         .collect();
-    Ok(json!({"rows": rows, "nextCursor": result.next_cursor, "totalCount": result.total_count}))
+    // The database is named in the reply, so a step line can say which one was read.
+    Ok(
+        json!({"database": summary(&found), "rows": rows, "nextCursor": result.next_cursor, "totalCount": result.total_count}),
+    )
 }
 
 /// The vault-relative folder that holds a database.

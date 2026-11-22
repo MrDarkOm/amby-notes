@@ -1348,6 +1348,16 @@ mod tests {
                 "Tasks"
             );
             assert_eq!(
+                budget.execute(
+                    &conn,
+                    &root,
+                    scope,
+                    "query_database",
+                    &json!({"databaseId": database})
+                )["database"]["name"],
+                "Tasks"
+            );
+            assert_eq!(
                 budget.execute(&conn, &root, scope, "set_database_value", &set)["status"],
                 "pending"
             );

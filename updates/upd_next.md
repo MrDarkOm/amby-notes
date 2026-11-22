@@ -1,5 +1,8 @@
 # Amby — Next version
 
+- AI panel and MCP: `query_database` names the database it read (as `read_database` does), so the step line says which one.
+- For developers: the Claude Code launcher tests name their scratch folders with a ULID instead of the process ID, so a reused process ID no longer finds files an earlier run left and fails a batch of tests at once.
+- For developers: a debug build honours `AMBY_APP_DATA_DIR` like the CLI, so a bundled test copy can run with its own workspace list and settings instead of the owner's.
 - AI panel: a database in the context (its chip, or inside a chosen folder) can be read and changed by the AI without turning on vault search; other databases still need it.
 - AI panel, after a live check of database cards: steps of the database tools name the row or database instead of empty quotes; a cell card shows the value as text, not JSON; applied row and cell cards say what Undo does; the card header shows the file name with the full path as its tooltip; `read_note` finds a note by a path without `.md` or by its title when only one readable note has it (several give a clear "several notes" step).
 - For developers: updated the `url` crate to 2.5.9 in the app and sync lockfiles (RUSTSEC-2026-0592, a stack overflow on nested `blob:` URLs).

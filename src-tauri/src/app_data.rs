@@ -42,15 +42,32 @@ pub fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
     #[cfg(not(feature = "native-contract"))]
     {
-        let root = app
-            .path()
-            .local_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("Amby")
-            .join("notes");
+        let root = match debug_app_data_override() {
+            Some(root) => root,
+            None => app
+                .path()
+                .local_data_dir()
+                .map_err(|e| e.to_string())?
+                .join("Amby")
+                .join("notes"),
+        };
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         Ok(root)
     }
+}
+
+/// A debug build started with `AMBY_APP_DATA_DIR` (the CLI's variable) keeps its workspace list,
+/// settings and AI sign-ins there, so a test copy never opens or changes the owner's vaults. A
+/// release build ignores the variable.
+#[cfg(not(feature = "native-contract"))]
+fn debug_app_data_override() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var_os("AMBY_APP_DATA_DIR")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
 }
 
 /// Root of the per-vault metadata area: `{vault}/.amby`. Created if missing.
@@ -336,6 +353,20 @@ fn delete_vault_meta_under_gate(
 mod tests {
     use super::*;
     use ulid::Ulid;
+
+    #[cfg(not(feature = "native-contract"))]
+    #[test]
+    fn a_debug_build_keeps_app_data_where_amby_app_data_dir_points_and_only_there() {
+        // The only test that touches this variable; tests run in a debug build.
+        let dir = temp_test_dir("override");
+        std::env::set_var("AMBY_APP_DATA_DIR", &dir);
+        assert_eq!(debug_app_data_override(), Some(dir.clone()));
+        std::env::set_var("AMBY_APP_DATA_DIR", "relative/path");
+        assert_eq!(debug_app_data_override(), None);
+        std::env::remove_var("AMBY_APP_DATA_DIR");
+        assert_eq!(debug_app_data_override(), None);
+        fs::remove_dir_all(dir).ok();
+    }
 
     fn temp_test_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("amby-appdata-{name}-{}", Ulid::generate()));
