@@ -51,6 +51,10 @@ fn relocate(
     rename: bool,
 ) -> Result<(Outcome, Vec<Step>), &'static str> {
     let mut source = input_path(root, source)?;
+    // With Supernotes off a bundle's file is not a handle on the group: its folder is.
+    if crate::vault_tools::modules::is_loose_bundle_file(root, &source)? {
+        return Err("moduleDisabled");
+    }
     // Selecting a bundle folder or its main note means moving the whole item.
     if source.is_dir() {
         if let Some(name) = source.file_name().and_then(|name| name.to_str()) {
@@ -279,7 +283,11 @@ fn append_rewrites(
 
 fn archive_item(root: &Path, path: &str) -> Result<(Outcome, Vec<Step>), &'static str> {
     let source = input_path(root, path)?;
-    let source = bundle::resolve_item_root(root, &source);
+    let source = if crate::vault_tools::modules::is_loose_bundle_file(root, &source)? {
+        source
+    } else {
+        bundle::resolve_item_root(root, &source)
+    };
     let source_relative = relative(root, &source)?;
     paths::confine_rel_no_symlinks(root, ".amby/archive/.meta").map_err(|_| "accessDenied")?;
     let wanted =

@@ -18,6 +18,23 @@ the whole folder. With the module on, deleting a bundle's main document acts
 on the whole bundle.
 Rename and move linked files as a group from the folder row.
 
+### Module boundary audit (2026-11-22)
+
+Every entry point that creates, converts or widens an operation to a bundle, and how it
+follows the module:
+
+| Entry point                                                                                                                                                                      | With Supernotes off                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar menus, tree drag and drop, document header and menu, layer buttons, folder conversion                                                                                    | Hidden (`supernotesEnabled` through `workspace-orchestration`); the tree projects bundle folders.                                                                                                                                                                                  |
+| Desktop commands (`ensure_bundle`, `create_layer`, `attach_*`, `unlink_layer`, `delete_layer`, nesting `create_note`, `move_item`, `rename_item`, `delete_item`, `archive_item`) | Refuse with `moduleDisabled`, or act on the exact file.                                                                                                                                                                                                                            |
+| Browser adapter (`web-adapter-core.ts`)                                                                                                                                          | Same refusals.                                                                                                                                                                                                                                                                     |
+| CLI, MCP tools and AI-panel proposals: rename, move, archive and delete (`structural/plan.rs`, `vault_tools/delete.rs`)                                                          | Gap, closed 2026-11-22: they used to resolve a bundle's main note to the whole folder. A file row now stands for that file alone (delete, archive); renaming or moving the file alone is refused with `moduleDisabled`; the folder row still renames, moves and removes the group. |
+| Creative Studio story creation (`create_story`)                                                                                                                                  | Intentionally unchanged: it has its own workflow and module.                                                                                                                                                                                                                       |
+| Data when the module is toggled                                                                                                                                                  | Nothing is rewritten; the switch only changes the projection and which operations are offered.                                                                                                                                                                                     |
+
+Remaining by design: reading and indexing bundles (links, search, backlinks) is not gated,
+so existing bundles stay readable with the module off.
+
 The canonical tree and its incremental patches carry bundle membership from the
 filesystem. The workspace projects it without rewriting files. A same-named
 Markdown file written into a folder is still recognized by its layout, including
