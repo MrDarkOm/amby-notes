@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use crate::bundle::path_string;
 use crate::commands::mutations::{
-    archive_item_locked, finish_path_mutation, notify_moved_paths, notify_structural_mutation,
-    prepare_path_changes, sync_mutation_result,
+    archive_item_locked, finish_path_mutation, mutation_paths, notify_moved_paths,
+    notify_structural_mutation, prepare_path_changes, sync_mutation_result, tree_patch_for,
 };
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::lock_util::LockExt;
@@ -116,6 +116,17 @@ pub(crate) fn finish_merge_inner(
         archived.archive_id,
         archived.original_path,
     );
+    // The merged text was saved by the editor just before: the tree learns the target's new times
+    // with the same patch, or it would keep showing the ones from before the merge.
+    if outcome.mutation.tree_patch.is_some() {
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            &vault,
+            "merge",
+            &mutation_paths(&outcome.mutation),
+            std::slice::from_ref(&target),
+        );
+    }
     outcome.mutation.undo = archive_id.map(|archive_id| UndoRecord::Merge {
         target: RewrittenNote {
             path: path_string(&target),
@@ -356,6 +367,16 @@ fn undo_merge(
                 .warnings
                 .push(OperationWarning::IndexRebuildRequired);
         }
+    }
+    // The target's text came back too: its times change with the same patch.
+    if outcome.mutation.tree_patch.is_some() {
+        outcome.mutation.tree_patch = tree_patch_for(
+            db,
+            vault,
+            "undo",
+            &mutation_paths(&outcome.mutation),
+            std::slice::from_ref(&target_path),
+        );
     }
     outcome.rewritten_notes = Some((generation, vec![target_path]));
     Ok(outcome)
