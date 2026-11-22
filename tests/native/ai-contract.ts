@@ -15,6 +15,92 @@ async function rejects(operation: Promise<unknown>) {
   throw new Error("Expected operation to be rejected")
 }
 
+type Card = {
+  id: string
+  path: string
+  state: string
+  kind: string
+  diff: string
+  affected: string[]
+}
+type Mode = "manual" | "auto" | "turbo"
+
+// Runs one turn on which the disposable provider calls a single write tool, and returns the
+// tool's reply (what the model is told) and the cards the turn sent.
+async function callTool(
+  generation: number,
+  tool: string,
+  args: Record<string, unknown>,
+  approvalMode: Mode | null,
+  streamId: string,
+) {
+  const url = (window as unknown as { __AMBY_NATIVE_AI_URL__: string }).__AMBY_NATIVE_AI_URL__
+  check(url, "The disposable AI provider is available")
+  const cards: Card[] = []
+  const unlisten = await listen<{ streamId: string; kind: string; payload: Card }>(
+    "ai:event",
+    ({ payload }) => {
+      if (payload.streamId === streamId && payload.kind === "proposal") cards.push(payload.payload)
+    },
+  )
+  try {
+    const turn = await commands.aiRunTurn({
+      generation,
+      config: {
+        provider: "ollama",
+        internalModelId: null,
+        model: "fake",
+        baseUrl: url,
+        credentialId: null,
+        apiKey: null,
+        maxTokens: null,
+        apiVersion: null,
+      },
+      messages: [{ role: "user", content: `Call tool ${tool} ${JSON.stringify(args)}` }],
+      system: null,
+      noteIds: [],
+      folders: [],
+      initialSources: [],
+      searchEnabled: true,
+      supportsTools: true,
+      streamId,
+      approvalMode,
+    })
+    check(turn.status === "ok", `The turn succeeded ${JSON.stringify(turn)}`)
+    check(turn.data.content.startsWith("Reply: "), "The provider echoed the tool reply")
+    const reply = JSON.parse(turn.data.content.slice("Reply: ".length)) as {
+      status?: string
+      error?: string
+    }
+    const deadline = Date.now() + 2000
+    while (cards.length === 0 && !reply.error && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    return { reply, cards }
+  } finally {
+    unlisten()
+  }
+}
+
+async function writeBody(
+  adapter: StorageContractContext["adapter"],
+  vaultPath: string,
+  generation: number,
+  name: string,
+  body: string,
+) {
+  const created = await adapter.createNote(vaultPath, vaultPath, name)
+  const original = await adapter.readNote(vaultPath, created.primaryId!)
+  await adapter.writeNote(
+    vaultPath,
+    created.primaryId!,
+    body,
+    generation,
+    original.revision,
+    "main",
+  )
+  return { id: created.primaryId!, path: `${name}.md` }
+}
+
 export const nativeAiCases: Array<{
   name: string
   run: (context: StorageContractContext) => Promise<void>
@@ -335,6 +421,215 @@ export const nativeAiCases: Array<{
       } finally {
         unlisten()
       }
+    },
+  },
+  {
+    name: "AI approval mode in the turn request decides what the write tools say",
+    async run({ adapter, vaultPath }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const note = await writeBody(adapter, vaultPath, generation, "Modes", "modes body")
+      const before = await adapter.readNote(vaultPath, note.id)
+      const expected: Array<[Mode | null, string, string, string]> = [
+        [null, "pending", "pending", "pending"],
+        ["manual", "pending", "pending", "pending"],
+        ["auto", "applied", "pending", "pending"],
+        ["turbo", "applied", "applied", "pending"],
+      ]
+      for (const [mode, appended, renamed, deleted] of expected) {
+        const label = String(mode)
+        const append = await callTool(
+          generation,
+          "append_note",
+          { path: note.path, content: "more" },
+          mode,
+          `native-mode-append-${label}`,
+        )
+        check(append.reply.status === appended, `${label}: append is ${appended}`)
+        const rename = await callTool(
+          generation,
+          "rename_item",
+          { path: note.path, name: "ModesRenamed" },
+          mode,
+          `native-mode-rename-${label}`,
+        )
+        check(rename.reply.status === renamed, `${label}: rename is ${renamed}`)
+        const removal = await callTool(
+          generation,
+          "delete_item",
+          { path: note.path },
+          mode,
+          `native-mode-delete-${label}`,
+        )
+        check(removal.reply.status === deleted, `${label}: delete is ${deleted}`)
+        for (const card of [...append.cards, ...rename.cards, ...removal.cards]) {
+          check(card.state === "pending", "The turn only proposes; the panel applies")
+          await commands.aiRejectProposal(generation, card.id)
+        }
+      }
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source === before.source,
+        "No turn wrote anything itself",
+      )
+    },
+  },
+  {
+    name: "AI append proposals apply and undo to the exact bytes",
+    async run({ adapter, vaultPath }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const note = await writeBody(adapter, vaultPath, generation, "Appended", "first line")
+      const before = await adapter.readNote(vaultPath, note.id)
+      const { cards } = await callTool(
+        generation,
+        "append_note",
+        { path: note.path, content: "second line" },
+        "manual",
+        "native-append",
+      )
+      check(cards.length === 1 && cards[0].state === "pending", "A pending card arrived")
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source === before.source,
+        "Nothing written",
+      )
+      const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
+      check(applied.status === "ok" && applied.data.state === "applied", "Apply succeeds")
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source.includes("second line"),
+        "The note holds the appended text",
+      )
+      const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+      check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source === before.source,
+        "Undo restores the exact bytes",
+      )
+    },
+  },
+  {
+    name: "AI property proposals apply and undo in a vault with property groups",
+    async run({ adapter, vaultPath }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const opened = await commands.openVaultProperties()
+      check(opened.status === "ok", `The vault opens its properties ${JSON.stringify(opened)}`)
+      const note = await writeBody(adapter, vaultPath, generation, "Props", "props body")
+      const before = await adapter.readNote(vaultPath, note.id)
+      const { cards } = await callTool(
+        generation,
+        "set_property",
+        { path: note.path, name: "status", value: "done" },
+        "manual",
+        "native-prop",
+      )
+      check(cards.length === 1 && cards[0].kind === "setProperty", "A property card arrived")
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source === before.source,
+        "Nothing written",
+      )
+      const unsaved = await commands.aiApplyProposal(generation, cards[0].id, [note.path], null)
+      check(unsaved.status === "error", "A note with unsaved edits is not touched")
+      const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
+      check(
+        applied.status === "ok" && applied.data.state === "applied",
+        `Apply succeeds ${JSON.stringify(applied)}`,
+      )
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source.includes("done"),
+        "The note holds the property",
+      )
+      const waits = await commands.aiUndoProposal(generation, cards[0].id, [note.path])
+      check(waits.status === "error", "Undo waits while the note has unsaved edits")
+      const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+      check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+      check(
+        (await adapter.readNote(vaultPath, note.id)).source === before.source,
+        "Undo restores the exact bytes",
+      )
+    },
+  },
+  {
+    name: "AI database row proposals create a row on Apply and Undo removes it again",
+    async run({ adapter, vaultPath }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const database = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "AiRows",
+      })
+      // A write through the shared tools asks the window for a rebuild (`database:changed`), as for
+      // an MCP write; without a window listening, the test rebuilds the projection itself.
+      const titles = async () => {
+        await adapter.rebuildDatabaseProjection()
+        return (
+          await adapter.queryDatabase({
+            expectedGeneration: generation,
+            databaseId: database.databaseId,
+            source: { kind: "inline", spec: { sorts: [] } },
+            page: { limit: 50 },
+          })
+        ).rows.map((row) => row.title)
+      }
+      const { cards } = await callTool(
+        generation,
+        "create_database_row",
+        { databaseId: database.databaseId, title: "Proposed row" },
+        "manual",
+        "native-row",
+      )
+      check(cards.length === 1 && cards[0].kind === "createDatabaseRow", "A row card arrived")
+      check(!(await titles()).includes("Proposed row"), "A proposal creates no row")
+      const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
+      check(
+        applied.status === "ok" && applied.data.state === "applied",
+        `Apply succeeds ${JSON.stringify(applied)}`,
+      )
+      check(
+        (await adapter.readFile(`${vaultPath}/AiRows/Proposed row.md`)).length > 0,
+        "The row file exists on disk",
+      )
+      check((await titles()).includes("Proposed row"), "The row is queryable")
+      const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+      check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+      check(!(await titles()).includes("Proposed row"), "Undo removed the created row")
+    },
+  },
+  {
+    name: "AI rename proposals rewrite links on Apply and Undo restores every file",
+    async run({ adapter, vaultPath }) {
+      const generation = (await adapter.loadActiveVaultData()).generation
+      const target = await writeBody(adapter, vaultPath, generation, "Alpha", "alpha body")
+      const linker = await writeBody(adapter, vaultPath, generation, "Linker", "see [[Alpha]] here")
+      const linkerBefore = await adapter.readNote(vaultPath, linker.id)
+      const { cards } = await callTool(
+        generation,
+        "rename_item",
+        { path: target.path, name: "Beta" },
+        "manual",
+        "native-rename",
+      )
+      check(cards.length === 1 && cards[0].state === "pending", "A pending card arrived")
+      check(cards[0].affected.includes(linker.path), "The card lists the note whose link changes")
+      const blocked = await commands.aiApplyProposal(generation, cards[0].id, [linker.path], null)
+      check(blocked.status === "error", "Apply waits while an affected note has unsaved edits")
+      const applied = await commands.aiApplyProposal(generation, cards[0].id, [], null)
+      check(
+        applied.status === "ok" && applied.data.state === "applied",
+        `Apply succeeds ${JSON.stringify(applied)}`,
+      )
+      check(
+        (await adapter.readNote(vaultPath, linker.id)).source.includes("[[Beta]]"),
+        "The link follows the rename",
+      )
+      const waits = await commands.aiUndoProposal(generation, cards[0].id, [linker.path])
+      check(waits.status === "error", "Undo waits while an affected note has unsaved edits")
+      const undone = await commands.aiUndoProposal(generation, cards[0].id, [])
+      check(undone.status === "ok" && undone.data.state === "undone", "Undo succeeds")
+      check(
+        (await adapter.readNote(vaultPath, linker.id)).source === linkerBefore.source,
+        "Undo restores the linking note exactly",
+      )
+      check((await adapter.readNote(vaultPath, target.id)).source.includes("alpha body"), "Back")
     },
   },
   {

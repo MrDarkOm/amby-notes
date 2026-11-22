@@ -76,7 +76,24 @@ fn respond(mut stream: TcpStream) -> std::io::Result<()> {
         let text = message["content"].as_str()?;
         serde_json::from_str::<Value>(text.strip_prefix("Propose a cell ")?).ok()
     });
+    // "Call tool NAME {json}": the test names any tool and its arguments; the provider echoes the
+    // tool's reply, so the test sees what the model would be told ("applied" or "pending").
+    let generic = messages.iter().find_map(|message| {
+        let rest = message["content"].as_str()?.strip_prefix("Call tool ")?;
+        let (name, arguments) = rest.split_once(' ')?;
+        Some((
+            name.to_string(),
+            serde_json::from_str::<Value>(arguments).ok()?,
+        ))
+    });
     let message = match results.len() {
+        0 if generic.is_some() => {
+            let (name, arguments) = generic.clone().unwrap();
+            json!({"content":"", "tool_calls":[{"function":{"name":name,"arguments":arguments}}]})
+        }
+        1 if generic.is_some() => {
+            json!({"content": format!("Reply: {}", results[0]["content"].as_str().unwrap_or(""))})
+        }
         0 if cell_arguments.is_some() => {
             json!({"content":"", "tool_calls":[{"function":{"name":"set_database_value","arguments":cell_arguments}}]})
         }
