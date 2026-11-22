@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{broadcast, Notify, Semaphore};
 
 use crate::clock::Clock;
 use crate::config::Config;
@@ -57,6 +57,72 @@ pub struct AppState {
     pub(crate) hub: broadcast::Sender<HubEvent>,
     /// Places for JSON bodies over 1 MiB read at the same time (Х4).
     pub(crate) large_bodies: Arc<Semaphore>,
+    /// The open event streams of each device (Ч2).
+    pub(crate) streams: Arc<StreamSlots>,
+}
+
+/// Event streams one device may keep open at once (Ч2, Б7). A newer one closes the oldest.
+pub(crate) const STREAMS_PER_DEVICE: usize = 4;
+
+/// Per device: its open streams, oldest first, each with its number and the signal that ends it.
+type OpenStreams =
+    std::collections::HashMap<[u8; 16], std::collections::VecDeque<(u64, Arc<Notify>)>>;
+
+/// The open event streams of every device, oldest first, each with the signal that ends it.
+#[derive(Default)]
+pub(crate) struct StreamSlots {
+    open: std::sync::Mutex<OpenStreams>,
+    next: std::sync::atomic::AtomicU64,
+}
+
+/// One open stream; dropping it (the stream ended or the client went away) frees its place.
+pub(crate) struct StreamSlot {
+    slots: Arc<StreamSlots>,
+    device_id: [u8; 16],
+    id: u64,
+    /// Notified when a newer stream of the same device takes this place.
+    pub(crate) closed: Arc<Notify>,
+}
+
+impl StreamSlots {
+    /// Takes a place for a new stream of `device_id`; the oldest beyond the limit is told to end.
+    pub(crate) fn open(self: &Arc<Self>, device_id: [u8; 16]) -> StreamSlot {
+        let id = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let closed = Arc::new(Notify::new());
+        let mut open = self
+            .open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let streams = open.entry(device_id).or_default();
+        streams.push_back((id, closed.clone()));
+        while streams.len() > STREAMS_PER_DEVICE {
+            if let Some((_, oldest)) = streams.pop_front() {
+                oldest.notify_one();
+            }
+        }
+        StreamSlot {
+            slots: self.clone(),
+            device_id,
+            id,
+            closed,
+        }
+    }
+}
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        let mut open = self
+            .slots
+            .open
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(streams) = open.get_mut(&self.device_id) {
+            streams.retain(|(id, _)| *id != self.id);
+            if streams.is_empty() {
+                open.remove(&self.device_id);
+            }
+        }
+    }
 }
 
 impl AppState {
@@ -95,6 +161,7 @@ impl AppState {
             files,
             hub,
             large_bodies,
+            streams: Arc::new(StreamSlots::default()),
         })
     }
 

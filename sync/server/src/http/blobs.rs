@@ -248,14 +248,19 @@ pub(crate) async fn put_part(
     } else {
         row.size - number * PART_SIZE
     };
-    let data = read_limited(body, usize::try_from(PART_SIZE).unwrap_or(usize::MAX))
-        .await
-        .map_err(|error| match error {
-            ReadError::TooLarge => bad_part(),
-            ReadError::Broken | ReadError::Busy => {
-                ApiError::bad_request("the request body could not be read")
-            }
-        })?;
+    let data = read_limited(
+        body,
+        usize::try_from(PART_SIZE).unwrap_or(usize::MAX),
+        std::time::Duration::from_secs(state.config.body_timeout_secs),
+    )
+    .await
+    .map_err(|error| match error {
+        ReadError::TooLarge => bad_part(),
+        ReadError::TimedOut => super::util::body_timed_out(),
+        ReadError::Broken | ReadError::Busy => {
+            ApiError::bad_request("the request body could not be read")
+        }
+    })?;
     if data.len() as u64 != expected {
         return Err(bad_part());
     }

@@ -67,6 +67,9 @@ pub struct Config {
     pub max_users: Option<u64>,
     /// JSON bodies over 1 MiB read at the same time (`AMBY_SYNC_MAX_LARGE_BODIES`, Х4).
     pub max_large_bodies: u64,
+    /// Seconds a request body may go without new data before the request is refused with
+    /// `408 request_timeout` (`AMBY_SYNC_BODY_TIMEOUT_SECS`, Ч3).
+    pub body_timeout_secs: u64,
 }
 
 impl Default for Config {
@@ -96,6 +99,7 @@ impl Default for Config {
             min_free_bytes: 1_073_741_824,
             max_users: None,
             max_large_bodies: 4,
+            body_timeout_secs: 60,
         }
     }
 }
@@ -216,6 +220,11 @@ impl Config {
             vars,
             "AMBY_SYNC_MAX_LARGE_BODIES",
             &mut config.max_large_bodies,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_BODY_TIMEOUT_SECS",
+            &mut config.body_timeout_secs,
         )?;
         if let Some(value) = get("AMBY_SYNC_MAX_USERS") {
             let mut max = 0u64;

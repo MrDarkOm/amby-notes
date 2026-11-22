@@ -1,5 +1,6 @@
 # Amby — Next version
 
+- Sync server (security review, appendix Ч): database work no longer stalls other requests; a device keeps at most four event streams (the oldest ends); a request body that stops arriving for `AMBY_SYNC_BODY_TIMEOUT_SECS` (60 s) gets `408 request_timeout`; parallel uploads of the same body use their own temporary files.
 - Folder view: database and sketch cards are labelled as such instead of "Note".
 - AI panel and MCP: `query_database` names the database it read (as `read_database` does), so the step line says which one.
 - For developers: the Claude Code launcher tests name their scratch folders with a ULID instead of the process ID, so a reused process ID no longer finds files an earlier run left and fails a batch of tests at once.

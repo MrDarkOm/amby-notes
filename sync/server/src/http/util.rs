@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::request::Parts;
@@ -243,15 +244,31 @@ pub(crate) enum ReadError {
     Broken,
     /// Too many large bodies are being read at once (Х4).
     Busy,
+    /// No new data came for longer than `body_timeout_secs` (Ч3).
+    TimedOut,
 }
 
 /// How much of an over-long body is read and thrown away so that the client can finish
 /// sending and read the error instead of meeting a closed connection.
 const DRAIN_LIMIT: usize = 32 * 1024 * 1024;
 
-/// Reads at most `limit` bytes. A longer body is drained (up to [`DRAIN_LIMIT`]) and refused.
-pub(crate) async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, ReadError> {
-    read_counted(body, limit, None, None).await
+/// Reads at most `limit` bytes. A longer body is drained (up to [`DRAIN_LIMIT`]) and refused; a
+/// body that stops arriving for `idle` is given up (Ч3).
+pub(crate) async fn read_limited(
+    body: Body,
+    limit: usize,
+    idle: Duration,
+) -> Result<Vec<u8>, ReadError> {
+    read_counted(body, limit, None, None, idle).await
+}
+
+/// The answer to a body that stopped arriving (Ч3).
+pub(crate) fn body_timed_out() -> ApiError {
+    ApiError::new(
+        StatusCode::REQUEST_TIMEOUT,
+        code::REQUEST_TIMEOUT,
+        "the request body stopped arriving",
+    )
 }
 
 /// A JSON body above this size takes one place of `max_large_bodies` while it is read (Х4).
@@ -269,6 +286,7 @@ async fn read_counted(
     limit: usize,
     declared: Option<u64>,
     gate: Option<&Arc<Semaphore>>,
+    idle: Duration,
 ) -> Result<Vec<u8>, ReadError> {
     let mut permit: Option<OwnedSemaphorePermit> = None;
     let take = |gate: &Arc<Semaphore>| {
@@ -286,7 +304,13 @@ async fn read_counted(
     let mut data = Vec::new();
     let mut seen = 0usize;
     let mut too_large = false;
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let Some(chunk) = tokio::time::timeout(idle, stream.next())
+            .await
+            .map_err(|_| ReadError::TimedOut)?
+        else {
+            break;
+        };
         let chunk = chunk.map_err(|_| ReadError::Broken)?;
         seen += chunk.len();
         if let Some(gate) = gate {
@@ -355,7 +379,8 @@ async fn read_json_with(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.trim().parse::<u64>().ok());
     let gate = counted.then_some(&state.large_bodies);
-    let bytes = read_counted(body, limit, declared, gate)
+    let idle = Duration::from_secs(state.config.body_timeout_secs);
+    let bytes = read_counted(body, limit, declared, gate, idle)
         .await
         .map_err(|error| match error {
             ReadError::TooLarge => ApiError::new(
@@ -364,6 +389,7 @@ async fn read_json_with(
                 "the request is too large",
             ),
             ReadError::Broken => ApiError::bad_request("the request body could not be read"),
+            ReadError::TimedOut => body_timed_out(),
             ReadError::Busy => ApiError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 code::SERVER_BUSY,

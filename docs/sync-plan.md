@@ -2403,3 +2403,30 @@ lightweight. Л1–Л11 remain in force, except where refined here.
 - App: the delete button is unavailable without a password; a wrong password — a line, the dialog is open, no deletion,
   the open vault's synchronization is turned back on; after a password change with two other devices — the question, «Отключить» revokes both and does not touch the
   current one; with no other devices — no question.
+
+## Appendix Ч. Low-risk server findings: Б6, Б7, Б8 (22 November 2026, owner's decision)
+
+The findings are in the [Э5 security review](road/target/sync-security-review.md). The owner asked to fix
+all three. The outside behaviour changes only where stated (Ч2, Ч3); the protocol stays version 1.
+
+- **Ч1. Б6: database work does not stall the runtime.** Every database call and write transaction, the
+  wait for the connection lock included, runs through `block_in_place` when the server runs on the
+  multi-threaded runtime: the worker hands its other tasks (other requests, event-stream pings) to another
+  thread while it blocks. Commands and tests without a runtime run the work directly. Test: a 400 ms
+  database call on a runtime with one worker does not stop a timer task.
+- **Ч2. Б7: at most four event streams per device.** A fifth stream of the same device ends the oldest
+  one at once; the other four keep receiving events. Another device of the same account has its own four.
+  The limit is fixed (`STREAMS_PER_DEVICE = 4`), not a setting. A client that opens one stream per open
+  vault is never affected.
+- **Ч3. Б7: a stalled request body is refused.** `AMBY_SYNC_BODY_TIMEOUT_SECS` (default 60, a positive
+  whole number): when a request body sends nothing new for that long, the request ends with
+  `408 request_timeout` and nothing of it is applied. It covers JSON bodies and body parts. The README of
+  one's own server keeps the advice to set proxy limits as well.
+- **Ч4. Б8: temporary files of their own.** A part and a joined body are written to a temporary file with
+  a unique name (`.part-N.<nonce>.tmp`, `.body.<nonce>.tmp`) that is removed when the write fails, so two
+  uploads of the same part or two `complete` calls never write into one file. `complete` already refuses a
+  body whose row was deleted in between (`404`, the number of updated rows is checked).
+
+Tests (written first and seen failing on the old code): `sync/server/src/db.rs` (Ч1) and
+`sync/conformance/tests/server_limits_ch.rs` (Ч2–Ч4). Deploying to Omlet is a separate step with the
+owner's permission.

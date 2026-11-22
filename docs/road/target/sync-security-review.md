@@ -23,9 +23,9 @@ synchronization of someone else's space (not read it — only stop it).
 | Б3  | The row number of a deleted space passes to a new one                   | fixed (Т1–Т3)     | server (violates Л4)  |
 | Б4  | Before login the server accepts JSON up to 64 MiB with no request limit | fixed (Х3, Х4)    | server                |
 | Б5  | Record headers do not count toward the quota                            | mostly fixed (Х6) | server                |
-| Б6  | SQLite is called synchronously from async handlers                      | low–medium        | server                |
-| Б7  | No limit on event streams and no body-read timeout                      | low               | server                |
-| Б8  | Parallel uploads of the same body share a temporary file                | low               | server                |
+| Б6  | SQLite is called synchronously from async handlers                      | fixed (Ч1)        | server                |
+| Б7  | No limit on event streams and no body-read timeout                      | fixed (Ч2, Ч3)    | server                |
+| Б8  | Parallel uploads of the same body share a temporary file                | fixed (Ч4)        | server                |
 | Б9  | Omlet also answers over plain `http://`                                 | fixed (NPM)       | Omlet settings        |
 | Б10 | Dangerous actions need only a token, no password                        | fixed (Ц)         | protocol              |
 | Б11 | Minor differences in refusals and metadata                              | information       | server, documentation |
@@ -115,7 +115,7 @@ the same outcome as in Б1, but even without open registration.
 **Proposal.** Count the length of headers (of current and stored versions) in quota usage; for a
 server without a quota — at least a limit on the number of commits per minute per device.
 
-### Б6. SQLite is called synchronously from async handlers — low–medium
+### Б6. SQLite is called synchronously from async handlers — low–medium (fixed 22 November, appendix Ч)
 
 **What was found.** The database is one connection behind a `std::sync::Mutex`, and handlers take it directly on
 tokio threads. A long transaction (a commit of 10,000 records, quota counting, a cleanup waiting up to 30 s)
@@ -127,7 +127,7 @@ including the event-stream pings. Data does not suffer.
 **Proposal.** Run the database work through `spawn_blocking` (or one dedicated database thread).
 It can be deferred until the first complaints about speed; the outside behavior does not change.
 
-### Б7. No limit on event streams and no body-read timeout — low
+### Б7. No limit on event streams and no body-read timeout — low (fixed 22 November, appendix Ч)
 
 **What was found.** One device can open any number of `/events` streams; each holds a connection
 and queries the database every 15 seconds. The server itself does not limit the time spent reading a request body.
@@ -135,7 +135,7 @@ and queries the database every 15 seconds. The server itself does not limit the 
 **Proposal.** No more than 4 streams per device (the oldest is closed); a body-read timeout
 (for example 60 s without data). In the README for one's own server — advice about proxy limits.
 
-### Б8. Parallel uploads of the same body share a temporary file — low
+### Б8. Parallel uploads of the same body share a temporary file — low (fixed 22 November, appendix Ч)
 
 **What was found.** Two simultaneous uploads of the same part write to the same `part-N.tmp`, two `complete` calls — to
 the same `body.tmp`. `complete` answers "done" even if the body was deleted in parallel (it does not check that the
