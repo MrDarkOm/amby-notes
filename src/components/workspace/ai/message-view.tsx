@@ -130,6 +130,7 @@ const STEP_ERROR_KEYS: Record<string, string> = {
   // The notes the AI may read are the ones in the context, or all of them with search on.
   accessDenied: "ai.toolOutsideContext",
   notFound: "ai.toolNotFound",
+  ambiguous: "ai.toolAmbiguous",
 }
 
 export function StepLine({

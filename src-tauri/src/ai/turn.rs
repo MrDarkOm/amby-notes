@@ -461,6 +461,7 @@ impl TurnEngine {
             .get("query")
             .or_else(|| call.arguments.get("path"))
             .or_else(|| call.arguments.get("id"))
+            .or_else(|| call.arguments.get("title"))
             .and_then(Value::as_str)
             .unwrap_or("")
             .chars()
@@ -468,6 +469,12 @@ impl TurnEngine {
             .collect::<String>();
         emit("toolStart", json!({"tool":call.name,"query":query}));
         let mut value = execute(&mut self.budget, call)?;
+        // Database tools name their target by ID: the step names what the reply names instead.
+        let query = if query.is_empty() {
+            step_name(&value)
+        } else {
+            query
+        };
         for proposal in self.budget.take_proposals() {
             if let Some(sink) = &self.proposal_sink {
                 emit("proposal", sink(proposal));
@@ -904,9 +911,42 @@ pub async fn ai_run_turn(
     }
 }
 
+/// What a tool's reply names when its call named only an ID: a proposal's path, a database's
+/// name, or a note's title. Empty when the reply names nothing.
+fn step_name(reply: &Value) -> String {
+    [
+        reply.get("path"),
+        reply
+            .get("database")
+            .and_then(|database| database.get("name")),
+        reply.get("name"),
+        reply.get("title"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(Value::as_str)
+    .unwrap_or("")
+    .chars()
+    .take(1024)
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_step_called_with_an_id_is_named_by_what_the_reply_names() {
+        assert_eq!(
+            step_name(&json!({"status":"pending","path":"Shop/Buy/Milk.md"})),
+            "Shop/Buy/Milk.md"
+        );
+        assert_eq!(
+            step_name(&json!({"database":{"databaseId":"d1","name":"Buy"},"properties":[]})),
+            "Buy"
+        );
+        assert_eq!(step_name(&json!({"error":"notFound"})), "");
+    }
 
     #[test]
     fn ai1_r5_disabled_search_omits_discovery_tools_for_all_families() {

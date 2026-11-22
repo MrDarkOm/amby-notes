@@ -1014,3 +1014,20 @@ fn unsaved_notes_are_found_among_the_affected_files_and_their_folders() {
     assert!(rename.touches(&["other/ref.md".to_owned()]));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_cell_card_shows_the_value_as_text_not_json() {
+    use serde_json::json;
+    assert_eq!(
+        super::cell_text(&json!({"type":"text","value":"Market"})),
+        "Market"
+    );
+    assert_eq!(super::cell_text(&json!({"type":"number","value":3})), "3");
+    assert_eq!(
+        super::cell_text(
+            &json!({"type":"multiSelect","value":[{"id":"a","name":"Red"},{"id":"b","name":"Blue"}]})
+        ),
+        "Red, Blue"
+    );
+    assert_eq!(super::cell_text(&json!(null)), "");
+}

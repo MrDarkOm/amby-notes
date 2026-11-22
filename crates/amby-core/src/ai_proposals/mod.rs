@@ -663,11 +663,7 @@ fn propose_database(
                 .and_then(|all| all.iter().find(|p| p["id"] == *property_id))
                 .and_then(|p| p["name"].as_str().map(str::to_owned))
                 .unwrap_or_else(|| property_id.clone());
-            let shown = if value.is_null() {
-                String::new()
-            } else {
-                value.to_string()
-            };
+            let shown = cell_text(value);
             let diff = format!("--- {path}\n+++ {path}\n@@ database cell @@\n+{name}: {shown}\n");
             (path, Some(digest(&String::from_utf8_lossy(&bytes))), diff)
         }
@@ -683,6 +679,27 @@ fn propose_database(
         affected: Vec::new(),
         affected_truncated: false,
     })
+}
+
+/// A cell value as the user reads it: the text, number, date or option names inside the typed
+/// value object, not its JSON.
+fn cell_text(value: &Value) -> String {
+    match value {
+        Value::Null => String::new(),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(cell_text)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(fields) => ["value", "name", "title", "start"]
+            .iter()
+            .find_map(|key| fields.get(*key))
+            .map(cell_text)
+            .unwrap_or_else(|| value.to_string()),
+        other => other.to_string(),
+    }
 }
 
 fn apply_new_row(

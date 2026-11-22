@@ -36,8 +36,8 @@ pub fn definitions(search: bool) -> Vec<(&'static str, &'static str, Value)> {
     let mut defs = vec![
         (
             "read_note",
-            "Read a note by ID or vault-relative path. Offset and maxChars count Unicode characters.",
-            json!({"type":"object","properties":{"id":{"type":"string","description":"A note ID or a vault-relative Markdown path."},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
+            "Read a note by ID, vault-relative path (with or without .md), or title when only one readable note has it. Offset and maxChars count Unicode characters.",
+            json!({"type":"object","properties":{"id":{"type":"string","description":"A note ID, a vault-relative Markdown path, or a note title."},"offset":{"type":"integer","minimum":0},"maxChars":{"type":"integer","minimum":1,"maximum":20000}},"required":["id"]}),
         ),
         (
             "get_links",
@@ -476,20 +476,50 @@ fn indexed_note(
     if id.len() > 1024 {
         return Err("invalidArguments");
     }
-    let note = match crate::index::note_by_id(conn, root, id) {
-        Ok(note) => note,
-        // A vault-relative path names the note too; the scope below still checks its ID.
-        Err(_) => {
-            let id: String = conn
-                .query_row(
-                    "SELECT id FROM notes WHERE path = ?1",
-                    [id.replace('\\', "/")],
-                    |row| row.get(0),
-                )
-                .map_err(|_| "notFound")?;
-            crate::index::note_by_id(conn, root, &id).map_err(|_| "notFound")?
+    if let Ok(note) = crate::index::note_by_id(conn, root, id) {
+        return scoped_note(root, scope, note);
+    }
+    // A vault-relative path names the note too, with or without `.md`; the scope still checks it.
+    let path = id.replace('\\', "/");
+    for candidate in [path.clone(), format!("{path}.md")] {
+        let found: Option<String> = conn
+            .query_row(
+                "SELECT id FROM notes WHERE path = ?1",
+                [&candidate],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(found) = found {
+            let note = crate::index::note_by_id(conn, root, &found).map_err(|_| "notFound")?;
+            return scoped_note(root, scope, note);
         }
-    };
+    }
+    // So does a bare title, when exactly one note the AI may read has it.
+    let mut statement = conn
+        .prepare("SELECT id FROM notes WHERE title = ?1 LIMIT 50")
+        .map_err(|_| "unavailable")?;
+    let ids: Vec<String> = statement
+        .query_map([id.trim()], |row| row.get(0))
+        .map_err(|_| "unavailable")?
+        .filter_map(Result::ok)
+        .collect();
+    let mut readable = ids.iter().filter_map(|found| {
+        let note = crate::index::note_by_id(conn, root, found).ok()?;
+        scoped_note(root, scope, note).ok()
+    });
+    match (readable.next(), readable.next()) {
+        (Some(only), None) => Ok(only),
+        (Some(_), Some(_)) => Err("ambiguous"),
+        _ => Err("notFound"),
+    }
+}
+
+/// The note with its file, when the AI's scope lets it read it.
+fn scoped_note(
+    root: &Path,
+    scope: &ToolScope,
+    note: crate::index::IndexedNote,
+) -> Result<(crate::index::IndexedNote, PathBuf), &'static str> {
     let id = note.id.as_str();
     let relative = Path::new(&note.path)
         .strip_prefix(root)
@@ -1403,6 +1433,55 @@ mod tests {
             assert_eq!(shared["description"], description);
             assert_eq!(shared["inputSchema"], schema);
         }
+    }
+
+    #[test]
+    fn a_note_is_read_by_a_path_without_md_or_by_a_title_only_one_readable_note_has() {
+        let root = std::env::temp_dir().join(format!("amby-ai-title-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(root.join("Tasks")).unwrap();
+        fs::create_dir_all(root.join("Other")).unwrap();
+        for path in [
+            "Tasks/Todo.md",
+            "Tasks/Plan.md",
+            "Other/Plan.md",
+            "Other/Secret.md",
+        ] {
+            fs::write(root.join(path), "body").unwrap();
+        }
+        let conn = Connection::open_in_memory().unwrap();
+        crate::index::init_schema(&conn).unwrap();
+        for (id, path, title) in [
+            ("t", "Tasks/Todo.md", "Todo"),
+            ("p1", "Tasks/Plan.md", "Plan"),
+            ("p2", "Other/Plan.md", "Plan"),
+            ("s", "Other/Secret.md", "Secret"),
+        ] {
+            conn.execute("INSERT INTO notes (id,path,title,mtime,size,content,word_count,created_at,updated_at) VALUES (?1,?2,?3,0,0,'body',1,0,0)", rusqlite::params![id,path,title]).unwrap();
+        }
+        let folder = ToolScope {
+            search_enabled: false,
+            note_ids: HashSet::new(),
+            folders: vec!["Tasks".into()],
+            writes: Writes::Off,
+        };
+        let mut budget = ToolBudget::default();
+        let mut read = |scope: &ToolScope, id: &str| {
+            budget.execute(&conn, &root, scope, "read_note", &json!({ "id": id }))
+        };
+        assert_eq!(read(&folder, "Tasks/Todo")["id"], "t");
+        assert_eq!(read(&folder, "Todo")["id"], "t");
+        // Two notes are titled Plan, but only one is readable in this scope.
+        assert_eq!(read(&folder, "Plan")["id"], "p1");
+        // A title outside the scope is not found, so the AI learns nothing about it.
+        assert_eq!(read(&folder, "Secret")["error"], "notFound");
+        let open = ToolScope {
+            search_enabled: true,
+            note_ids: HashSet::new(),
+            folders: vec![],
+            writes: Writes::Off,
+        };
+        assert_eq!(read(&open, "Plan")["error"], "ambiguous");
+        assert_eq!(read(&open, "Secret")["id"], "s");
     }
 
     #[test]

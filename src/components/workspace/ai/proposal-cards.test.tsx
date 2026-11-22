@@ -49,7 +49,8 @@ describe("proposal cards", () => {
 
   it("shows the change and writes nothing until Apply is clicked", () => {
     show()
-    expect(screen.getByText("folder/a.md")).toBeTruthy()
+    // The header names the file as the tree does; the full path is its tooltip.
+    expect(screen.getByText("a").getAttribute("title")).toBe("folder/a.md")
     expect(screen.getByText("-old line")).toBeTruthy()
     expect(screen.getByText("+new line")).toBeTruthy()
     expect(action).not.toHaveBeenCalled()
@@ -111,7 +112,7 @@ describe("proposal cards", () => {
     expect(other.container.textContent).toBe("")
     cleanup()
     render(<ProposalCards chatId="chat" generation={3} vault="/v" show={(at) => at === 1} />)
-    expect(screen.getByText("folder/a.md")).toBeTruthy()
+    expect(screen.getByText("a")).toBeTruthy()
   })
 
   it("applies a card made under an automatic mode at once, and a manual one never", async () => {
@@ -190,6 +191,26 @@ describe("database proposal cards", () => {
     action.mockRejectedValueOnce(new ProposalError("locked"))
     await act(async () => fireEvent.click(screen.getAllByRole("button", { name: "Apply" })[0]))
     expect(screen.getByRole("alert").textContent).toMatch(/closed for changes/)
+  })
+
+  it("says what Undo does for an applied row and cell, not that note text was kept", () => {
+    const applied: ProposalCard = {
+      id: "c2",
+      path: "Shop/Buy/Milk.md",
+      kind: "setDatabaseValue",
+      diff: "--- a\n+++ a\n@@ database cell @@\n+Shop: Market\n",
+      diffTruncated: false,
+      affected: [],
+      affectedTruncated: false,
+      canUndo: true,
+      state: "applied",
+    }
+    useProposalStore.getState().add("chat", applied, 1)
+    useProposalStore.getState().add("chat", { ...applied, id: "r2", kind: "createDatabaseRow" }, 1)
+    render(<ProposalCards chatId="chat" generation={3} vault="/v" show={() => true} />)
+    expect(screen.getByText("Value written. Undo restores the previous one.")).toBeTruthy()
+    expect(screen.getByText("Row added. Undo removes it.")).toBeTruthy()
+    expect(screen.queryByText(/note history/)).toBeNull()
   })
 })
 

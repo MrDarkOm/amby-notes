@@ -2199,6 +2199,8 @@ const ru = {
         appliedStructural: "Применено. «Отменить» вернёт всё на место, включая ссылки.",
         appliedDelete: "Удалено. Восстановить можно только вручную из корзины.",
         appliedArchive: "Перенесено в архив. «Отменить» вернёт на место.",
+        appliedRow: "Строка добавлена. «Отменить» уберёт её.",
+        appliedCell: "Значение записано. «Отменить» вернёт прежнее.",
       },
       error: {
         noteHasUnsavedEdits: "Заметка открыта с несохранёнными правками. Сначала сохраните её.",
@@ -2264,6 +2266,7 @@ const ru = {
     toolOther: "Шаг ИИ: {{tool}}",
     toolFailed: "Не удалось выполнить шаг",
     toolNotFound: "Не нашёл «{{query}}»",
+    toolAmbiguous: "Несколько заметок называются «{{query}}»",
     toolOutsideContext:
       "Я не могу искать заметки вне контекста. Включите поиск по хранилищу или добавьте заметку в контекст.",
     indexTooLarge: "Индекс слишком велик для безопасного чтения ИИ (более 512 МБ).",
@@ -6736,6 +6739,8 @@ const en: LocaleShape<typeof ru> = {
         appliedStructural: "Applied. Undo puts everything back, links included.",
         appliedDelete: "Deleted. It can only be restored by hand from the trash.",
         appliedArchive: "Moved to the archive. Undo puts it back.",
+        appliedRow: "Row added. Undo removes it.",
+        appliedCell: "Value written. Undo restores the previous one.",
       },
       error: {
         noteHasUnsavedEdits: "The note is open with unsaved edits. Save it first.",
@@ -6804,6 +6809,7 @@ const en: LocaleShape<typeof ru> = {
     toolOther: "AI step: {{tool}}",
     toolFailed: "The step could not be completed",
     toolNotFound: "Did not find “{{query}}”",
+    toolAmbiguous: "Several notes are called “{{query}}”",
     toolOutsideContext:
       "I cannot search notes outside the context. Turn on vault search or add the note to the context.",
     indexTooLarge: "The index is too large for safe AI access (over 512 MB).",

@@ -38,6 +38,11 @@ const ALIAS: Record<string, string> = {
   unsupportedProperty: "invalidValue",
 }
 
+/** The card names its file as the tree does: the last part of the path, without `.md`. */
+function fileName(path: string) {
+  return (path.split("/").pop() || path).replace(/\.md$/i, "")
+}
+
 function DiffView({ diff }: { diff: string }) {
   const lines = diff
     .split("\n")
@@ -176,7 +181,9 @@ function Card({
     >
       <div className="flex items-center gap-1.5">
         <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="truncate font-medium">{card.path}</span>
+        <span title={card.path} className="truncate font-medium">
+          {fileName(card.path)}
+        </span>
         <span className="ml-auto shrink-0 text-muted-foreground">
           {t(`ai.proposal.kind.${card.kind}`, { defaultValue: card.kind })}
         </span>
@@ -224,9 +231,13 @@ function Card({
               {t(
                 card.kind === "delete" && !card.canUndo
                   ? "ai.proposal.state.appliedDelete"
-                  : structural
-                    ? "ai.proposal.state.appliedStructural"
-                    : "ai.proposal.state.applied",
+                  : card.kind === "createDatabaseRow"
+                    ? "ai.proposal.state.appliedRow"
+                    : card.kind === "setDatabaseValue"
+                      ? "ai.proposal.state.appliedCell"
+                      : structural
+                        ? "ai.proposal.state.appliedStructural"
+                        : "ai.proposal.state.applied",
               )}
             </span>
             {card.canUndo && (
