@@ -125,7 +125,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -1125,22 +1124,6 @@ export class DesktopAdapter implements StoragePort {
 
   async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
     await unwrapCommand(commands.purgeArchive(archiveId, mode))
-  }
-
-  async previewRenameRefactor(
-    _vaultPath: string,
-    path: string,
-    newName: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewRenameRefactor(path, newName))
-  }
-
-  async previewMoveRefactor(
-    _vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewMoveRefactor(sourcePath, targetPath))
   }
 
   async openInExplorer(path: string): Promise<void> {

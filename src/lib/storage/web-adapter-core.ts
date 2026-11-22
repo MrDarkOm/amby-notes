@@ -48,7 +48,6 @@ import type {
   NoteLayers,
   NoteProperties,
   PathChange,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -1700,25 +1699,6 @@ export class WebAdapterCore implements StoragePort {
 
   async purgeArchive(_archiveId: string, _mode: DeleteMode): Promise<void> {
     return webTrashUnavailable()
-  }
-
-  async previewRenameRefactor(
-    _vaultPath: string,
-    path: string,
-    _newName: string,
-  ): Promise<RefactorPreview> {
-    webRequireBundleFileMutation(path)
-    return { notes: 0, replacements: 0 }
-  }
-
-  async previewMoveRefactor(
-    _vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    webRequireBundleFileMutation(sourcePath)
-    if (webFindItem(webGetTree(), targetPath)?.type === "file") requireWebSupernotes()
-    return { notes: 0, replacements: 0 }
   }
 
   async openInExplorer(_path: string): Promise<void> {}

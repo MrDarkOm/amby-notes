@@ -1,5 +1,4 @@
 use rusqlite::{Connection, OptionalExtension};
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,13 +19,6 @@ pub struct PlannedWikiRewrite {
     pub literal_replacements: Vec<(String, String)>,
 }
 
-#[derive(Clone, Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RefactorPreview {
-    pub notes: usize,
-    pub replacements: usize,
-}
-
 /// Database-only part of an inbound link refactor. Keeping this value separate
 /// lets mutation commands release the SQLite mutex before scanning and reading
 /// Markdown/Canvas files from disk.
@@ -40,16 +32,6 @@ pub struct InboundWikiRewriteInputs {
     /// to no other, with the new target text. Archived notes are not indexed, so their wikilinks
     /// are matched against this instead.
     archive_targets: HashMap<String, String>,
-}
-
-pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
-    RefactorPreview {
-        notes: plan.len(),
-        replacements: plan
-            .iter()
-            .map(|rewrite| rewrite.replacements.len() + rewrite.literal_replacements.len())
-            .sum(),
-    }
 }
 
 pub fn replace_wiki_target(raw: &str, target: &str) -> String {
@@ -669,24 +651,6 @@ pub fn apply_planned_wiki_rewrites_recorded(
         }
     }
     Ok(applied.into_iter().map(|(note, _)| note).collect())
-}
-
-pub fn preview_refactor_links_for_rename(
-    conn: &Connection,
-    vault: &Path,
-    changes: &[crate::model::PathChange],
-) -> Result<RefactorPreview, String> {
-    let plan = plan_inbound_wiki_rewrites(conn, vault, changes)?;
-    Ok(refactor_preview(&plan))
-}
-
-pub fn preview_refactor_links_for_move(
-    conn: &Connection,
-    vault: &Path,
-    changes: &[crate::model::PathChange],
-) -> Result<RefactorPreview, String> {
-    let plan = plan_inbound_wiki_rewrites(conn, vault, changes)?;
-    Ok(refactor_preview(&plan))
 }
 
 pub fn refactor_links_for_rename(

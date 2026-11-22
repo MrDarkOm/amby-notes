@@ -20,7 +20,6 @@ import type {
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
@@ -151,12 +150,6 @@ export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort,
   restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult>
   /** «Удалить из архива» by the setting of К4; `archive` here means the system trash. */
   purgeArchive(archiveId: string, mode: DeleteMode): Promise<void>
-  previewRenameRefactor(vaultPath: string, path: string, newName: string): Promise<RefactorPreview>
-  previewMoveRefactor(
-    vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview>
 
   // System & Assets
   openInExplorer(path: string): Promise<void>

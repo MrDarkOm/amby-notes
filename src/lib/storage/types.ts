@@ -86,11 +86,6 @@ export interface HistoryCleanupPreview {
   remaining: HistoryStats
 }
 
-export interface RefactorPreview {
-  notes: number
-  replacements: number
-}
-
 /** A file of the hidden archive `.amby/archive/` (docs/sync-plan.md, К6). */
 export type { ArchiveEntry } from "../bindings"
 
