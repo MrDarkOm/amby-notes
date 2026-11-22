@@ -253,7 +253,7 @@ export function useDocumentMutations({
           ),
         )
         logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
-        announceUndoable(result, {
+        announceUndoable([result], {
           kind: "renamedWithLinks",
           params: { name: newName },
           titleKey: "notices.tree.renamed",
@@ -414,19 +414,26 @@ export function useDocumentMutations({
           pathChangesCount: pathChanges.length,
         })
 
-        // Each move that rewrote links can be undone exactly from the journal; the line under the tree
-        // offers it for the last one (docs/notices.md, section 9).
-        results.forEach((result, index) => {
-          const entry = sourceEntries[index]
-          if (!entry) return
-          announceUndoable(result, {
-            kind: "movedWithLinks",
-            params: { name: entry.source.name, target: target?.name ?? displayName(vault) },
-            titleKey: "notices.tree.moved",
-            lineKey: "notices.tree.linksUpdated",
-            ...(result.primaryPath ? { target: result.primaryPath } : {}),
-          })
-        })
+        // The move is undone as a whole, exactly, from the line under the tree or the journal, when it
+        // changed links in other notes (docs/notices.md, section 9).
+        const targetName = target?.name ?? displayName(vault)
+        announceUndoable(
+          results,
+          sourceEntries.length === 1
+            ? {
+                kind: "movedWithLinks",
+                params: { name: sourceEntries[0].source.name, target: targetName },
+                titleKey: "notices.tree.moved",
+                lineKey: "notices.tree.linksUpdated",
+                ...(lastResult?.primaryPath ? { target: lastResult.primaryPath } : {}),
+              }
+            : {
+                kind: "movedManyWithLinks",
+                params: { items: String(sourceEntries.length), target: targetName },
+                titleKey: "notices.tree.movedMany",
+                lineKey: "notices.tree.linksUpdated",
+              },
+        )
         await refreshOpenDatabases()
         // A single note moved: carry its properties over if it is now in a database. Not awaited for
         // the person's answer in the outcome of the move: the move itself is done.
@@ -530,7 +537,7 @@ export function useDocumentMutations({
             : await deleteItem(vault, source.path)
           handleApplyMutation(result)
           finishLocalMutation()
-          announceUndoable(result, {
+          announceUndoable([result], {
             kind: "notesMerged",
             params: { source: source.name, target: target.name },
             titleKey: "notices.tree.merged",

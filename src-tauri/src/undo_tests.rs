@@ -375,3 +375,20 @@ fn undo_of_a_move_into_a_note_takes_the_note_out_of_its_new_group() {
     assert_eq!(vault.read("Folder/Moved.md"), moved);
     assert_eq!(vault.read("Linker.md"), linker);
 }
+
+#[test]
+fn a_move_without_link_rewrites_is_undoable_too() {
+    let vault = Vault::new("plain-move");
+    let moved = crlf_note(&id(), "no links point here\n");
+    vault.write("A/Moved.md", &moved);
+    fs::create_dir_all(vault.path("B")).unwrap();
+    let context = activate(&vault);
+
+    let outcome = move_to(&context, &vault, "A/Moved.md", "B");
+    let record = record_of(&outcome);
+    assert_eq!(rewritten_count(&record), 0);
+    undo(&context, record).unwrap();
+
+    assert!(!vault.path("B/Moved.md").exists());
+    assert_eq!(vault.read("A/Moved.md"), moved);
+}

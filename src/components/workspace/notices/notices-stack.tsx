@@ -221,6 +221,11 @@ function journalWords(
     case "renamedWithLinks":
     case "movedWithLinks":
       return t(`notices.journal.${entry.kind}`, { name, count: Number(entry.params.count ?? 0) })
+    case "movedManyWithLinks":
+      return t("notices.journal.movedManyWithLinks", {
+        items: entry.params.items ?? "",
+        count: Number(entry.params.count ?? 0),
+      })
     case "notesMerged":
       return t("notices.journal.notesMerged", {
         source: entry.params.source ?? "",
@@ -252,7 +257,10 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
   const { t, i18n } = useTranslation()
   const [busy, setBusy] = React.useState(false)
   const [outcome, setOutcome] = React.useState<RestoreOutcome | null>(null)
-  const [undoRefusal, setUndoRefusal] = React.useState<string | null>(null)
+  const [undoRefusal, setUndoRefusal] = React.useState<{
+    key: string
+    params?: Record<string, unknown>
+  } | null>(null)
   const restore = async () => {
     setBusy(true)
     setOutcome(await restoreFromJournal(entry))
@@ -261,7 +269,7 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
   const undo = async () => {
     setBusy(true)
     const result = await undoFromJournal(entry)
-    setUndoRefusal(result.outcome === "refused" ? result.key : null)
+    setUndoRefusal(result.outcome === "refused" ? { key: result.key, params: result.params } : null)
     setBusy(false)
   }
   return (
@@ -319,7 +327,7 @@ function JournalRow({ entry }: { entry: JournalEntry }) {
         </div>
         {outcome === "saveFirst" && <NoticeLine text={t("notices.journal.restoreSaveFirst")} />}
         {outcome === "failed" && <NoticeLine text={t("notices.journal.restoreFailed")} />}
-        {undoRefusal && <NoticeLine text={t(undoRefusal)} />}
+        {undoRefusal && <NoticeLine text={t(undoRefusal.key, undoRefusal.params)} />}
       </div>
     </li>
   )

@@ -1907,6 +1907,7 @@ const ru = {
       propertiesRetry: "Перенести",
       renamed: "Переименовано в «{{name}}»",
       moved: "Перенесено «{{name}}» в «{{target}}»",
+      movedMany: "Перенесено выбранное ({{items}}) в «{{target}}»",
       linksUpdated_one: "Ссылки обновлены в {{count}} заметке.",
       linksUpdated_few: "Ссылки обновлены в {{count}} заметках.",
       linksUpdated_many: "Ссылки обновлены в {{count}} заметках.",
@@ -2000,7 +2001,16 @@ const ru = {
       movedWithLinks_few: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
       movedWithLinks_many: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
       movedWithLinks: "Перенесено «{{name}}», ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks_one:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметке",
+      movedManyWithLinks_few:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks_many:
+        "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
+      movedManyWithLinks: "Перенесено выбранное ({{items}}), ссылки обновлены в {{count}} заметках",
       notesMerged: "Текст «{{source}}» добавлен в «{{target}}»",
+      undoPartial:
+        "Вернулось {{done}} из {{total}}, остальное осталось на новом месте. Ничего не потеряно.",
       undoSaveFirst: "Сначала сохраните открытые заметки, потом верните.",
       undoFailed: "Не удалось вернуть. Ничего не изменено.",
       restoreSaveFirst: "Сначала сохраните заметку, потом верните прежнюю версию.",
@@ -6470,6 +6480,7 @@ const en: LocaleShape<typeof ru> = {
       propertiesRetry: "Move them",
       renamed: "Renamed to “{{name}}”",
       moved: "Moved “{{name}}” to “{{target}}”",
+      movedMany: "Moved the selected items ({{items}}) to “{{target}}”",
       linksUpdated_one: "Links updated in {{count}} note.",
       linksUpdated: "Links updated in {{count}} notes.",
       merged: "The text of “{{source}}” was added to “{{target}}”",
@@ -6556,7 +6567,12 @@ const en: LocaleShape<typeof ru> = {
       renamedWithLinks: "Renamed to “{{name}}”, links updated in {{count}} notes",
       movedWithLinks_one: "Moved “{{name}}”, links updated in {{count}} note",
       movedWithLinks: "Moved “{{name}}”, links updated in {{count}} notes",
+      movedManyWithLinks_one:
+        "Moved the selected items ({{items}}), links updated in {{count}} note",
+      movedManyWithLinks: "Moved the selected items ({{items}}), links updated in {{count}} notes",
       notesMerged: "The text of “{{source}}” was added to “{{target}}”",
+      undoPartial:
+        "{{done}} of {{total}} came back; the rest stayed in the new place. Nothing was lost.",
       undoSaveFirst: "Save the open notes first, then undo.",
       undoFailed: "Could not undo. Nothing was changed.",
       restoreSaveFirst: "Save the note first, then restore the previous version.",

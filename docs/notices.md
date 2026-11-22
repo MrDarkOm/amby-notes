@@ -181,7 +181,9 @@ confirmLabel, destructive })` from [confirm.ts](../src/lib/confirm.ts) returns `
   target's text first (`begin_merge`), the merged note goes to the archive, not to the system trash (`finish_merge`), and the undo
   restores the target and brings the note back to its exact place. In the interface: a line under the tree ("Переименовано в
   «…»", "Ссылки обновлены в N заметках", "Текст «…» добавлен в «…»") and a journal entry, both with «Вернуть»
-  ([undo-operation.ts](../src/components/workspace/file-actions/undo-operation.ts)); unsaved open notes are saved first, a refusal
+  ([undo-operation.ts](../src/components/workspace/file-actions/undo-operation.ts)). A move of several items is one entry and one «Вернуть»: every
+  move carries its record, the moves are undone from the last to the first, each exactly or not at all; if one is refused,
+  the line says how many came back ("Вернулось 1 из 2…") and the entry keeps the rest. Unsaved open notes are saved first, a refusal
   is said in the same place with its code's text, and nothing is touched.
 - A question about deletion names the thing by its kind ("Удалить заметку «План»?" (Delete the note “План”?), "Удалить папку…" (Delete the folder…), sketch, canvas, database), not "file"; the line under the title is one and short ("Попадёт в корзину хранилища, оттуда можно вернуть" (It will go to the vault trash, it can be restored from there)).
 - What Amby itself deleted does not come back to life: after a sketch or canvas is deleted, the record sent by the closing editor is discarded (without the question "overwrite?") until the same path is opened again.
