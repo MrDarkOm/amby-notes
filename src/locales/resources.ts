@@ -3423,9 +3423,9 @@ const ru = {
       noImportance: "Без значимости",
       noStory: "Без истории",
       link: {
-        stories: "Связать с историями",
+        stories: "Показывать в историях",
         storiesHint:
-          "Добавит в раздел связь «Истории»: так страницы раздела можно привязывать к историям.",
+          "После этого можно выбирать, в каких историях показывать страницы этого раздела.",
         universes: "Связать истории со вселенными",
         universesHint:
           "Добавит историям связь «Вселенная»: так видно, какие истории и страницы принадлежат вселенной.",
@@ -3474,12 +3474,12 @@ const ru = {
     },
     // The notice of a workshop made before every base was created at once.
     complete: {
-      title: "В мастерской не хватает разделов",
-      sections: "Нет баз: {{names}}.",
-      links: "Не хватает связей между базами.",
-      button: "Создать недостающие разделы",
+      title: "Доступно обновление мастерской",
+      sections: "Появятся разделы {{names}}.",
+      links: "Можно будет добавлять страницы в истории и привязывать якоря к тексту.",
+      button: "Обновить мастерскую",
       working: "Создаю…",
-      part: "Раздела «{{name}}» ещё нет: его добавит кнопка «Создать недостающие разделы» вверху панели.",
+      part: "Раздела «{{name}}» ещё нет: его добавит кнопка «Обновить мастерскую» вверху панели.",
       failed: "Не удалось дополнить мастерскую: {{message}}",
       skipped: "Не тронуто: {{items}}. Папка занята или база заблокирована.",
     },
@@ -3984,6 +3984,7 @@ const ru = {
       worldTabs: "Разделы мира",
       sharedRow: "Общий",
     },
+    danglingStory: { deleted: "История удалена", remove: "Убрать ссылку" },
     gallery: {
       noCategory: "Без категории",
       purpose: {
@@ -3996,7 +3997,7 @@ const ru = {
         stories: "Истории, над которыми вы работаете.",
         custom: "Соберите материалы для раздела «{{name}}».",
       },
-      openAsBase: "Открыть как базу",
+      openAsBase: "Открыть таблицей",
     },
     errors: {
       nameReason: {
@@ -8024,9 +8025,8 @@ const en: LocaleShape<typeof ru> = {
       noImportance: "No importance",
       noStory: "No story",
       link: {
-        stories: "Link to stories",
-        storiesHint:
-          'Adds a "Stories" relation to the section, so its pages can be attached to stories.',
+        stories: "Show in stories",
+        storiesHint: "You’ll be able to choose which stories show each page in this section.",
         universes: "Link stories to universes",
         universesHint:
           'Adds a "Universe" relation to the stories, so it shows which stories and pages belong to a universe.',
@@ -8075,12 +8075,12 @@ const en: LocaleShape<typeof ru> = {
     },
     // The notice of a workshop made before every base was created at once.
     complete: {
-      title: "The workshop is missing parts",
-      sections: "Missing bases: {{names}}.",
-      links: "Some links between the bases are missing.",
-      button: "Create the missing sections",
+      title: "Workshop update available",
+      sections: "Adds these sections — {{names}}.",
+      links: "You’ll be able to add pages to stories and bind anchors to text.",
+      button: "Update workshop",
       working: "Creating…",
-      part: "There is no “{{name}}” section yet: the “Create the missing sections” button at the top of the panel adds it.",
+      part: "There is no “{{name}}” section yet: the “Update workshop” button at the top of the panel adds it.",
       failed: "Could not complete the workshop: {{message}}",
       skipped: "Left alone: {{items}}. The folder is taken or the database is locked.",
     },
@@ -8572,6 +8572,7 @@ const en: LocaleShape<typeof ru> = {
       worldTabs: "Sections of the world",
       sharedRow: "Shared",
     },
+    danglingStory: { deleted: "Story deleted", remove: "Remove link" },
     gallery: {
       noCategory: "No category",
       purpose: {
@@ -8584,7 +8585,7 @@ const en: LocaleShape<typeof ru> = {
         stories: "The stories you are working on.",
         custom: "Collect material for “{{name}}”.",
       },
-      openAsBase: "Open as base",
+      openAsBase: "Open as table",
     },
     errors: {
       nameReason: {

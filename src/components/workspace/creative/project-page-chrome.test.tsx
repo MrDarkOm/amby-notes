@@ -281,8 +281,8 @@ describe("the header menu of a page", () => {
     cleanup()
     mount("w", { section: "chars", onOpenDatabase })
     openMenu()
-    expect(menuRows()).toContain("Открыть как базу")
-    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть как базу" }))
+    expect(menuRows()).toContain("Открыть таблицей")
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть таблицей" }))
     expect(onOpenDatabase).toHaveBeenCalledWith("db_chars", "Персонажи")
   })
 

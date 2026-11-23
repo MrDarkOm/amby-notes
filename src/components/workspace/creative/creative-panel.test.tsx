@@ -708,7 +708,7 @@ describe("CreativePanel", () => {
       expect(screen.queryByRole("button", { name: "Создать раздел «Якоря»" })).toBeNull()
       expect(screen.getByText(/Раздела «Якоря» ещё нет/u)).toBeTruthy()
 
-      fireEvent.click(within(notice).getByRole("button", { name: "Создать недостающие разделы" }))
+      fireEvent.click(within(notice).getByRole("button", { name: "Обновить мастерскую" }))
       await waitFor(() => expect(completeWorkshop).toHaveBeenCalledTimes(1))
       expect(completeWorkshop.mock.calls[0][0]).toMatchObject({
         expectedGeneration: 1,

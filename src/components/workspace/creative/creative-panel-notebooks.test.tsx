@@ -538,6 +538,6 @@ describe("CreativePanel: notebooks of the notes base", () => {
     act(() => useProjectStore.getState().setCatalog(base))
     render(<CreativePanel {...props()} />)
     fireEvent.click(await screen.findByRole("button", { name: /Заметки/ }))
-    expect(await screen.findByRole("button", { name: "Связать с историями" })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: "Показывать в историях" })).toBeTruthy()
   })
 })

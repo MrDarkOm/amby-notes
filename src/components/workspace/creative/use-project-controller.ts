@@ -9,6 +9,7 @@ import {
   useCreativeSettingsStore,
   type CreativeSettingsChangedPayload,
 } from "./creative-settings-store"
+import { movedWorkshopPath } from "./workshop-location"
 import { useProjectStore } from "./project-store"
 import { reportOperationError } from "@/lib/operation-errors"
 
@@ -45,6 +46,7 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
   const defaultFolder = t("creative.workshop.defaultFolder")
   const generationRef = React.useRef(vaultGeneration)
   generationRef.current = vaultGeneration
+  const refreshSequence = React.useRef(0)
 
   // The preferences are those of the vault that is open.
   React.useEffect(() => {
@@ -83,14 +85,26 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
     async (rebuild = false) => {
       const generation = generationRef.current
       if (generation === null) return
+      const sequence = ++refreshSequence.current
+      const latest = () =>
+        generationRef.current === generation && sequence === refreshSequence.current
       setLoading()
       try {
-        setCatalog(rebuild ? await refreshProjects(generation) : await listProjects())
+        const result = rebuild ? await refreshProjects(generation) : await listProjects()
+        if (!latest()) return
+        const state = useProjectStore.getState()
+        const moved = movedWorkshopPath(state.catalog?.workshops[0], result.workshops)
+        if (moved) {
+          await useCreativeSettingsStore.getState().setWorkshopPath(moved)
+          if (!latest()) return
+          setPlace(moved, state.defaultFolder)
+        }
+        setCatalog(result)
       } catch (error) {
-        setError(errorMessage(error))
+        if (latest()) setError(errorMessage(error))
       }
     },
-    [setCatalog, setError, setLoading],
+    [setCatalog, setError, setLoading, setPlace],
   )
 
   React.useEffect(() => {

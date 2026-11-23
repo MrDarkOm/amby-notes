@@ -299,7 +299,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
     act(() => useCreativeNavStore.setState({ universeFilter: null }))
     render(<CreativePanel {...props()} />)
     // Without the property a page is in a story only through its text.
-    const links = await screen.findAllByRole("button", { name: "Связать с историями" })
+    const links = await screen.findAllByRole("button", { name: "Показывать в историях" })
     expect(links).toHaveLength(2)
 
     // A page made here carries no link: there is nowhere to write one.
@@ -336,7 +336,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Связать истории со вселенными" })).toBeNull(),
     )
-    expect(screen.queryByRole("button", { name: "Связать с историями" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Показывать в историях" })).toBeNull()
   })
 
   it("says why a link failed on the world, in the user's words", async () => {
@@ -349,7 +349,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
       }),
     )
     render(<CreativePanel {...props()} />)
-    const links = await screen.findAllByRole("button", { name: "Связать с историями" })
+    const links = await screen.findAllByRole("button", { name: "Показывать в историях" })
     fireEvent.click(links[0])
     expect((await screen.findByRole("alert")).textContent).toContain("Не удалось связать")
   })

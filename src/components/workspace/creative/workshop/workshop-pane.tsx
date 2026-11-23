@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import {
   createTextPage,
   type CreatedTextPage,
+  type DatabaseRow,
   type ProjectCatalog,
   type WorkshopSummary,
 } from "@/lib/storage"
@@ -23,6 +24,7 @@ import { useDatabaseStore } from "../../database/database-store"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { WHOLE_WORKSHOP, writeWorkshopPrefs } from "../creative-scope-storage"
 import { useTextStats } from "../use-text-stats"
+import { DanglingStoryLink } from "./dangling-story-link"
 import { OutsideStoryLink } from "./outside-story-link"
 import { SearchResults } from "./search-results"
 import {
@@ -548,7 +550,27 @@ export function WorkshopPane({
         }}
       />
     ) : null
+  const rowsById = React.useMemo(
+    () =>
+      new Map(
+        Object.entries(data.rows).map(([id, rows]) => [
+          id,
+          new Map(rows.map((row) => [row.noteId, row])),
+        ]),
+      ),
+    [data.rows],
+  )
+  const storyLinkOf = (databaseId: string, noteId: string) => (
+    <DanglingStoryLink
+      workshop={scope.workshop}
+      databaseId={databaseId}
+      row={rowsById.get(databaseId)?.get(noteId)}
+    />
+  )
+  const anchorStoryLink = (row: DatabaseRow) =>
+    anchorsSection ? storyLinkOf(anchorsSection.databaseId, row.noteId) : null
   const plot: PlotPart = {
+    storyLinkOf: anchorStoryLink,
     anchors: storyAnchors,
     anchorsFootnote: outsideStory(
       (anchorsSection ? (data.rows[anchorsSection.databaseId]?.length ?? 0) : 0) -
@@ -783,6 +805,7 @@ export function WorkshopPane({
           content: (
             <AnchorsOverview
               buckets={anchorBuckets}
+              storyLinkOf={anchorStoryLink}
               universe={filter.kind === "universe"}
               canWrite={!scope.workshop?.readOnly}
               loading={data.status === "loading" || data.status === "idle"}
@@ -805,6 +828,7 @@ export function WorkshopPane({
           <>
             <NotesPart
               tree={notesTree}
+              storyLinkOf={(note) => storyLinkOf(note.databaseId, note.noteId)}
               withoutStory={notesWithoutStory}
               canWrite={!scope.workshop?.readOnly}
               loading={data.status === "loading" || data.status === "idle"}
@@ -930,6 +954,7 @@ export function WorkshopPane({
                     <WorldSection
                       categories={shownWorldCategories}
                       itemsByCategory={scoped.shown}
+                      storyLinkOf={storyLinkOf}
                       footnoteOf={(key) =>
                         outsideStory(
                           (itemsByCategory[key]?.length ?? 0) - (scoped.shown[key]?.length ?? 0),

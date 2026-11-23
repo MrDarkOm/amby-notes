@@ -600,6 +600,8 @@ export function ProjectDesk({
           >
             <SectionGallery
               compact
+              workshop={resolvedWorkshop ?? undefined}
+              locked={locked}
               section={section}
               rows={sectionRows}
               loading={data.status === "loading"}

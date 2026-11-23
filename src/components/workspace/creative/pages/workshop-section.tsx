@@ -41,6 +41,7 @@ export function WorkshopSection({
       {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       <SectionGallery
         section={section}
+        workshop={workshop}
         rows={data.rows}
         loading={data.loading}
         storyLabelsOf={storyLabelsOf}

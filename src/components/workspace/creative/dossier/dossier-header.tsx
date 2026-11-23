@@ -4,6 +4,7 @@ import { cardProperties } from "../../database/value-format"
 import { GalleryCover } from "../../database/layouts/gallery-cover"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
 import { useCoverResolver } from "../../database/layouts/use-cover-resolver"
+import { DanglingStoryLink } from "../workshop/dangling-story-link"
 import { PortraitDot } from "../workshop/portrait-dot"
 import { initialsOf } from "../workshop/workshop-model"
 import { characterFieldPriority, dossierStories } from "./dossier-model"
@@ -14,7 +15,7 @@ import type { NoteDossier } from "./use-note-dossier"
  * The name is the page's own title above it. Values are read from the note's frontmatter
  * through the database; nothing here is stored.
  */
-export function DossierHeader({ dossier }: { dossier: NoteDossier }) {
+export function DossierHeader({ dossier, locked }: { dossier: NoteDossier; locked?: boolean }) {
   const { t, i18n } = useTranslation()
   const { context, world } = dossier
   const isCharacter = world.section.role === "characters"
@@ -58,6 +59,12 @@ export function DossierHeader({ dossier }: { dossier: NoteDossier }) {
             ))}
           </ul>
         )}
+        <DanglingStoryLink
+          workshop={world.workshop}
+          databaseId={context.databaseId}
+          row={context.row}
+          locked={locked || context.locked}
+        />
         <dl className="flex flex-col gap-1">
           {cardProperties(context.row.valuesJson, properties, {
             exclude: hidden,

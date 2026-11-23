@@ -161,9 +161,9 @@ describe("ProjectPage", () => {
     expect(onOpenNote).toHaveBeenCalledWith("gleb")
     expect(useCreativeNavStore.getState().sectionByProject.palooverse).toBe("characters")
     // The ordinary database is one row away, in the page's "⋯" menu: no button in the tabs row.
-    expect(within(nav).queryByRole("button", { name: "Открыть как базу" })).toBeNull()
+    expect(within(nav).queryByRole("button", { name: "Открыть таблицей" })).toBeNull()
     openPageMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть как базу" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть таблицей" }))
     expect(onOpenDatabase).toHaveBeenCalledWith("db_characters", "Персонажи")
   })
 
@@ -184,7 +184,7 @@ describe("ProjectPage", () => {
     mount("palooverse")
     expect(screen.getByRole("region", { name: "Истории" })).toBeTruthy()
     openPageMenu()
-    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "Открыть таблицей" })).toBeNull()
   })
 
   it("lists the stories of the workshop as cards and opens one", () => {
@@ -217,7 +217,7 @@ describe("ProjectPage", () => {
     mount("p")
     expect(screen.getByText("Раздел не найден")).toBeTruthy()
     openPageMenu()
-    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "Открыть таблицей" })).toBeNull()
   })
 
   it("is read-only for a project of an unknown format", () => {
