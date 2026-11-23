@@ -33,7 +33,7 @@ than silently changing source data to match a plan.
 - [road/](road/) holds everything planned, one file per category: [ai](road/ai.md) (AI panel, provider
   connections, write-capable agent), [mobile](road/mobile.md), [sync](road/sync.md) (gate reports; the plan
   itself is [sync-plan.md](sync-plan.md)), [boards](road/boards.md) (Excalidraw board), [modules](road/modules.md)
-  (modules and plugins), [cli](road/cli.md) (`amby` command, `amby mcp`, `amby-core` without Tauri), [ai-panel-tools](road/ai-panel-tools.md) (the AI panel gets the MCP tool set with proposals and modes). Each file opens with a status table; its parts are
+  (modules and plugins), [cli](road/cli.md) (`amby` command, `amby mcp`, `amby-core` without Tauri), [ai-panel-tools](road/ai-panel-tools.md) (the AI panel gets the MCP tool set with proposals and modes), [creative-ux](road/creative-ux.md) (UX fixes of the creative workshop, from a review on 2026-11-23). Each file opens with a status table; its parts are
   the former separate plans. Status and counts can reflect an earlier revision; do not bulk-load these files.
 - [audit/](audit/) holds the audits, one folder or file each: [storage](audit/storage-issues-audit.md),
   [database stabilization](audit/database-stabilization.md), [Windows](audit/windows-audit-2026-09-28.md) and the
