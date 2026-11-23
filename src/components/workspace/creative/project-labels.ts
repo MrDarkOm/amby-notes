@@ -79,6 +79,7 @@ const HEADING_KEYS = [
   "history",
 ] as const
 const PRESET_PROPERTY_KEYS = [
+  "role",
   "importance",
   "kind",
   "portrait",

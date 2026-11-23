@@ -85,19 +85,21 @@ export function SectionGallery({
   const name = title ?? sectionTitle(section)
   const Icon = section.role ? sectionRoleIcon(section.role) : Database
   const people = section.role === "characters"
+  const smallGallery = !compact && !loading && title === undefined && rows.length < 3
+  const quickCreate = createFor ? (
+    <QuickCreate
+      tile={smallGallery}
+      label={sectionCreateLabel(t, section.role, sectionTitle(section))}
+      placeholder={t("creative.workshop.newEntityPlaceholder", { name: sectionTitle(section) })}
+      failed={(message) => t("creative.workshop.createFailed", { message })}
+      onCreate={createFor}
+      describe={(caught) => projectErrorText(t, caught)}
+    />
+  ) : null
   if (compact) {
     const sorted = [...rows].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
     )
-    const create = createFor ? (
-      <QuickCreate
-        label={sectionCreateLabel(t, section.role, sectionTitle(section))}
-        placeholder={t("creative.workshop.newEntityPlaceholder", { name: sectionTitle(section) })}
-        failed={(message) => t("creative.workshop.createFailed", { message })}
-        onCreate={createFor}
-        describe={(caught) => projectErrorText(t, caught)}
-      />
-    ) : null
     return (
       <div className="flex min-w-0 flex-col gap-1.5">
         {rows.length === 0 && (
@@ -136,7 +138,7 @@ export function SectionGallery({
             {t("creative.page.desk.more", { count: rows.length - COMPACT_LIMIT })}
           </p>
         )}
-        {create}
+        {quickCreate}
         {footnote}
       </div>
     )
@@ -147,17 +149,7 @@ export function SectionGallery({
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="min-w-0 break-words text-sm font-semibold">{name}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{rows.length || null}</span>
-        {createFor && (
-          <QuickCreate
-            label={sectionCreateLabel(t, section.role, sectionTitle(section))}
-            placeholder={t("creative.workshop.newEntityPlaceholder", {
-              name: sectionTitle(section),
-            })}
-            failed={(message) => t("creative.workshop.createFailed", { message })}
-            onCreate={createFor}
-            describe={(caught) => projectErrorText(t, caught)}
-          />
-        )}
+        {!smallGallery && quickCreate}
         {onOpenAsBase && (
           <button
             type="button"
@@ -169,7 +161,17 @@ export function SectionGallery({
           </button>
         )}
       </div>
-      {rows.length === 0 && (
+      {smallGallery && quickCreate && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-muted-foreground">
+            {t(`creative.gallery.purpose.${section.role ?? "custom"}`, {
+              defaultValue: t("creative.gallery.purpose.custom", { name }),
+            })}
+          </p>
+          {quickCreate}
+        </div>
+      )}
+      {rows.length === 0 && !(smallGallery && quickCreate) && (
         <p className="text-xs text-muted-foreground">
           {loading ? "" : t("creative.workshop.world.noItems")}
         </p>

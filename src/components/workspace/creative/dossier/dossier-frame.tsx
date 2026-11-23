@@ -3,6 +3,8 @@ import { ChevronDown } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { localeResources } from "@/locales/resources"
+import { HeadingHintsContext } from "../../editor/heading-hints-context"
 import { DossierAside } from "./dossier-aside"
 import { hasPlotSections } from "./dossier-model"
 import { DossierHeader } from "./dossier-header"
@@ -65,6 +67,27 @@ export function DossierFrame({
   const place = useNotePlace(noteId)
   const { folded, toggle } = usePlotFold(vaultPath)
   const dossier = place?.kind === "world" ? place.dossier : null
+  const headingHints = React.useMemo(() => {
+    const role = dossier?.world.section.role
+    if (role !== "characters" && role !== "locations") return null
+    const words = {
+      basic: t("creative.dossier.headingHints.basic"),
+      traits: t("creative.dossier.headingHints.traits"),
+      appearance: t("creative.dossier.headingHints.appearance"),
+      biography: t("creative.dossier.headingHints.biography"),
+      description: t("creative.dossier.headingHints.description"),
+      history: t("creative.dossier.headingHints.history"),
+    }
+    const keys =
+      role === "characters"
+        ? (["basic", "traits", "appearance", "biography"] as const)
+        : (["description", "history"] as const)
+    return new Map(
+      Object.values(localeResources).flatMap(({ translation }) =>
+        keys.map((key) => [translation.creative.preset.headings[key], words[key]] as const),
+      ),
+    )
+  }, [dossier?.world.section.role, t])
   const textPlace =
     place?.kind === "text" && hasPlotSections(place.text.workshop) ? place.text : null
   const framed = dossier !== null || (textPlace !== null && !folded)
@@ -86,7 +109,11 @@ export function DossierFrame({
           framed && sideBySide && "items-start",
         )}
       >
-        <div className={framed ? "min-w-0 flex-1" : "contents"}>{children}</div>
+        <div className={framed ? "min-w-0 flex-1" : "contents"}>
+          <HeadingHintsContext.Provider value={headingHints}>
+            {children}
+          </HeadingHintsContext.Provider>
+        </div>
         {dossier ? (
           <DossierAside
             dossier={dossier}

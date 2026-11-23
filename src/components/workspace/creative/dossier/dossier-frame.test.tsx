@@ -40,7 +40,11 @@ function context(databaseId: string, title = "Персонажи"): DatabaseNote
     databaseIcon: null,
     manifestRevision: "m",
     locked: false,
-    properties: [importance, portrait],
+    properties: [
+      importance,
+      portrait,
+      { ...importance, propertyId: "role", name: "Роль", propertyType: "text", options: [] },
+    ],
     row: {
       noteId: "n1",
       title: "Алиса",
@@ -48,7 +52,11 @@ function context(databaseId: string, title = "Персонажи"): DatabaseNote
       parentNoteId: null,
       depth: 0,
       categoryPath: [],
-      valuesJson: JSON.stringify({ imp: { type: "select", optionId: "a" } }),
+      valuesJson: JSON.stringify({
+        imp: { type: "select", optionId: "a" },
+        role: { type: "text", value: "Разведчик" },
+        story: { type: "relation", targetNoteIds: ["note_molehills_story"] },
+      }),
       rowRevision: "r",
     },
   }
@@ -88,6 +96,7 @@ const story = workshopSummary("molehills", {
   sections: [
     section("characters", {
       role: "characters",
+      storiesPropertyId: "story",
       databaseName: "Персонажи",
       databaseId: "db_characters",
     }),
@@ -166,7 +175,10 @@ describe("DossierFrame", () => {
     mount()
     await settle()
 
-    expect(screen.getByText("MoleHills · Персонажи")).toBeTruthy()
+    expect(screen.queryByText("MoleHills · Персонажи")).toBeNull()
+    expect(screen.getByText("А")).toBeTruthy()
+    expect(screen.getByText("Разведчик")).toBeTruthy()
+    expect(screen.getByText("molehills_story")).toBeTruthy()
     // Key properties come with their names.
     expect(screen.getByText("Значимость")).toBeTruthy()
     expect(screen.getByText("Главные")).toBeTruthy()

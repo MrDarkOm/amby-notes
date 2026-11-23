@@ -13,7 +13,7 @@ first (section 2).
 | D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | implemented        |
 | E     | "Create" chooser and button labels                      | 9, 10         | implemented        |
 | F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented        |
-| G     | Dossier and empty sections                              | 18–21         | planned            |
+| G     | Dossier and empty sections                              | 18–21         | implemented        |
 | H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |
 | I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | planned            |
 | J     | Desk, panel and small polish                            | 14, 17, 25–30 | planned            |

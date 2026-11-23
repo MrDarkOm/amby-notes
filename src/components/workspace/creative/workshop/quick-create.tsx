@@ -1,11 +1,13 @@
 import * as React from "react"
 import { Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface QuickCreateProps {
   /** The button that opens the field. */
   label: string
+  tile?: boolean
   placeholder: string
   /** Shown under the field when `onCreate` rejects; gets the message. */
   failed: (message: string) => string
@@ -19,7 +21,14 @@ interface QuickCreateProps {
  * A button that opens one field: Enter makes the item, Escape closes. A failure is shown under the
  * field with the typed name kept, so nothing is lost and nothing is swallowed.
  */
-export function QuickCreate({ label, placeholder, failed, onCreate, describe }: QuickCreateProps) {
+export function QuickCreate({
+  label,
+  tile = false,
+  placeholder,
+  failed,
+  onCreate,
+  describe,
+}: QuickCreateProps) {
   const [naming, setNaming] = React.useState(false)
   const [title, setTitle] = React.useState("")
   const [pending, setPending] = React.useState(false)
@@ -47,7 +56,12 @@ export function QuickCreate({ label, placeholder, failed, onCreate, describe }: 
       <button
         type="button"
         onClick={() => setNaming(true)}
-        className="flex w-fit items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        className={cn(
+          "flex items-center gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground",
+          tile
+            ? "min-h-24 w-full max-w-sm justify-center rounded-xl border border-dashed border-border px-4 py-3 text-sm"
+            : "w-fit rounded-md px-2 py-1 text-xs",
+        )}
       >
         <Plus className="size-3.5" />
         {label}

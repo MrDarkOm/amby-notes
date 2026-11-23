@@ -3617,8 +3617,15 @@ const ru = {
       },
     },
     dossier: {
-      location: "{{project}} · {{section}}",
       aside: "Досье",
+      headingHints: {
+        basic: "Возраст, занятие, роль в истории…",
+        traits: "Черты, привычки, желания…",
+        appearance: "Внешность, одежда, приметы…",
+        biography: "Прошлое и важные события…",
+        description: "Как выглядит место и чем оно запоминается…",
+        history: "Что происходило здесь раньше…",
+      },
       toc: "Разделы",
       appearsIn: "Появляется в",
       appearsInEmpty: "Пока нигде в тексте не упоминается.",
@@ -3632,6 +3639,7 @@ const ru = {
     // template names inside the new database, so they follow the language of the moment.
     preset: {
       properties: {
+        role: "Роль",
         importance: "Значимость",
         kind: "Тип",
         portrait: "Портрет",
@@ -3978,6 +3986,16 @@ const ru = {
     },
     gallery: {
       noCategory: "Без категории",
+      purpose: {
+        characters: "Здесь живут персонажи ваших историй.",
+        locations: "Места, где происходят ваши истории.",
+        arcs: "Арки, которые проходят через ваши истории.",
+        anchors: "Ключевые события, которые можно привязать к тексту.",
+        universes: "Вселенные объединяют истории общим миром.",
+        notes: "Идеи и материалы для ваших историй.",
+        stories: "Истории, над которыми вы работаете.",
+        custom: "Соберите материалы для раздела «{{name}}».",
+      },
       openAsBase: "Открыть как базу",
     },
     errors: {
@@ -8198,8 +8216,15 @@ const en: LocaleShape<typeof ru> = {
       },
     },
     dossier: {
-      location: "{{project}} · {{section}}",
       aside: "Dossier",
+      headingHints: {
+        basic: "Age, occupation, role in the story…",
+        traits: "Traits, habits, desires…",
+        appearance: "Looks, clothes, distinguishing features…",
+        biography: "Past and formative events…",
+        description: "How the place looks and what makes it memorable…",
+        history: "What happened here before…",
+      },
       toc: "Sections",
       appearsIn: "Appears in",
       appearsInEmpty: "Not mentioned in the text yet.",
@@ -8211,6 +8236,7 @@ const en: LocaleShape<typeof ru> = {
     },
     preset: {
       properties: {
+        role: "Role",
         importance: "Importance",
         kind: "Kind",
         portrait: "Portrait",
@@ -8548,6 +8574,16 @@ const en: LocaleShape<typeof ru> = {
     },
     gallery: {
       noCategory: "No category",
+      purpose: {
+        characters: "The characters in your stories.",
+        locations: "The places where your stories happen.",
+        arcs: "The arcs that run through your stories.",
+        anchors: "Key events you can bind to the text.",
+        universes: "Universes bring together stories that share a world.",
+        notes: "Ideas and material for your stories.",
+        stories: "The stories you are working on.",
+        custom: "Collect material for “{{name}}”.",
+      },
       openAsBase: "Open as base",
     },
     errors: {

@@ -99,8 +99,8 @@ on a story, text levels (`updateTextLevels`) and the `status` property (`addText
 **Operation IDs.** One per intent: a retry reuses it, a changed request gets a new one.
 
 **Dossier.** `DossierFrame` is the editor's `editorFrame` (see [document-body.tsx](../editor/document-body.tsx)):
-one structure for every note, so the editor is never remounted when the answer arrives. It asks the
-backend only when projects exist (`useNotePlace`) and shows nothing outside the world sections, except the plot
+one editor structure. `useNotePlace` supplies the dossier and [heading hints](../tiptap/heading-hints.ts),
+which decorate empty preset sections without writing them. Outside dossiers, the frame can show the plot
 aside for story text (`text-page-aside.tsx`). It binds through `usePlotBinding` and folds per vault. An arc's page shows
 its anchors and chapters and a character's its arcs (`plot-blocks.tsx`); [format §11](../../../../docs/creative-format.md).
 

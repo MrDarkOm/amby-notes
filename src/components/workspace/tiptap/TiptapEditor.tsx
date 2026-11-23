@@ -7,6 +7,8 @@ import { Link2Off } from "lucide-react"
 import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
+import { HeadingHintsContext } from "../editor/heading-hints-context"
+import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
 import { buildExtensions } from "./extensions"
 import { markdownToDoc } from "./markdown"
 import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
@@ -303,6 +305,7 @@ export function TiptapEditor({
     [closeMenu, computeSelectionAnchor],
   )
 
+  const headingHints = React.useContext(HeadingHintsContext)
   const editor = useEditor({
     // The base rules are in themes/prosemirror-base.css: the same on every system.
     injectCSS: false,
@@ -359,6 +362,14 @@ export function TiptapEditor({
       }, 180)
     },
   })
+
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !headingHints) return
+    editor.registerPlugin(headingHintsPlugin(headingHints))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(headingHintsKey)
+    }
+  }, [editor, headingHints])
 
   React.useEffect(() => {
     const onContextMenu = (event: Event) => {
