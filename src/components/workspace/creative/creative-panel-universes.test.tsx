@@ -352,7 +352,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       await pick("Вселенная", /Пустой/)
       await screen.findByRole("button", { name: /Создать первую историю/ })
       // No "add the first…" rows, no "World" heading, no empty parts of the anchors or notes.
-      expect(screen.queryByRole("button", { name: "Добавить: Персонажи" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Персонаж" })).toBeNull()
       expect(screen.queryByText("Мир")).toBeNull()
       expect(screen.queryByText("Нет разделов мира")).toBeNull()
       expect(screen.queryByText(/Добавить первый/)).toBeNull()
@@ -575,7 +575,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
     it("does not list the universes among its sections, only the other ones", async () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Глеб/ })
-      expect(screen.getByRole("button", { name: "Добавить: Персонажи" })).toBeTruthy()
+      expect(screen.getByRole("button", { name: "Персонаж" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: /Вселенные/ })).toBeNull()
       expect(screen.queryByRole("button", { name: "Добавить: Вселенные" })).toBeNull()
     })

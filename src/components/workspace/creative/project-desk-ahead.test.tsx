@@ -234,7 +234,7 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
     ROWS.db_anch = []
     mount()
     const region = await strip()
-    fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
+    fireEvent.click(within(region).getByRole("button", { name: "Якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
@@ -254,7 +254,7 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
     createWorkshopEntity.mockRejectedValue(projectFailure("createPageFailed", "нет места"))
     mount()
     const region = await strip()
-    fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
+    fireEvent.click(within(region).getByRole("button", { name: "Якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)

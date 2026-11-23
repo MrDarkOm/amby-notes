@@ -18,7 +18,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { PanelSearch } from "../../panels/panel-header"
-import { splitChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
+import { groupChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
 import { useDatabaseStore } from "../../database/database-store"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { writeWorkshopPrefs } from "../creative-scope-storage"
@@ -670,7 +670,9 @@ export function WorkshopPane({
   React.useEffect(() => {
     if (!entityRequest || entityRequest.id === handledEntity.current) return
     handledEntity.current = entityRequest.id
-    startEntity(entityRequest.categoryKey)
+    if (entityRequest.categoryKey === "anchors") startAnchor()
+    else if (entityRequest.categoryKey === "notes") startNote([])
+    else startEntity(entityRequest.categoryKey)
     // One-shot per request id (guarded by `handledEntity`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityRequest])
@@ -741,7 +743,7 @@ export function WorkshopPane({
   const iconOf = (databaseId: string) =>
     databases.find((database) => database.databaseId === databaseId)?.icon ?? null
 
-  const { common, rare } = splitChooserOptions(createOptions)
+  const createGroups = groupChooserOptions(createOptions)
 
   const actions = React.useMemo<ItemActions>(
     () => ({ onOpen: onOpenNote, ...itemActions }),
@@ -944,26 +946,23 @@ export function WorkshopPane({
             <ContextMenuLabel className="text-[11px] text-muted-foreground">
               {t("creative.workshop.menu.create")}
             </ContextMenuLabel>
-            {common.map(({ value, icon: Icon, title }) => (
-              <ContextMenuItem
-                key={value}
-                className="gap-2 text-[13px]"
-                onSelect={() => onCreate(value)}
-              >
-                <Icon className="size-3.5 text-muted-foreground" />
-                <span className="truncate">{title}</span>
-              </ContextMenuItem>
-            ))}
-            {common.length > 0 && rare.length > 0 && <ContextMenuSeparator />}
-            {rare.map(({ value, icon: Icon, title }) => (
-              <ContextMenuItem
-                key={value}
-                className="gap-2 text-[13px] text-muted-foreground"
-                onSelect={() => onCreate(value)}
-              >
-                <Icon className="size-3.5" />
-                <span className="truncate">{title}</span>
-              </ContextMenuItem>
+            {createGroups.map(({ group, options }, index) => (
+              <React.Fragment key={group}>
+                {index > 0 && <ContextMenuSeparator />}
+                <ContextMenuLabel className="text-[11px] text-muted-foreground">
+                  {t(`creative.chooser.groups.${group}`)}
+                </ContextMenuLabel>
+                {options.map(({ value, icon: Icon, title }) => (
+                  <ContextMenuItem
+                    key={value}
+                    className="gap-2 text-[13px]"
+                    onSelect={() => onCreate(value)}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    <span className="truncate">{title}</span>
+                  </ContextMenuItem>
+                ))}
+              </React.Fragment>
             ))}
           </ContextMenuContent>
         </ContextMenu>

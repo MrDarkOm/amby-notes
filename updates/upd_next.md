@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: Create groups story pages, anchors and notes, reference entries, and workshop structure. Add buttons name the item they create.
+
 - Creative workshop: see the level when creating or opening a text page, and change it from the page menu. The text tree explains when a page cannot have children or accept a drop.
 
 - Creative workshop: story cards and search results open the story desk. Read and edit the description there, or open its note from the story card menu.

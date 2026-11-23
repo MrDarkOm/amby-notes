@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Database, FolderOpen } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { sectionCreateLabel } from "../section-create-label"
 import type { DatabaseRow, WorkshopSectionSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
@@ -88,7 +89,7 @@ export function SectionGallery({
     )
     const create = createFor ? (
       <QuickCreate
-        label={t("creative.workshop.world.addEntity", { name: sectionTitle(section) })}
+        label={sectionCreateLabel(t, section.role, sectionTitle(section))}
         placeholder={t("creative.workshop.newEntityPlaceholder", { name: sectionTitle(section) })}
         failed={(message) => t("creative.workshop.createFailed", { message })}
         onCreate={createFor}
@@ -146,7 +147,7 @@ export function SectionGallery({
         <span className="text-xs tabular-nums text-muted-foreground">{rows.length || null}</span>
         {createFor && (
           <QuickCreate
-            label={t("creative.workshop.world.addEntity", { name: sectionTitle(section) })}
+            label={sectionCreateLabel(t, section.role, sectionTitle(section))}
             placeholder={t("creative.workshop.newEntityPlaceholder", {
               name: sectionTitle(section),
             })}

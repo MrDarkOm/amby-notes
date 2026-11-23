@@ -430,7 +430,7 @@ describe("the page of the standalone stories", () => {
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(within(nav).getByRole("button", { name: "Персонажи" }))
     const list = await screen.findByRole("region", { name: "Персонажи" })
-    fireEvent.click(await within(list).findByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(await within(list).findByRole("button", { name: "Персонаж" }))
     const field = within(list).getByLabelText("Название — Персонажи")
     fireEvent.change(field, { target: { value: "Новый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)

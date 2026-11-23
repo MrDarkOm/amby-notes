@@ -961,7 +961,7 @@ describe("CreativePanel", () => {
       const onSelect = vi.fn()
       render(<CreativePanel {...props({ onSelect })} />)
       await title(/Борис/)
-      fireEvent.click(screen.getByRole("button", { name: "Добавить: Персонажи" }))
+      fireEvent.click(screen.getByRole("button", { name: "Персонаж" }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Марта" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -982,7 +982,7 @@ describe("CreativePanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       fireEvent.click(
         within(screen.getByRole("dialog")).getByRole("button", {
-          name: /Новая страница: Персонажи/,
+          name: /^Персонаж(?:$| )/,
         }),
       )
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
@@ -996,23 +996,46 @@ describe("CreativePanel", () => {
       })
     })
 
-    it("offers the frequent things first in the chooser and the rare ones after a heading", async () => {
+    it("groups creation by purpose with one universe and the current story level", async () => {
+      const fixture = world()
+      fixture.workshops[0].sections.push(
+        section("universes", { role: "universes", name: "Вселенные" }),
+      )
+      act(() => useProjectStore.getState().setCatalog(fixture))
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       const dialog = within(screen.getByRole("dialog"))
-      const names = dialog.getAllByRole("button").map((button) => button.textContent ?? "")
-      const at = (pattern: RegExp) => names.findIndex((name) => pattern.test(name))
-      expect(at(/^Новая страница(?!:)/)).toBeGreaterThanOrEqual(0)
-      expect(at(/^Новая страница: Персонажи/)).toBeGreaterThanOrEqual(0)
-      expect(dialog.getByText("Нужно реже")).toBeTruthy()
-      // A story, a section and a universe come after the frequent ones.
-      const rareIndices = [at(/(?:Новая )?История/), at(/^Раздел/), at(/^Вселенная/)].filter(
-        (i) => i >= 0,
-      )
-      const rareStart = Math.min(...rareIndices)
-      expect(Math.max(at(/^Новая страница(?!:)/), at(/^Новая страница: Персонажи/))).toBeLessThan(
-        rareStart,
+      const story = within(dialog.getByRole("region", { name: "В истории" }))
+      expect(story.getByRole("button", { name: "Новая: Книга" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Якорь" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Заметка" })).toBeTruthy()
+      const reference = within(dialog.getByRole("region", { name: "В справочнике" }))
+      expect(reference.getByRole("button", { name: "Персонаж" })).toBeTruthy()
+      expect(reference.getByRole("button", { name: "Добавить в «Организации»" })).toBeTruthy()
+      expect(dialog.getByRole("region", { name: "Структура" })).toBeTruthy()
+      expect(dialog.getAllByRole("button", { name: /Вселенная|Вселенные/ })).toHaveLength(1)
+    })
+
+    it.each([
+      ["Якорь", "Название якоря", "anchors"],
+      ["Заметка", "Название заметки", "notes"],
+    ])("creates a story-linked %s from the chooser", async (choice, placeholder, sectionId) => {
+      render(<CreativePanel {...props()} />)
+      await title(/Борис/)
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }))
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: choice }))
+      const field = await screen.findByRole("textbox", { name: new RegExp(placeholder) })
+      fireEvent.change(field, { target: { value: "Первый" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() =>
+        expect(createWorkshopEntity).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sectionId,
+            storyId: "hills",
+            title: "Первый",
+          }),
+        ),
       )
     })
 
@@ -1160,7 +1183,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Борис/ })
       fireEvent.contextMenu(screen.getByRole("region", { name: "Мир" }))
-      fireEvent.click(await screen.findByRole("menuitem", { name: /Новая страница: Персонажи/ }))
+      fireEvent.click(await screen.findByRole("menuitem", { name: /^Персонаж(?:$| )/ }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Лев" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -1176,7 +1199,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onDelete: vi.fn() })} />)
       fireEvent.contextMenu(await screen.findByRole("button", { name: /Борис/ }))
       await screen.findByRole("menuitem", { name: "Удалить" })
-      expect(screen.queryByRole("menuitem", { name: /Новая страница: / })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: /^Персонаж(?:$| )/ })).toBeNull()
     })
 
     it("changes a text page's status from its context menu when status is configured", async () => {

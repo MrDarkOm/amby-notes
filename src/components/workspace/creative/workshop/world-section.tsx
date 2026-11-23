@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Database } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { sectionCreateLabel } from "../section-create-label"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
@@ -196,7 +197,7 @@ export function WorldSection({
             open={!collapsed[`category:${tab.key}`]}
             onToggle={() => onToggle(`category:${tab.key}`)}
             onAdd={writable ? () => onAddEntity(tab.key) : null}
-            addLabel={t("creative.workshop.world.addEntity", { name: tab.name })}
+            addLabel={sectionCreateLabel(t, tab.role, tab.name)}
             iconNode={
               icon ? (
                 <IconValue
