@@ -3861,6 +3861,12 @@ const ru = {
       readOnlyBanner:
         "Формат мастерской (версия {{version}}) новее известного этой версии Amby: мастерская открыта только для чтения, файл не изменяется.",
     },
+    storyDescription: {
+      title: "Описание",
+      edit: "Редактировать описание",
+      empty: "Описания пока нет.",
+      openNote: "Открыть заметку",
+    },
     storyCard: {
       standalone: "Отдельная история",
       finished: "Закончена",
@@ -8403,6 +8409,12 @@ const en: LocaleShape<typeof ru> = {
       notFoundHint: "The amby-workshop.json file was moved or deleted. Refresh the workshop list.",
       readOnlyBanner:
         "The workshop format (version {{version}}) is newer than this Amby knows: it is read-only and the file is not changed.",
+    },
+    storyDescription: {
+      title: "Description",
+      edit: "Edit description",
+      empty: "No description yet.",
+      openNote: "Open note",
     },
     storyCard: {
       standalone: "Standalone story",

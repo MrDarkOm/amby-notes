@@ -16,6 +16,8 @@ writes only through the calls the panel uses (`createTextPage`, `moveTextPage`, 
 | Chapters: outline, moves, new page, "Ahead" strip | [chapters-widget.tsx](chapters-widget.tsx)                                              |
 | Notes of the story, the world of the story        | `NotesBoard` (`embedded`) and `SectionGallery` (`compact`) of [pages/](../pages/MAP.md) |
 
+**Description.** [StoryDescription](story-description.tsx) shows the story card's Markdown body and saves inline edits through the note port with the revision the draft started from. It sits above the customizable widgets.
+
 **Grid.** Three columns when the desk is 860 px wide or more, two from 560 and one below (`deskColumns`, measured on the
 desk itself because side panels change its width; unmeasured is wide). A widget spans 1, 2 or 3 columns, never more than
 the desk has (`effectiveSpan`). Default order: Continue (2), Progress (1), Chapters (2), Notes (1), Characters, Locations,

@@ -3,11 +3,13 @@ import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { progressOf, type StoryEntry } from "./story-list-model"
+import { StoryNoteMenu } from "../workshop/story-note-menu"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface StoryTimelineProps {
   /** The stories in the author's order, left to right. */
   entries: readonly StoryEntry[]
+  onOpenNote?: (noteId: string) => void
   onOpen: (storyId: string) => void
   /** Moves a story to a place in the order (the index among `entries`). `null`: no reordering. */
   onMove: ((storyId: string, to: number) => void) | null
@@ -22,7 +24,14 @@ interface StoryTimelineProps {
  * card is moved by dragging it onto another place or by the two arrows under it, so the order can
  * be changed from the keyboard too.
  */
-export function StoryTimeline({ entries, onOpen, onMove, onNewStory, error }: StoryTimelineProps) {
+export function StoryTimeline({
+  entries,
+  onOpen,
+  onOpenNote,
+  onMove,
+  onNewStory,
+  error,
+}: StoryTimelineProps) {
   const { t } = useTranslation()
   const [dragging, setDragging] = React.useState<string | null>(null)
   const [over, setOver] = React.useState<number | null>(null)
@@ -73,44 +82,46 @@ export function StoryTimeline({ entries, onOpen, onMove, onNewStory, error }: St
                   />
                   <span className="h-0.5 flex-1 bg-border" />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onOpen(entry.storyId)}
-                  className="flex flex-col gap-2 rounded-xl border border-border bg-card px-3.5 py-3 text-left outline-none hover:border-primary/40 focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <span className="break-words text-sm font-semibold leading-snug">
-                    {entry.name}
-                  </span>
-                  <span
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={progress}
-                    aria-label={t("creative.storyCard.progress")}
-                    className="block h-1 w-full overflow-hidden rounded-full bg-accent"
+                <StoryNoteMenu noteId={entry.cardNoteId} title={entry.name} onOpenNote={onOpenNote}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(entry.storyId)}
+                    className="flex flex-col gap-2 rounded-xl border border-border bg-card px-3.5 py-3 text-left outline-none hover:border-primary/40 focus-visible:ring-1 focus-visible:ring-ring"
                   >
+                    <span className="break-words text-sm font-semibold leading-snug">
+                      {entry.name}
+                    </span>
                     <span
-                      className={cn(
-                        "block h-full rounded-full",
-                        entry.finished ? "bg-teal-500" : "bg-primary",
-                      )}
-                      style={{ width: `${Math.max(progress, 2)}%` }}
-                    />
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {[
-                      entry.finished
-                        ? t("creative.storyCard.finished")
-                        : entry.donePages !== null
-                          ? t("creative.page.desk.doneOf", {
-                              done: entry.donePages,
-                              total: entry.pages,
-                            })
-                          : t("creative.workshop.pagesShort", { count: entry.pages }),
-                      t("docEditor.wordCount", { count: entry.words }),
-                    ].join(" · ")}
-                  </span>
-                </button>
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                      aria-label={t("creative.storyCard.progress")}
+                      className="block h-1 w-full overflow-hidden rounded-full bg-accent"
+                    >
+                      <span
+                        className={cn(
+                          "block h-full rounded-full",
+                          entry.finished ? "bg-teal-500" : "bg-primary",
+                        )}
+                        style={{ width: `${Math.max(progress, 2)}%` }}
+                      />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {[
+                        entry.finished
+                          ? t("creative.storyCard.finished")
+                          : entry.donePages !== null
+                            ? t("creative.page.desk.doneOf", {
+                                done: entry.donePages,
+                                total: entry.pages,
+                              })
+                            : t("creative.workshop.pagesShort", { count: entry.pages }),
+                        t("docEditor.wordCount", { count: entry.words }),
+                      ].join(" · ")}
+                    </span>
+                  </button>
+                </StoryNoteMenu>
                 {movable && (
                   <div className="flex gap-1">
                     <button

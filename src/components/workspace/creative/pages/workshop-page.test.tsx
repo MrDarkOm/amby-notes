@@ -115,7 +115,12 @@ const storiesSummary: DatabaseSummary = {
 const workshop = workshopSummary("verse", {
   name: "Verse",
   sections: [
-    section("stories", { role: "stories", databaseId: "db_stories", universePropertyId: "up" }),
+    section("stories", {
+      role: "stories",
+      name: "Истории",
+      databaseId: "db_stories",
+      universePropertyId: "up",
+    }),
     section("universes", { role: "universes", name: "Вселенные", databaseId: "db_univ" }),
     section("notes", {
       role: "notes",
@@ -213,6 +218,18 @@ describe("the page of the workshop", () => {
     })
   })
   afterEach(cleanup)
+
+  it("opens the desk from the Stories gallery and offers the card in its context menu", async () => {
+    const { onOpenProject, onOpenNote } = mount()
+    fireEvent.click(screen.getByRole("button", { name: "Истории" }))
+    const card = await screen.findByRole("button", { name: "MoleHills" })
+    fireEvent.click(card)
+    expect(onOpenProject).toHaveBeenCalledWith("hills")
+    expect(onOpenNote).not.toHaveBeenCalled()
+    fireEvent.contextMenu(card)
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Открыть заметку" }))
+    expect(onOpenNote).toHaveBeenCalledWith("note_hills")
+  })
 
   it("counts worlds, stories and the words written under the name", async () => {
     mount()

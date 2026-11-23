@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
 import { useDatabaseStore } from "../../database/database-store"
 import { sectionRoleIcon } from "../section-icons"
+import { StoryNoteMenu } from "../workshop/story-note-menu"
 import { PortraitDot } from "../workshop/portrait-dot"
 import { QuickCreate } from "../workshop/quick-create"
 import { usePortraitResolvers } from "../workshop/use-portrait-resolvers"
@@ -22,6 +23,8 @@ interface SectionGalleryProps {
   loading?: boolean
   /** The stories a page is in (two names and "+N"); without it the cards carry no chips. */
   storyLabelsOf?: (noteId: string) => StoryLabels
+  storyIdOf?: (noteId: string) => string | undefined
+  onOpenStory?: (storyId: string) => void
   onOpenNote: (noteId: string) => void
   /** Opens the section as an ordinary database; without it the header has no such button. */
   onOpenAsBase?: () => void
@@ -58,6 +61,8 @@ export function SectionGallery({
   loading = false,
   storyLabelsOf,
   onOpenNote,
+  storyIdOf,
+  onOpenStory,
   onOpenAsBase,
   openLabel,
   createFor,
@@ -186,51 +191,58 @@ export function SectionGallery({
               const preview = resolveGalleryPreview(row.valuesJson)
               const labels = storyLabelsOf?.(row.noteId)
               const hasPicture = preview.kind === "asset"
+              const storyId = storyIdOf?.(row.noteId)
               return (
                 <li key={row.noteId} className="min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => onOpenNote(row.noteId)}
-                    className="flex h-full w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left outline-none hover:border-primary/40 hover:bg-accent/30 focus-visible:ring-1 focus-visible:ring-ring"
+                  <StoryNoteMenu
+                    noteId={storyId ? row.noteId : null}
+                    title={row.title}
+                    onOpenNote={onOpenNote}
                   >
-                    {people || hasPicture ? (
-                      <PortraitDot
-                        relativePath={preview.kind === "asset" ? preview.relativePath : null}
-                        resolver={resolverFor(section.databaseId)}
-                        initials={initialsOf(row.title)}
-                        className={cn("size-10 text-xs", !people && "rounded-lg")}
-                      />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground"
-                      >
-                        <Icon className="size-4" />
-                      </span>
-                    )}
-                    <span className="flex min-w-0 flex-col gap-1">
-                      <span className="break-words text-sm font-medium leading-snug">
-                        {row.title}
-                      </span>
-                      {labels && (labels.names.length > 0 || labels.more > 0) && (
-                        <span className="flex flex-wrap gap-1">
-                          {labels.names.map((storyName) => (
-                            <span
-                              key={storyName}
-                              className="max-w-full truncate rounded-full bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                            >
-                              {storyName}
-                            </span>
-                          ))}
-                          {labels.more > 0 && (
-                            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                              {`+${labels.more}`}
-                            </span>
-                          )}
+                    <button
+                      type="button"
+                      onClick={() => (storyId ? onOpenStory?.(storyId) : onOpenNote(row.noteId))}
+                      className="flex h-full w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left outline-none hover:border-primary/40 hover:bg-accent/30 focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {people || hasPicture ? (
+                        <PortraitDot
+                          relativePath={preview.kind === "asset" ? preview.relativePath : null}
+                          resolver={resolverFor(section.databaseId)}
+                          initials={initialsOf(row.title)}
+                          className={cn("size-10 text-xs", !people && "rounded-lg")}
+                        />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground"
+                        >
+                          <Icon className="size-4" />
                         </span>
                       )}
-                    </span>
-                  </button>
+                      <span className="flex min-w-0 flex-col gap-1">
+                        <span className="break-words text-sm font-medium leading-snug">
+                          {row.title}
+                        </span>
+                        {labels && (labels.names.length > 0 || labels.more > 0) && (
+                          <span className="flex flex-wrap gap-1">
+                            {labels.names.map((storyName) => (
+                              <span
+                                key={storyName}
+                                className="max-w-full truncate rounded-full bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                              >
+                                {storyName}
+                              </span>
+                            ))}
+                            {labels.more > 0 && (
+                              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                                {`+${labels.more}`}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </StoryNoteMenu>
                 </li>
               )
             })}

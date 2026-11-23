@@ -75,6 +75,7 @@ export function useNoteTrail(noteId: string | undefined): TrailStep[] | null {
           workshop: t("panels.creative"),
           standalone: t("creative.workshop.standalone"),
           universe: t("creative.kind.universe"),
+          description: t("creative.storyDescription.title"),
         },
       })
     : null

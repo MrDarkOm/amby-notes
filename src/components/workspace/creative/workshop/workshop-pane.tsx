@@ -404,6 +404,17 @@ export function WorkshopPane({
       }
     }
     return buildSearchGroups(search, [
+      {
+        key: "stories",
+        label: t("creative.sections.stories"),
+        items: scope.stories.map((story) => ({
+          ...asItem(
+            { noteId: story.cardNoteId ?? story.storyId, title: story.name, valuesJson: "{}" },
+            storiesSection?.databaseId ?? "",
+          ),
+          story: { id: story.storyId, cardNoteId: story.cardNoteId },
+        })),
+      },
       { key: "works", label: t("creative.workshop.works", "Произведения"), items: works },
       ...categories.map((category) => ({
         key: category.key,
@@ -411,7 +422,17 @@ export function WorkshopPane({
         items: itemsByCategory[category.key] ?? [],
       })),
     ])
-  }, [categories, data.rows, itemsByCategory, scope.stories, scope.workshop, search, searching, t])
+  }, [
+    categories,
+    data.rows,
+    itemsByCategory,
+    scope.stories,
+    scope.workshop,
+    search,
+    searching,
+    storiesSection,
+    t,
+  ])
 
   const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
   const notebookActions = useNotebookActions({
@@ -836,6 +857,7 @@ export function WorkshopPane({
                   status={data.status}
                   error={data.error}
                   onOpen={onOpenNote}
+                  onOpenStory={onOpenProject}
                 />
               ) : (
                 <WorksTab

@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: story cards and search results open the story desk. Read and edit the description there, or open its note from the story card menu.
+
 - For developers: a UX fix plan for the creative workshop (`docs/road/creative-ux.md`), from a review of beta 9 on a real vault.
 - Renaming or moving a note or folder that updates links in other notes, and merging two notes, no longer ask first. A line under the tree and an entry in the notifications say what happened ("Links updated in 3 notes"), with a "Restore" button that undoes it exactly: the item goes back and every changed note gets its previous text byte for byte, without rewriting links back (so a note that already linked to the new name stays as it was). It refuses, and changes nothing, if the item was moved again or a changed note was edited since. The merged note now goes to the vault archive instead of the system trash, so it can come back. The previous texts are kept as history versions even with history switched off.
 - Moving several selected items at once that updates links is one entry with one "Restore": it puts all of them back, the last moved first. If one of them cannot come back (a changed note was edited since), the ones already returned stay returned, the line says how many came back, and the rest can still be restored.

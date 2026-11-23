@@ -34,6 +34,7 @@ import {
   type DeskItem,
 } from "./desk/desk-layout-model"
 import { ProgressWidget, type CompileState } from "./desk/progress-widget"
+import { StoryDescription } from "./desk/story-description"
 import { useElementWidth } from "./desk/use-element-width"
 import { NotesBoard } from "./pages/notes-board"
 import { SectionGallery } from "./pages/section-gallery"
@@ -587,6 +588,16 @@ export function ProjectDesk({
   const hidden = items.filter((item) => item.hidden)
   return (
     <div ref={deskRef} className="mb-8 flex w-full min-w-0 flex-col gap-4">
+      {vaultPath && resolvedStory?.cardNoteId && (
+        <StoryDescription
+          key={JSON.stringify([vaultPath, resolvedStory.cardNoteId, vaultGeneration])}
+          vaultPath={vaultPath}
+          noteId={resolvedStory.cardNoteId}
+          generation={vaultGeneration}
+          editable={canWrite}
+          refresh={dataNonce}
+        />
+      )}
       {editing && (
         <p className="rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
           {t("creative.desk.editHint")}

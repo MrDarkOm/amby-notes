@@ -606,6 +606,7 @@ export function ProjectPage({
                   workshop={workshop}
                   section={activeSource}
                   onOpenNote={openNote}
+                  onOpenStory={openStory}
                 />
               ) : activeSource && scope ? (
                 <ScopedSection

@@ -208,6 +208,7 @@ export function ScopeDesk({
           <StoryTimeline
             entries={ordered}
             onOpen={onOpenStory}
+            onOpenNote={onOpenNote}
             onMove={canReorder ? moveStory : null}
             onNewStory={onNewStory}
             error={moveError}
@@ -231,6 +232,7 @@ export function ScopeDesk({
           leading={switcher}
           emptyText={emptyText}
           onOpen={onOpenStory}
+          onOpenNote={onOpenNote}
           onToggleFavorite={toggleFavorite}
           onNewStory={onNewStory}
         />

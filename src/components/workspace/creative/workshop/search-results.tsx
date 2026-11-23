@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next"
+import { StoryNoteMenu } from "./story-note-menu"
 import type { SearchSource } from "./workshop-model"
 
 interface SearchResultsProps {
@@ -8,10 +9,18 @@ interface SearchResultsProps {
   status: "idle" | "loading" | "ready" | "error"
   error: string | null
   onOpen: (noteId: string) => void
+  onOpenStory: (storyId: string) => void
 }
 
 /** What the one search found, under the tab each page belongs to. */
-export function SearchResults({ groups, projectName, status, error, onOpen }: SearchResultsProps) {
+export function SearchResults({
+  groups,
+  projectName,
+  status,
+  error,
+  onOpen,
+  onOpenStory,
+}: SearchResultsProps) {
   const { t } = useTranslation()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -33,17 +42,23 @@ export function SearchResults({ groups, projectName, status, error, onOpen }: Se
             <span className="opacity-60">{group.items.length}</span>
           </h3>
           {group.items.map((item) => (
-            <button
+            <StoryNoteMenu
               key={item.noteId}
-              type="button"
-              onClick={() => onOpen(item.noteId)}
-              className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/50"
+              noteId={item.story?.cardNoteId ?? null}
+              title={item.title}
+              onOpenNote={onOpen}
             >
-              <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              <span className="ml-2 max-w-24 shrink-0 truncate text-[10px] text-muted-foreground">
-                {projectName(item.workshopId) || t("creative.workshop.shared")}
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => (item.story ? onOpenStory(item.story.id) : onOpen(item.noteId))}
+                className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/50"
+              >
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                <span className="ml-2 max-w-24 shrink-0 truncate text-[10px] text-muted-foreground">
+                  {projectName(item.workshopId) || t("creative.workshop.shared")}
+                </span>
+              </button>
+            </StoryNoteMenu>
           ))}
         </section>
       ))}

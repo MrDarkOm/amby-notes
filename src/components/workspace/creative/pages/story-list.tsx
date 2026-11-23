@@ -31,6 +31,7 @@ interface StoryListProps {
   worlds?: readonly StoryListWorld[]
   world?: WorldFilter
   onWorldChange?: (world: WorldFilter) => void
+  onOpenNote?: (noteId: string) => void
   onOpen: (storyId: string) => void
   /** Stars or unstars a story's main note by its ID (the key of Amby's favorites). */
   onToggleFavorite: (cardNoteId: string) => void
@@ -60,6 +61,7 @@ export function StoryList({
   world = "all",
   onWorldChange,
   onOpen,
+  onOpenNote,
   onToggleFavorite,
   onNewStory,
   sorts = PLAIN_STORY_SORTS,
@@ -148,6 +150,7 @@ export function StoryList({
             key={entry.storyId}
             entry={entry}
             onOpen={onOpen}
+            onOpenNote={onOpenNote}
             onToggleFavorite={onToggleFavorite}
           />
         ))}
