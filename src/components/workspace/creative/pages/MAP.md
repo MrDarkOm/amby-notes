@@ -6,23 +6,23 @@ story cards, the notes board and the section gallery. The owner of the whole cre
 Nothing here writes a file except a page or note made through `createWorkshopEntity`; every number is read from the
 databases and the note index.
 
-| Concern                                                  | Owner                                                                                                                                      |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Header numbers (workshop; universe and standalone)       | [page-numbers.tsx](page-numbers.tsx)                                                                                                       |
-| Body of the workshop's page                              | [workshop-overview.tsx](workshop-overview.tsx) (`WorkshopOverview`)                                                                        |
-| Story tile, its star                                     | [story-card.tsx](story-card.tsx)                                                                                                           |
-| Story list: filter, sort, world, "New story"             | [story-list.tsx](story-list.tsx) over [story-list-model.ts](story-list-model.ts) (pure)                                                    |
-| Numbers of a story, the page to continue (pure)          | [story-stats-model.ts](story-stats-model.ts) (`computeStoryStat`, `latestWork`)                                                            |
-| Numbers of every story (one `listTextStats` per story)   | [use-stories-stats.ts](use-stories-stats.ts)                                                                                               |
-| Cards or timeline of a universe's stories                | [stories-view-switch.tsx](stories-view-switch.tsx), [story-timeline.tsx](story-timeline.tsx), [story-order-model.ts](story-order-model.ts) |
-| Stories as cards (numbers, finished, favorite)           | [use-story-entries.ts](use-story-entries.ts)                                                                                               |
-| Which pages a universe shows (two or more stories, pure) | [scope-model.ts](scope-model.ts) (`sharedInUniverse`)                                                                                      |
-| Notes under their notebooks                              | [notes-board.tsx](notes-board.tsx) over [notes-board-model.ts](notes-board-model.ts) (pure)                                                |
-| Section as a gallery with categories                     | [section-gallery.tsx](section-gallery.tsx) over [section-gallery-model.ts](section-gallery-model.ts) (pure)                                |
-| A section on the workshop's page (whole base)            | [workshop-section.tsx](workshop-section.tsx), [use-workshop-section-data.ts](use-workshop-section-data.ts)                                 |
-| A section on a story / universe / standalone page        | [scoped-section.tsx](../scoped-section.tsx) (same gallery, the pages of the scope)                                                         |
-| Logical path of a note of the workshop (note header)     | [note-trail.ts](../note-trail.ts) (pure), [use-note-trail.ts](../use-note-trail.ts), [note-trail-header.tsx](../note-trail-header.tsx)     |
-| Page in the tab history; its trail (breadcrumb)          | [creative-history.ts](../creative-history.ts), [page-crumbs.ts](../page-crumbs.ts), [use-story-universe.ts](../use-story-universe.ts)      |
+| Concern                                                | Owner                                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Header numbers (workshop; universe and standalone)     | [page-numbers.tsx](page-numbers.tsx)                                                                                                       |
+| Body of the workshop's page                            | [workshop-overview.tsx](workshop-overview.tsx) (`WorkshopOverview`)                                                                        |
+| Story tile, its star                                   | [story-card.tsx](story-card.tsx)                                                                                                           |
+| Story list: filter, sort, world, "New story"           | [story-list.tsx](story-list.tsx) over [story-list-model.ts](story-list-model.ts) (pure)                                                    |
+| Numbers of a story, the page to continue (pure)        | [story-stats-model.ts](story-stats-model.ts) (`computeStoryStat`, `latestWork`)                                                            |
+| Numbers of every story (one `listTextStats` per story) | [use-stories-stats.ts](use-stories-stats.ts)                                                                                               |
+| Cards or timeline of a universe's stories              | [stories-view-switch.tsx](stories-view-switch.tsx), [story-timeline.tsx](story-timeline.tsx), [story-order-model.ts](story-order-model.ts) |
+| Stories as cards (numbers, finished, favorite)         | [use-story-entries.ts](use-story-entries.ts)                                                                                               |
+| Shared rows in a universe (pure)                       | [scope-model.ts](scope-model.ts) (`sharedInUniverse`)                                                                                      |
+| Notes under their notebooks                            | [notes-board.tsx](notes-board.tsx) over [notes-board-model.ts](notes-board-model.ts) (pure)                                                |
+| Section as a gallery with categories                   | [section-gallery.tsx](section-gallery.tsx) over [section-gallery-model.ts](section-gallery-model.ts) (pure)                                |
+| A section on the workshop's page (whole base)          | [workshop-section.tsx](workshop-section.tsx), [use-workshop-section-data.ts](use-workshop-section-data.ts)                                 |
+| A section on a story / universe / standalone page      | [scoped-section.tsx](../scoped-section.tsx) (same gallery, the pages of the scope)                                                         |
+| Logical path of a note of the workshop (note header)   | [note-trail.ts](../note-trail.ts) (pure), [use-note-trail.ts](../use-note-trail.ts), [note-trail-header.tsx](../note-trail-header.tsx)     |
+| Page in the tab history; its trail (breadcrumb)        | [creative-history.ts](../creative-history.ts), [page-crumbs.ts](../page-crumbs.ts), [use-story-universe.ts](../use-story-universe.ts)      |
 
 **Workshop page.** Header: the numbers "Worlds · Stories · Words written" (worlds are the rows of the universes base).
 Body: the "Continue" band (the text page changed last), `StoryList` and `NotesBoard`. The section tabs stay as they were;
@@ -46,9 +46,8 @@ names with "+N" (`storyLabels`). `compact` is the small list of a desk widget; `
 stories base's first view (`useViewManualOrder`; card note IDs), unplaced stories after it by the time their card was made
 (`orderStoryEntries`). The timeline reorders by drag or by the arrows under a card; `mergeStoryOrder` keeps the places of other
 universes' stories in that shared list. The universe's events stay under the stories. The world is one section at a time under
-tabs; on a universe it is only the pages that two or more of its stories hold (`sharedInUniverse`, also applied by the section
-tabs of the page through `ScopedSection`, except the anchors, whose events are the universe's own), with a line counting what only one
-story holds; on the standalone page, every page of the scope and "No story" as a second gallery.
+tabs. The universe shows each row held by its stories and marks rows held by two or more as shared
+(`sharedInUniverse`). Standalone stories still show a separate "No story" gallery.
 
 **One tab, one history.** A page opens in the current tab like a note, so workshop → universe or standalone stories → story → a section tab → a note, and
 back, are steps of that tab's history (`openCreativeTab` / `openCreativeSection` in `workspace-orchestration.tsx` call `openItem`; a section step

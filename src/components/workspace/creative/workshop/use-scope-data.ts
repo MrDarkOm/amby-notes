@@ -93,7 +93,7 @@ export function useScopeData(
   )
   const stories = React.useMemo(() => {
     if (filter === null) return []
-    if (filter.kind === "story") return textStories
+    if (filter.kind === "story" || filter.kind === "workshop") return textStories
     return storiesInScope(
       workshop?.stories ?? [],
       membership,

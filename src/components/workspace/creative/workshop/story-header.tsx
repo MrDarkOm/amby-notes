@@ -1,6 +1,7 @@
 import { BookOpen, Globe2, Library, Play, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { StorySummary } from "@/lib/storage"
+import { WHOLE_WORKSHOP } from "../creative-scope-storage"
 import { ScopeBar, type ScopeSegment } from "./scope-bar"
 import type { UniverseItem } from "./workshop-model"
 
@@ -100,15 +101,17 @@ export function StoryHeader({
   const selectedUniverse = universe?.selectedUniverseId
     ? (universe.universes.find((item) => item.noteId === universe.selectedUniverseId) ?? null)
     : null
+  const wholeWorkshop = universe?.selectedUniverseId === WHOLE_WORKSHOP
   const universeSegment: ScopeSegment | null = universe
     ? {
         ariaLabel: t("creative.workshop.chooseUniverse"),
         icon: selectedUniverse ? <Globe2 /> : <Library />,
         name: selectedUniverse
           ? selectedUniverse.title || untitled
-          : t("creative.workshop.standalone"),
-        value: selectedUniverse ? selectedUniverse.noteId : STANDALONE,
+          : t(wholeWorkshop ? "creative.workshop.wholeWorkshop" : "creative.workshop.standalone"),
+        value: selectedUniverse?.noteId ?? (wholeWorkshop ? WHOLE_WORKSHOP : STANDALONE),
         options: [
+          { value: WHOLE_WORKSHOP, label: t("creative.workshop.wholeWorkshop") },
           { value: STANDALONE, label: t("creative.workshop.standalone") },
           ...universe.universes.map((item) => ({
             value: item.noteId,
@@ -127,7 +130,11 @@ export function StoryHeader({
           ? {
               label: selectedUniverse
                 ? t("creative.workshop.openUniverse")
-                : t("creative.workshop.openStandalone"),
+                : t(
+                    wholeWorkshop
+                      ? "creative.workshop.openWorkshop"
+                      : "creative.workshop.openStandalone",
+                  ),
               onOpen: onOpenScope,
             }
           : undefined,

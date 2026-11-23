@@ -2,6 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { DatabaseRow, WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
 import { SectionGallery } from "./pages/section-gallery"
+import { OutsideStoryLink } from "./workshop/outside-story-link"
 import { sharedInUniverse } from "./pages/scope-model"
 import { useCreateInScope } from "./workshop/use-create-in-scope"
 import type { ScopeData } from "./workshop/use-scope-data"
@@ -48,21 +49,20 @@ export function ScopedSection({
       ),
     [data.membership, data.stories],
   )
-  // A universe's page shows what belongs to the universe as a whole: a page held by two or more
-  // of its stories. A page of one story is on that story's page. The universe's events are its own.
   const shownRows = list?.shown ?? NO_ROWS
-  const sharedOnly = scope.kind === "universe" && section.role !== "anchors"
-  const split = React.useMemo(
+  const sharedNoteIds = React.useMemo(
     () =>
-      sharedOnly
+      scope.kind === "universe"
         ? sharedInUniverse(
             shownRows,
             data.membership,
             data.stories.map((story) => story.storyId),
           )
-        : null,
-    [data.membership, data.stories, shownRows, sharedOnly],
+        : undefined,
+    [data.membership, data.stories, scope.kind, shownRows],
   )
+  const hidden =
+    scope.kind === "story" ? (data.rows[section.databaseId]?.length ?? 0) - shownRows.length : 0
   // A page of a story names no other story: its card would only repeat the page's own place.
   const chips = scope.kind === "story" ? undefined : storyLabelsOf
   return (
@@ -70,16 +70,15 @@ export function ScopedSection({
       {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       <SectionGallery
         section={section}
-        rows={split ? split.shared : shownRows}
+        rows={shownRows}
+        sharedNoteIds={sharedNoteIds}
         loading={data.loading}
         storyLabelsOf={chips}
         onOpenNote={onOpenNote}
         onOpenAsBase={() => onOpenWhole(section.id)}
         openLabel={t("creative.page.openWhole")}
         createFor={locked ? null : createFor(section)}
-        footnote={
-          split && split.hidden > 0 ? t("creative.scope.onlyOneStory", { n: split.hidden }) : null
-        }
+        footnote={<OutsideStoryLink count={hidden} onShow={() => onOpenWhole(section.id)} />}
       />
       {list && list.withoutStory.length > 0 && (
         <SectionGallery

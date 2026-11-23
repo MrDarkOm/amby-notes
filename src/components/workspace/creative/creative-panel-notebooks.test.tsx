@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { writeWorkshopPrefs } from "./creative-scope-storage"
 import i18n from "@/lib/i18n"
 import type {
   DatabaseRow,
@@ -156,6 +157,7 @@ describe("CreativePanel: notebooks of the notes base", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
     localStorage.clear()
+    writeWorkshopPrefs("/v", { story: "hills" })
     resetData()
     queryDatabase.mockReset().mockImplementation(async ({ databaseId }: { databaseId: string }) => {
       const list = databaseId === "db_notes" ? rows : []

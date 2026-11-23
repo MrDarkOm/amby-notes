@@ -246,7 +246,7 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: true, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       universeFilter: null,
       dataNonce: 0,
       search: "",

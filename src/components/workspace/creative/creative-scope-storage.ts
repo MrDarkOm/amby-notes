@@ -1,5 +1,7 @@
 import type { DeskItem } from "./desk/desk-layout-model"
 
+export const WHOLE_WORKSHOP = "all-workshop"
+
 const WORKSHOP_STORAGE_KEY = "amby:creative-workshop"
 
 /** What the lists remember per vault: the story and the universe chosen and the parts unfolded. */

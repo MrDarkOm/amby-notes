@@ -3399,6 +3399,8 @@ const ru = {
       allStories: "Все истории",
       createFirstStory: "Создать первую историю",
       standalone: "Отдельные истории",
+      wholeWorkshop: "Вся мастерская",
+      outsideStory: "Ещё {{count}} не в этой истории",
       storiesCount_one: "{{count}} история",
       storiesCount_few: "{{count}} истории",
       storiesCount_many: "{{count}} историй",
@@ -3972,7 +3974,7 @@ const ru = {
     scope: {
       world: "Мир",
       worldTabs: "Разделы мира",
-      onlyOneStory: "Ещё {{n}} — только в одной истории, их видно на странице своей истории",
+      sharedRow: "Общий",
     },
     gallery: {
       noCategory: "Без категории",
@@ -7982,6 +7984,8 @@ const en: LocaleShape<typeof ru> = {
       allStories: "All stories",
       createFirstStory: "Create the first story",
       standalone: "Standalone stories",
+      wholeWorkshop: "Whole workshop",
+      outsideStory: "{{count}} more outside this story",
       storiesCount_one: "{{count}} story",
       storiesCount_other: "{{count}} stories",
       sections: { anchors: "Anchors" },
@@ -8540,7 +8544,7 @@ const en: LocaleShape<typeof ru> = {
     scope: {
       world: "World",
       worldTabs: "Sections of the world",
-      onlyOneStory: "{{n}} more are in one story only; they are on the page of that story",
+      sharedRow: "Shared",
     },
     gallery: {
       noCategory: "No category",

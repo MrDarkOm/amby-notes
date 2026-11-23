@@ -149,7 +149,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: false, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       // The universe the first two stories are in; the panel opens on the standalone stories.
       universeFilter: "u1",
       dataNonce: 0,
@@ -214,6 +214,14 @@ describe("CreativePanel: belonging to stories and universes", () => {
     expect(screen.queryByTestId("without-story:locations")).toBeNull()
     // No single story is shown, so there are no story's parts.
     expect(screen.queryByRole("button", { name: /Текст/ })).toBeNull()
+  })
+
+  it("opens the whole workshop with rows outside the selected story", async () => {
+    render(<CreativePanel {...props()} />)
+    await screen.findByRole("button", { name: /Анна/ })
+    fireEvent.click((await screen.findAllByRole("button", { name: /Ещё .* не в этой истории/ }))[0])
+    expect(await screen.findByRole("button", { name: /Ева/ })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Ещё .* не в этой истории/ })).toBeNull()
   })
 
   it("shows a universe through its stories", async () => {
