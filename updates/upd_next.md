@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: bind an existing anchor or create and bind one from the text page. The page plot takes less space when empty, and its fold setting is remembered per vault.
+
 - Creative workshop: Create groups story pages, anchors and notes, reference entries, and workshop structure. Add buttons name the item they create.
 
 - Creative workshop: see the level when creating or opening a text page, and change it from the page menu. The text tree explains when a page cannot have children or accept a drop.

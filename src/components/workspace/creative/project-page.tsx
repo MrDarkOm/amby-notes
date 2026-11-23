@@ -620,24 +620,20 @@ export function ProjectPage({
                   locked={readMode}
                 />
               ) : target.kind === "story" ? (
-                textDatabaseId ? (
-                  <ProjectDesk
-                    story={target.story}
-                    workshop={workshop}
-                    vaultPath={vaultPath}
-                    onOpenNote={openNote}
-                    onOpenSection={(sectionId) => showSection(sectionId)}
-                    onChanged={onChanged}
-                    layout={deskLayout}
-                    editing={customizing}
-                    onLayoutChange={changeDeskLayout}
-                    stats={textStats}
-                    locked={readMode}
-                    compileRef={compileRef}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("creative.workshop.noText")}</p>
-                )
+                <ProjectDesk
+                  story={target.story}
+                  workshop={workshop}
+                  vaultPath={vaultPath}
+                  onOpenNote={openNote}
+                  onOpenSection={(sectionId) => showSection(sectionId)}
+                  onChanged={onChanged}
+                  layout={deskLayout}
+                  editing={customizing}
+                  onLayoutChange={changeDeskLayout}
+                  stats={textStats}
+                  locked={readMode}
+                  compileRef={compileRef}
+                />
               ) : target.kind === "workshop" ? (
                 <WorkshopOverview
                   workshop={workshop}

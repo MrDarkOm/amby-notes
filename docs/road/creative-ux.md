@@ -1,6 +1,6 @@
 # Creative workshop: UX fix plan
 
-Status as of 2026-11-23: **first wave in progress.** Source: a review of the workshop in the
+Status as of 2026-11-23: **first wave implemented (A, B items 4 and 15, E, F).** Source: a review of the workshop in the
 installed 0.1.9-beta.9 on the owner's vault (marked 👁, seen on screen) plus a reading of the maps,
 the format and the code (marked 📄, not checked on screen). Batches C and H need owner decisions
 first (section 2).
@@ -12,7 +12,7 @@ first (section 2).
 | C     | One word for universe / world; plot arcs vs text arcs   | 3, 8          | **owner decision** |
 | D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | planned            |
 | E     | "Create" chooser and button labels                      | 9, 10         | implemented        |
-| F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | planned            |
+| F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented        |
 | G     | Dossier and empty sections                              | 18–21         | planned            |
 | H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |
 | I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | planned            |

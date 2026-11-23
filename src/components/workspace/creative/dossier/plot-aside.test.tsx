@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type {
@@ -26,6 +26,8 @@ const storage = vi.hoisted(() => ({
   queryDatabase: vi.fn(),
   listTextStats: vi.fn(),
   resolveDatabaseAssetPaths: vi.fn(),
+  updateDatabaseRelationValue: vi.fn(),
+  createWorkshopEntity: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -142,10 +144,11 @@ function context(databaseId: string, noteId: string, title: string): DatabaseNot
   }
 }
 
-function mount(noteId: string, onOpenNote = vi.fn()) {
+function mount(noteId: string, onOpenNote = vi.fn(), vaultPath = "/vault") {
   render(
     <DossierFrame
       noteId={noteId}
+      vaultPath={vaultPath}
       content=""
       canJump
       scrollToHeading={vi.fn()}
@@ -165,6 +168,9 @@ describe("the plot beside a page of the text", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
     resetRows()
+    localStorage.clear()
+    storage.updateDatabaseRelationValue.mockReset().mockResolvedValue({})
+    storage.createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new-anchor" })
     storage.getDatabaseNoteContext.mockReset()
     storage.listNoteReferences.mockReset().mockResolvedValue([])
     storage.listTextStats.mockReset().mockResolvedValue([])
@@ -219,20 +225,95 @@ describe("the plot beside a page of the text", () => {
     const region = await aside()
     expect(within(region).getByText("Встреча")).toBeTruthy()
     expect(within(region).getByText("Финал")).toBeTruthy()
-    expect(within(region).getByText("К этой странице якоря не привязаны.")).toBeTruthy()
-    expect(within(region).getByText("К этой странице арки не привязаны.")).toBeTruthy()
+    expect(within(region).getByRole("button", { name: "Привязать якорь" })).toBeTruthy()
+    expect(within(region).queryByRole("heading", { name: "Арки" })).toBeNull()
     expect(within(region).queryByText("впереди, ещё не привязан")).toBeNull()
   })
 
-  it("says so quietly where nothing is before or after, and keeps every block", async () => {
+  it("omits empty neighbouring and arc blocks when the page has an anchor", async () => {
     ROWS.db_anch = [row("a1", "Встреча", { ast: rel("note_s1") })]
     ROWS.db_text = [page("p1", "Глава 1", "a0", { tanc: rel("a1") })]
     useNote("db_text", "p1", "Глава 1")
     mount("p1")
     const region = await aside()
-    expect(within(region).getByText("Раньше по тексту привязанных якорей нет.")).toBeTruthy()
-    expect(within(region).getByText("Дальше по тексту якорей нет.")).toBeTruthy()
-    expect(within(region).getAllByRole("heading")).toHaveLength(4)
+    expect(within(region).getByText("Встреча")).toBeTruthy()
+    expect(within(region).getAllByRole("heading")).toHaveLength(1)
+  })
+
+  it("binds an existing story anchor from the page with Ahead first", async () => {
+    useNote("db_text", "p3", "Глава 3")
+    mount("p3")
+    fireEvent.keyDown(within(await aside()).getByRole("button", { name: "Привязать якорь" }), {
+      key: "Enter",
+    })
+    const menu = await screen.findByRole("menu")
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Мечта", "Встреча", "Новый якорь"])
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Мечта" }))
+    await waitFor(() =>
+      expect(storage.updateDatabaseRelationValue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: "db_text",
+          noteId: "p3",
+          propertyId: "tanc",
+          targetNoteIds: ["a2", "a3"],
+          expectedRevision: "rev-p3",
+        }),
+      ),
+    )
+  })
+
+  it("starts with a compact empty plot and creates and binds an anchor directly", async () => {
+    ROWS.db_text = [page("p2", "Глава 2", "a0")]
+    ROWS.db_anch = []
+    ROWS.db_arcs = []
+    useNote("db_text", "p2", "Глава 2")
+    mount("p2")
+    const region = await aside()
+    expect(within(region).getByText("Сюжет: ничего не привязано")).toBeTruthy()
+    expect(within(region).queryAllByRole("heading")).toHaveLength(0)
+    fireEvent.keyDown(within(region).getByRole("button", { name: "Привязать" }), { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Новый якорь" }))
+    const field = await screen.findByRole("textbox", { name: "Название якоря" })
+    fireEvent.change(field, { target: { value: "Поворот" } })
+    fireEvent.keyDown(field, { key: "Enter" })
+    await waitFor(() =>
+      expect(storage.updateDatabaseRelationValue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          noteId: "p2",
+          targetNoteIds: ["new-anchor"],
+        }),
+      ),
+    )
+    expect(storage.createWorkshopEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId: "s1",
+        sectionId: "anchors",
+        title: "Поворот",
+      }),
+    )
+  })
+
+  it("remembers folding per vault without remounting the editor", async () => {
+    useNote("db_text", "p1", "Глава 1")
+    mount("p1")
+    const editor = screen.getByTestId("editor")
+    fireEvent.click(within(await aside()).getByRole("button", { name: "Свернуть сюжет" }))
+    expect(screen.queryByRole("complementary")).toBeNull()
+    expect(screen.getByTestId("editor")).toBe(editor)
+    expect(editor.parentElement?.className).toBe("contents")
+    cleanup()
+
+    mount("p1")
+    expect(await screen.findByRole("button", { name: "Развернуть сюжет" })).toBeTruthy()
+    expect(screen.queryByRole("complementary")).toBeNull()
+    cleanup()
+
+    mount("p1", vi.fn(), "/different-vault")
+    expect(await aside()).toBeTruthy()
   })
 
   it("never remounts the editor when the answer arrives", async () => {
@@ -243,21 +324,13 @@ describe("the plot beside a page of the text", () => {
     expect(screen.getByTestId("editor")).toBe(before)
   })
 
-  it("adds nothing where the workshop has neither anchors nor arcs, or no row of them", async () => {
+  it("adds nothing where the workshop has neither an anchors base nor an arcs base", async () => {
     act(() => useProjectStore.getState().setCatalog(catalog([world(false)])))
     useNote("db_text", "p2", "Глава 2")
     mount("p2")
     await settle()
     expect(screen.queryByRole("complementary")).toBeNull()
     expect(storage.queryDatabase).not.toHaveBeenCalled()
-    cleanup()
-
-    act(() => useProjectStore.getState().setCatalog(catalog([world(true)])))
-    ROWS.db_anch = []
-    ROWS.db_arcs = []
-    mount("p2")
-    await settle()
-    expect(screen.queryByRole("complementary")).toBeNull()
   })
 
   it("adds nothing to a page of the notes", async () => {

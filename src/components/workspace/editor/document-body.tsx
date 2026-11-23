@@ -108,6 +108,8 @@ export interface DocumentBodyProps {
 /** What a frame around the note's editor is given. */
 export interface EditorFrameProps {
   noteId: string
+  vaultPath?: string
+  locked?: boolean
   content: string
   /** Scrolls the page to its n-th heading. */
   scrollToHeading: (index: number) => void
@@ -352,6 +354,8 @@ export function DocumentBody({
   const framedEditor = Frame ? (
     <Frame
       noteId={docId}
+      vaultPath={vault}
+      locked={isLocked}
       content={content}
       canJump={viewMode !== "source"}
       scrollToHeading={scrollToHeading}

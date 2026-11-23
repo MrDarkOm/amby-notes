@@ -3457,7 +3457,6 @@ const ru = {
       newEntity: "Новая страница: {{name}}",
       newEntityHint: "Попадёт в «{{where}}»",
       newPageHint: "В историю «{{name}}»",
-      page: { title: "Новая страница" },
     },
     // The screen of a vault with no workshop at the chosen folder.
     init: {
@@ -3577,20 +3576,21 @@ const ru = {
       // The aside of a page of the text.
       side: {
         aside: "Сюжет страницы",
+        empty: "Сюжет: ничего не привязано",
+        bind: "Привязать",
+        bindAnchor: "Привязать якорь",
+        newAnchor: "Новый якорь",
+        fold: "Свернуть сюжет",
+        expand: "Развернуть сюжет",
         anchors: "Якоря этой страницы",
-        anchorsEmpty: "К этой странице якоря не привязаны.",
         from: "Отталкиваемся от",
-        fromEmpty: "Раньше по тексту привязанных якорей нет.",
         to: "Должны прийти к",
-        toEmpty: "Дальше по тексту якорей нет.",
         toAhead: "впереди, ещё не привязан",
         arcs: "Арки",
-        arcsEmpty: "К этой странице арки не привязаны.",
         onPage: "на странице «{{page}}»",
       },
       // The ribbon of a story's desk.
       ribbon: {
-        create: "Добавить якорь",
         creating: "Название якоря",
         failed: "Не удалось создать якорь: {{message}}",
       },
@@ -3884,6 +3884,7 @@ const ru = {
     storyDescription: {
       title: "Описание",
       edit: "Редактировать описание",
+      waitForNote: "Сохраните правки в открытой заметке, прежде чем менять описание.",
       empty: "Описания пока нет.",
       openNote: "Открыть заметку",
     },
@@ -3930,7 +3931,6 @@ const ru = {
       notebooks: "Блокноты",
       all: "Все",
       noNotebook: "Без блокнота",
-      add: "Заметка",
       placeholder: "Название заметки",
       empty: "Пока пусто.",
     },
@@ -3942,7 +3942,6 @@ const ru = {
       pageActions: "Действия со страницей «{{name}}»",
       bindTo: "Привязать «{{name}}» к странице…",
       aheadEmpty: "Все якоря привязаны.",
-      aheadHint: "Якоря без главы: перетащите якорь на страницу или привяжите кнопкой рядом.",
       inProgress: "В работе",
       customize: "Настроить стол",
       customizeDone: "Готово",
@@ -8039,7 +8038,6 @@ const en: LocaleShape<typeof ru> = {
       newEntity: "New page: {{name}}",
       newEntityHint: "Goes to “{{where}}”",
       newPageHint: "In the story “{{name}}”",
-      page: { title: "New page" },
     },
     // The screen of a vault with no workshop at the chosen folder.
     init: {
@@ -8157,20 +8155,21 @@ const en: LocaleShape<typeof ru> = {
       // The aside of a page of the text.
       side: {
         aside: "Plot of the page",
+        empty: "Plot: nothing bound",
+        bind: "Bind",
+        bindAnchor: "Bind anchor",
+        newAnchor: "New anchor",
+        fold: "Fold plot",
+        expand: "Show plot",
         anchors: "Anchors of this page",
-        anchorsEmpty: "No anchors are bound to this page.",
         from: "Starting from",
-        fromEmpty: "No bound anchors earlier in the text.",
         to: "Heading for",
-        toEmpty: "No anchors further in the text.",
         toAhead: "ahead, not bound yet",
         arcs: "Arcs",
-        arcsEmpty: "No arcs are bound to this page.",
         onPage: "on “{{page}}”",
       },
       // The ribbon of a story's desk.
       ribbon: {
-        create: "Add an anchor",
         creating: "Anchor name",
         failed: "Could not create the anchor: {{message}}",
       },
@@ -8453,6 +8452,7 @@ const en: LocaleShape<typeof ru> = {
     storyDescription: {
       title: "Description",
       edit: "Edit description",
+      waitForNote: "Save the edits in the open note before changing the description.",
       empty: "No description yet.",
       openNote: "Open note",
     },
@@ -8499,7 +8499,6 @@ const en: LocaleShape<typeof ru> = {
       notebooks: "Notebooks",
       all: "All",
       noNotebook: "No notebook",
-      add: "Note",
       placeholder: "Note title",
       empty: "Nothing here yet.",
     },
@@ -8511,8 +8510,6 @@ const en: LocaleShape<typeof ru> = {
       pageActions: "Actions for the page “{{name}}”",
       bindTo: "Bind “{{name}}” to a page…",
       aheadEmpty: "Every anchor is bound.",
-      aheadHint:
-        "Anchors with no page yet: drag one onto a page, or bind it with the button beside it.",
       inProgress: "In progress",
       customize: "Customize desk",
       customizeDone: "Done",

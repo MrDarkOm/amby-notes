@@ -391,9 +391,6 @@ export function ChaptersWidget({
               />
             )}
           </div>
-          {ahead.length > 0 && canBind && (
-            <p className="text-xs text-muted-foreground">{t("creative.desk.aheadHint")}</p>
-          )}
           {binding?.error && (
             <NoticeLine role="alert" text={binding.error.text} className="break-words" />
           )}
