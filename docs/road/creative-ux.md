@@ -1,13 +1,13 @@
 # Creative workshop: UX fix plan
 
-Status as of 2026-11-23: **planned, nothing implemented.** Source: a review of the workshop in the
+Status as of 2026-11-23: **first wave in progress.** Source: a review of the workshop in the
 installed 0.1.9-beta.9 on the owner's vault (marked 👁, seen on screen) plus a reading of the maps,
 the format and the code (marked 📄, not checked on screen). Batches C and H need owner decisions
 first (section 2).
 
 | Batch | What                                                    | Items         | Status             |
 | ----- | ------------------------------------------------------- | ------------- | ------------------ |
-| A     | One entry to a story                                    | 1             | planned            |
+| A     | One entry to a story                                    | 1             | implemented        |
 | B     | Levels of text pages: visible and changeable            | 4, 15, 16     | planned            |
 | C     | One word for universe / world; plot arcs vs text arcs   | 3, 8          | **owner decision** |
 | D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | planned            |

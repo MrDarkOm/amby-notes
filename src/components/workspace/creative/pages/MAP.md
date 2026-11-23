@@ -65,7 +65,6 @@ section tab on the workshop's page "Open as base". Floating bar: last change and
 
 **Path of a note.** In the workshop a note's header shows a logical path in place of its folders (`noteTrail`; the shell hands
 `CreativeNoteTrail` and `onOpenWorkshopPage` to the editor, as it does `DossierFrame`): a page of a story's text,
-Workshop › universe or Standalone stories › story › the pages above › page; a story's card and a universe's note end at the story
-or universe; a world or plot section's page is Workshop › section › page (shared pages: no story); a note of the notes base is
+Workshop › universe or Standalone stories › story › the pages above › page; a story's card ends at Description after a link to the story desk; a universe's note ends at the universe; a world or plot section's page is Workshop › section › page (shared pages: no story); a note of the notes base is
 Workshop › Notes › notebooks › note. Steps open workshop pages (the section tab for a section) or a parent page, in place. The folders
 stay until the path is known (`useNoteTrail` asks only when projects exist and keeps the last answer), and for every other note.

@@ -207,6 +207,7 @@ export function WorkshopOverview({
         world={activeWorld}
         onWorldChange={setWorld}
         onOpen={onOpenStory}
+        onOpenNote={onOpenNote}
         onToggleFavorite={toggleFavorite}
         onNewStory={onNewStory}
       />

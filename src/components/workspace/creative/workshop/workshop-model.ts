@@ -330,7 +330,7 @@ export function relationTargets(valuesJson: string): string[] {
 export interface SearchSource {
   key: string
   label: string
-  items: EntityItem[]
+  items: (EntityItem & { story?: { id: string; cardNoteId: string | null } })[]
 }
 
 /** Pages whose title contains the query, kept under the tab they belong to; empty groups drop out. */

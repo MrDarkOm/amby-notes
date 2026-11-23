@@ -200,6 +200,7 @@ export function InlineRename({
  */
 export function ItemMenu({
   noteId,
+  openLabel,
   title,
   nested = [],
   indent = 30,
@@ -212,6 +213,7 @@ export function ItemMenu({
   children,
 }: {
   noteId: string
+  openLabel?: string
   title: string
   /** Left offset of the row's text, for the inline rename field. */
   indent?: number
@@ -277,7 +279,7 @@ export function ItemMenu({
         <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
           <ContextMenuItem className="gap-2 text-[13px]" onSelect={() => actions.onOpen(noteId)}>
             <FileText className="size-3.5 text-muted-foreground" />
-            {t("creative.workshop.menu.open")}
+            {openLabel ?? t("creative.workshop.menu.open")}
           </ContextMenuItem>
           {actions.onOpenInNewTab && (
             <ContextMenuItem

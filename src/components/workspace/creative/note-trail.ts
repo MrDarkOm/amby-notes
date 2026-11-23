@@ -30,6 +30,7 @@ export interface NoteTrailInput {
     standalone: string
     /** A universe whose name is not known. */
     universe: string
+    description: string
   }
 }
 
@@ -84,7 +85,6 @@ function storyTrail(
   storyId: string,
   cardNoteId: string | null,
   input: NoteTrailInput,
-  storyIsCurrent: boolean,
 ): TrailStep[] | null {
   const steps: TrailStep[] = [
     stepOf("workshop", input.labels.workshop, { kind: "page", projectId: workshop.workshopId }),
@@ -117,13 +117,7 @@ function storyTrail(
         }),
   )
   const story = workshop.stories.find((candidate) => candidate.storyId === storyId)
-  steps.push(
-    stepOf(
-      "story",
-      story?.name ?? "",
-      storyIsCurrent ? undefined : { kind: "page", projectId: storyId },
-    ),
-  )
+  steps.push(stepOf("story", story?.name ?? "", { kind: "page", projectId: storyId }))
   return steps
 }
 
@@ -132,7 +126,7 @@ function storyTrail(
  * while something it needs has not been read yet (the header then keeps the folder path):
  *
  * - a page of a story's text: Workshop › universe | Standalone stories › story › the pages above it › page;
- * - a story's own card: Workshop › universe | Standalone stories › story;
+ * - a story's own card: Workshop › universe | Standalone stories › story › Description;
  * - a universe's note: Workshop › universe;
  * - a page of a world or plot section: Workshop › section › page (these pages are shared, so no story);
  * - a note of the notes base: Workshop › Notes › its notebooks › note.
@@ -146,7 +140,7 @@ export function noteTrail(input: NoteTrailInput): TrailStep[] | null {
 
   const text = textStoryOf(catalog, databaseId)
   if (text) {
-    const head = storyTrail(text.workshop, text.story.storyId, text.story.cardNoteId, input, false)
+    const head = storyTrail(text.workshop, text.story.storyId, text.story.cardNoteId, input)
     const textRows = input.rows[databaseId]
     if (!head || !textRows || !text.story.text) return null
     const roots = buildTextTree(textRows as DatabaseRow[], text.story.text.properties)
@@ -163,7 +157,8 @@ export function noteTrail(input: NoteTrailInput): TrailStep[] | null {
     if (stories?.databaseId === databaseId) {
       const story = workshop.stories.find((candidate) => candidate.cardNoteId === row.noteId)
       if (!story) return null
-      return storyTrail(workshop, story.storyId, story.cardNoteId, input, true)
+      const head = storyTrail(workshop, story.storyId, story.cardNoteId, input)
+      return head ? [...head, stepOf("description", labels.description)] : null
     }
     const universes = universesBase(workshop)
     if (universes?.databaseId === databaseId) {

@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import type { DatabaseRow } from "@/lib/storage"
+import type { DatabaseRow, StorySummary } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
 import {
   storySummary,
@@ -16,6 +16,7 @@ const queryDatabase = vi.fn()
 const createWorkshopEntity = vi.fn()
 const listTextStats = vi.fn()
 const readNote = vi.fn()
+const writeNote = vi.fn()
 const exportTextFile = vi.fn()
 const createTextPage = vi.fn()
 const moveTextPage = vi.fn()
@@ -28,6 +29,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     queryDatabase: (...args: unknown[]) => queryDatabase(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
     readNote: (...args: unknown[]) => readNote(...args),
+    writeNote: (...args: unknown[]) => writeNote(...args),
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
     createTextPage: (...args: unknown[]) => createTextPage(...args),
@@ -116,9 +118,13 @@ const NOTES: Record<string, string> = {
   b2: "Эпилог.",
 }
 
-function renderDesk(onOpenNote = vi.fn(), vaultPath: string | null = "/vault") {
+function renderDesk(
+  onOpenNote = vi.fn(),
+  vaultPath: string | null = "/vault",
+  entry: StorySummary = { ...story, cardNoteId: null },
+) {
   render(
-    <ProjectDesk story={story} workshop={workshop} vaultPath={vaultPath} onOpenNote={onOpenNote} />,
+    <ProjectDesk story={entry} workshop={workshop} vaultPath={vaultPath} onOpenNote={onOpenNote} />,
   )
   return onOpenNote
 }
@@ -150,6 +156,28 @@ describe("ProjectDesk", () => {
     useDatabaseStore.setState({ vaultGeneration: 1, invalidationSeq: 0 })
   })
   afterEach(cleanup)
+
+  it("edits the story card body on the desk with its loaded revision", async () => {
+    readNote.mockResolvedValue({ content: "First draft", revision: "card-rev", source: "" })
+    writeNote.mockResolvedValue({ revision: "saved" })
+    const onOpenNote = renderDesk(vi.fn(), "/vault", { ...story, cardNoteId: "card" })
+    expect(await screen.findByText("First draft")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Редактировать описание" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Описание" }), {
+      target: { value: "New draft" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+    expect(await screen.findByText("New draft")).toBeTruthy()
+    expect(writeNote).toHaveBeenCalledWith(
+      "/vault",
+      "card",
+      "New draft",
+      1,
+      "card-rev",
+      expect.any(String),
+    )
+    expect(onOpenNote).not.toHaveBeenCalled()
+  })
 
   it("offers the page changed last to continue with, and only that one", async () => {
     const onOpenNote = renderDesk()
@@ -392,7 +420,7 @@ describe("ProjectDesk", () => {
     expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
     // What the layout does not know is added after the rest.
     const titles = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))
-    expect(titles).toEqual(["Главы", "Продолжить"])
+    expect(titles).toEqual(["Описание", "Главы", "Продолжить"])
   })
 
   it("offers to make the first page in a list the story has none in, linked to the story", async () => {

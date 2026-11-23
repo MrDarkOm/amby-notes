@@ -10,6 +10,7 @@ import { NoticeLine } from "@/components/workspace/notices/notice-line"
 interface WorkshopSectionProps {
   workshop: WorkshopSummary
   section: WorkshopSectionSummary
+  onOpenStory: (storyId: string) => void
   onOpenNote: (noteId: string) => void
 }
 
@@ -18,7 +19,12 @@ interface WorkshopSectionProps {
  * categories, each card naming the stories the page is in. The database itself opens from the
  * button in the tabs row. A page made here belongs to no story yet.
  */
-export function WorkshopSection({ workshop, section, onOpenNote }: WorkshopSectionProps) {
+export function WorkshopSection({
+  workshop,
+  section,
+  onOpenNote,
+  onOpenStory,
+}: WorkshopSectionProps) {
   const { t } = useTranslation()
   const data = useWorkshopSectionData(workshop, section)
   const createFor = useCreateInScope(workshop, { kind: "standalone" })
@@ -39,6 +45,12 @@ export function WorkshopSection({ workshop, section, onOpenNote }: WorkshopSecti
         loading={data.loading}
         storyLabelsOf={storyLabelsOf}
         onOpenNote={onOpenNote}
+        storyIdOf={
+          section.role === "stories"
+            ? (noteId) => workshop.stories.find((story) => story.cardNoteId === noteId)?.storyId
+            : undefined
+        }
+        onOpenStory={onOpenStory}
         createFor={createFor(section)}
       />
     </div>
