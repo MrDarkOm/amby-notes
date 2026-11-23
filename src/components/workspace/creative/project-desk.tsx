@@ -428,7 +428,24 @@ export function ProjectDesk({
   const columns = deskColumns(width)
   const sectionOfWidget = (id: string) => worldSections.find((s) => worldWidgetId(s) === id)
 
-  if (!databaseId) return null
+  const description = vaultPath && resolvedStory?.cardNoteId && (
+    <StoryDescription
+      key={JSON.stringify([vaultPath, resolvedStory.cardNoteId, vaultGeneration])}
+      vaultPath={vaultPath}
+      noteId={resolvedStory.cardNoteId}
+      generation={vaultGeneration}
+      editable={canWrite}
+      refresh={dataNonce}
+    />
+  )
+  if (!databaseId) {
+    return (
+      <div className="mb-8 flex flex-col gap-4">
+        {description}
+        <p className="text-sm text-muted-foreground">{t("creative.workshop.noText")}</p>
+      </div>
+    )
+  }
 
   const loading = data.status === "loading" && rows === undefined
   const levelNameOf = (node: TextNode) => levels.find((level) => level.id === node.levelId)?.name
@@ -598,16 +615,7 @@ export function ProjectDesk({
   const hidden = items.filter((item) => item.hidden)
   return (
     <div ref={deskRef} className="mb-8 flex w-full min-w-0 flex-col gap-4">
-      {vaultPath && resolvedStory?.cardNoteId && (
-        <StoryDescription
-          key={JSON.stringify([vaultPath, resolvedStory.cardNoteId, vaultGeneration])}
-          vaultPath={vaultPath}
-          noteId={resolvedStory.cardNoteId}
-          generation={vaultGeneration}
-          editable={canWrite}
-          refresh={dataNonce}
-        />
-      )}
+      {description}
       {editing && (
         <p className="rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
           {t("creative.desk.editHint")}

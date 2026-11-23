@@ -101,7 +101,7 @@ on a story, text levels (`updateTextLevels`) and the `status` property (`addText
 **Dossier.** `DossierFrame` is the editor's `editorFrame` (see [document-body.tsx](../editor/document-body.tsx)):
 one structure for every note, so the editor is never remounted when the answer arrives. It asks the
 backend only when projects exist (`useNotePlace`) and shows nothing outside the world sections, except the plot
-aside of a page of a story's text (`text-page-aside.tsx`; only where anchors or arcs exist). An arc's page also shows
+aside for story text (`text-page-aside.tsx`). It binds through `usePlotBinding` and folds per vault. An arc's page shows
 its anchors and chapters and a character's its arcs (`plot-blocks.tsx`); [format §11](../../../../docs/creative-format.md).
 
 [fractional-index.ts](../../../lib/storage/fractional-index.ts) orders the pages of the text;

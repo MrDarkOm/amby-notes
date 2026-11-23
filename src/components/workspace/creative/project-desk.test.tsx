@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type { DatabaseRow, StorySummary } from "@/lib/storage"
+import { useDocStore } from "../use-doc-store"
 import { useDatabaseStore } from "../database/database-store"
 import {
   storySummary,
@@ -16,6 +17,7 @@ const queryDatabase = vi.fn()
 const createWorkshopEntity = vi.fn()
 const listTextStats = vi.fn()
 const readNote = vi.fn()
+const getNoteProperties = vi.fn()
 const writeNote = vi.fn()
 const exportTextFile = vi.fn()
 const createTextPage = vi.fn()
@@ -30,6 +32,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     queryDatabase: (...args: unknown[]) => queryDatabase(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
     readNote: (...args: unknown[]) => readNote(...args),
+    getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
     writeNote: (...args: unknown[]) => writeNote(...args),
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
@@ -141,6 +144,9 @@ describe("ProjectDesk", () => {
       diagnostics: [],
     })
     listTextStats.mockReset().mockResolvedValue(STATS)
+    getNoteProperties
+      .mockReset()
+      .mockResolvedValue({ frontmatterStatus: "valid", bodyReadOnly: false })
     readNote.mockReset().mockImplementation(async (_vault: string, noteId: string) => ({
       content: NOTES[noteId] ?? "",
       revision: "r",
@@ -176,9 +182,38 @@ describe("ProjectDesk", () => {
       "New draft",
       1,
       "card-rev",
-      expect.any(String),
+      "creative-description",
     )
     expect(onOpenNote).not.toHaveBeenCalled()
+  })
+
+  it("keeps a story's description available when its text database is missing", async () => {
+    readNote.mockResolvedValue({
+      content: "A story without pages",
+      revision: "card-rev",
+      source: "",
+    })
+    renderDesk(vi.fn(), "/vault", { ...story, text: null, cardNoteId: "card" })
+    expect(await screen.findByText("A story without pages")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Редактировать описание" })).toBeTruthy()
+  })
+
+  it("leaves the description draft in place when the ordinary note editor has unsaved changes", async () => {
+    readNote.mockResolvedValue({ content: "First draft", revision: "card-rev", source: "" })
+    writeNote.mockClear()
+    renderDesk(vi.fn(), "/vault", { ...story, cardNoteId: "card" })
+    fireEvent.click(await screen.findByRole("button", { name: "Редактировать описание" }))
+    const field = screen.getByRole("textbox", { name: "Описание" }) as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: "Draft on the desk" } })
+    try {
+      act(() => useDocStore.getState().markUnsaved("card"))
+      fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+      expect(writeNote).not.toHaveBeenCalled()
+      expect(field.value).toBe("Draft on the desk")
+      expect(screen.getByRole("status").textContent).toContain("Сохраните правки")
+    } finally {
+      act(() => useDocStore.getState().markSaved("card"))
+    }
   })
 
   it("offers the page changed last to continue with, and only that one", async () => {

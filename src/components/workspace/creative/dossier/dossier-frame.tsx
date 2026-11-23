@@ -1,9 +1,13 @@
 import * as React from "react"
+import { ChevronDown } from "lucide-react"
+import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DossierAside } from "./dossier-aside"
 import { hasPlotSections } from "./dossier-model"
 import { DossierHeader } from "./dossier-header"
 import { TextPageAside } from "./text-page-aside"
+import { usePlotFold } from "./use-plot-fold"
 import { useNotePlace } from "./use-note-dossier"
 
 /** Side by side only where the text keeps a readable column next to the blocks. */
@@ -27,6 +31,8 @@ function useWidth(ref: React.RefObject<HTMLElement | null>): number {
 
 export interface DossierFrameProps {
   noteId: string
+  vaultPath?: string
+  locked?: boolean
   /** The page's Markdown. */
   content: string
   /** Scrolls the page to its n-th heading. */
@@ -47,22 +53,32 @@ export interface DossierFrameProps {
  */
 export function DossierFrame({
   noteId,
+  vaultPath,
+  locked,
   content,
   scrollToHeading,
   canJump,
   onOpenNote,
   children,
 }: DossierFrameProps) {
+  const { t } = useTranslation()
   const place = useNotePlace(noteId)
+  const { folded, toggle } = usePlotFold(vaultPath)
   const dossier = place?.kind === "world" ? place.dossier : null
   const textPlace =
     place?.kind === "text" && hasPlotSections(place.text.workshop) ? place.text : null
-  const framed = dossier !== null || textPlace !== null
+  const framed = dossier !== null || (textPlace !== null && !folded)
   const frameRef = React.useRef<HTMLDivElement>(null)
   const sideBySide = useWidth(frameRef) >= SIDE_BY_SIDE_MIN_WIDTH
   return (
     <div ref={frameRef} className="min-w-0">
       {dossier ? <DossierHeader dossier={dossier} /> : null}
+      {textPlace && folded && (
+        <Button type="button" size="sm" variant="ghost" onClick={toggle} aria-expanded={false}>
+          <ChevronDown aria-hidden="true" className="size-3.5" />
+          {t("creative.plot.side.expand")}
+        </Button>
+      )}
       <div
         className={cn(
           framed ? "flex gap-6" : "contents",
@@ -80,11 +96,13 @@ export function DossierFrame({
             onOpenNote={onOpenNote}
             sideBySide={sideBySide}
           />
-        ) : textPlace ? (
+        ) : textPlace && !folded ? (
           <TextPageAside
             workshop={textPlace.workshop}
             story={textPlace.story}
             noteId={noteId}
+            locked={locked || (place?.kind === "text" && place.context.locked)}
+            onFold={vaultPath ? toggle : undefined}
             onOpenNote={onOpenNote}
             sideBySide={sideBySide}
           />

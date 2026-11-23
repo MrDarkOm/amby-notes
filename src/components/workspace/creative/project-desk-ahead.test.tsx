@@ -200,12 +200,12 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
   it("binds an anchor from its menu, by keyboard", async () => {
     mount()
     const region = await strip()
-    fireEvent.keyDown(
-      within(region).getByRole("button", { name: "Привязать «Мечта» к странице…" }),
-      {
-        key: "Enter",
-      },
-    )
+    const bind = within(region).getByRole("button", { name: "Привязать «Мечта» к странице…" })
+    expect(bind.getAttribute("title")).toBe("Привязать «Мечта» к странице…")
+    expect(within(region).queryByText(/Якоря без главы/)).toBeNull()
+    fireEvent.keyDown(bind, {
+      key: "Enter",
+    })
     fireEvent.click(await screen.findByRole("menuitem", { name: "Глава первая" }))
     await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
     expect(updateDatabaseRelationValue).toHaveBeenCalledWith(

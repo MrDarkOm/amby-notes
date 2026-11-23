@@ -21,6 +21,8 @@ export interface WorkshopPrefs {
    * widgets a story can show before use (`reconcileDeskLayout`), so any saved value is safe.
    */
   deskLayout?: DeskItem[]
+  /** Fold the page plot throughout this vault. */
+  plotFolded?: boolean
   /** The choices on the page of a universe and on that of the standalone stories. */
   scopes?: Partial<Record<ScopePrefsKind, ScopePrefs>>
 }

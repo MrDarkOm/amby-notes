@@ -1,10 +1,10 @@
 import * as React from "react"
-import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
 import { reportOperationError } from "@/lib/operation-errors"
-import { isTauri, readNote, writeNote, type NoteReadOutcome } from "@/lib/storage"
+import { getNoteProperties, readNote, writeNote, type NoteReadOutcome } from "@/lib/storage"
+import { useDocStore } from "../../use-doc-store"
 import { DeskWidget } from "./desk-widget"
 
 export function StoryDescription({
@@ -21,6 +21,9 @@ export function StoryDescription({
   refresh: number
 }) {
   const { t } = useTranslation()
+  const docRevision = useDocStore((state) => state.openDocs[noteId]?.revision)
+  const noteIsDirty = useDocStore((state) => state.unsavedFileIds.has(noteId))
+  const [bodyEditable, setBodyEditable] = React.useState(false)
   const [note, setNote] = React.useState<Pick<NoteReadOutcome, "content" | "revision"> | null>(null)
   const [draft, setDraft] = React.useState<typeof note>(null)
   const [pending, setPending] = React.useState(false)
@@ -29,11 +32,13 @@ export function StoryDescription({
 
   React.useEffect(() => {
     let current = true
-    void readNote(vaultPath, noteId).then(
-      (result) => {
+    void Promise.all([readNote(vaultPath, noteId), getNoteProperties(vaultPath, noteId)]).then(
+      ([result, properties]) => {
         if (!current) return
-        setNote(result)
-        setReadError(null)
+        const unterminated = properties.frontmatterStatus === "unterminated"
+        setNote(unterminated ? null : result)
+        setBodyEditable(!unterminated && !properties.bodyReadOnly)
+        setReadError(unterminated ? t("workspace.unterminatedFrontmatter") : null)
       },
       (error: unknown) => {
         if (current) setReadError(reportOperationError(error))
@@ -42,11 +47,15 @@ export function StoryDescription({
     return () => {
       current = false
     }
-  }, [vaultPath, noteId, refresh])
+  }, [docRevision, noteId, refresh, t, vaultPath])
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!draft || pending || !editable) return
+    if (!draft || pending || !editable || !bodyEditable) return
+    if (useDocStore.getState().unsavedFileIds.has(noteId)) {
+      setSaveError(t("creative.storyDescription.waitForNote"))
+      return
+    }
     setPending(true)
     setSaveError(null)
     try {
@@ -56,7 +65,8 @@ export function StoryDescription({
         draft.content,
         generation,
         draft.revision,
-        isTauri() ? getCurrentWindow().label : "main",
+        // The ordinary note editor must reconcile this write even in this window.
+        "creative-description",
       )
       setNote({ content: draft.content, revision: result.revision })
       setDraft(null)
@@ -81,7 +91,11 @@ export function StoryDescription({
             className="w-full rounded-md border border-input bg-background p-2 text-sm"
           />
           <div className="flex gap-2">
-            <Button size="sm" type="submit" disabled={pending || draft.content === note?.content}>
+            <Button
+              size="sm"
+              type="submit"
+              disabled={pending || !bodyEditable || draft.content === note?.content}
+            >
               {t("common.save")}
             </Button>
             <Button
@@ -103,14 +117,25 @@ export function StoryDescription({
           <p className="whitespace-pre-wrap break-words text-sm">
             {note.content || t("creative.storyDescription.empty")}
           </p>
-          {editable && (
-            <Button size="sm" variant="outline" className="w-fit" onClick={() => setDraft(note)}>
+          {editable && bodyEditable && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-fit"
+              onClick={() => setDraft(note)}
+              disabled={noteIsDirty}
+            >
               {t("creative.storyDescription.edit")}
             </Button>
           )}
         </>
       ) : null}
-      {(saveError || readError) && <NoticeLine text={saveError ?? readError ?? ""} role="status" />}
+      {(saveError || readError || (editable && noteIsDirty)) && (
+        <NoticeLine
+          text={saveError ?? readError ?? t("creative.storyDescription.waitForNote")}
+          role="status"
+        />
+      )}
     </DeskWidget>
   )
 }
