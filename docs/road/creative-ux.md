@@ -11,7 +11,7 @@ first (section 2).
 | B     | Levels of text pages: visible and changeable            | 4, 15, 16     | 4, 15 implemented  |
 | C     | One word for universe / world; plot arcs vs text arcs   | 3, 8          | **owner decision** |
 | D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | planned            |
-| E     | "Create" chooser and button labels                      | 9, 10         | planned            |
+| E     | "Create" chooser and button labels                      | 9, 10         | implemented        |
 | F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | planned            |
 | G     | Dossier and empty sections                              | 18–21         | planned            |
 | H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |

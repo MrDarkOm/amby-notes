@@ -6,6 +6,8 @@ export type CreateChoice =
   | "story"
   | "section"
   | "universe"
+  | "anchor"
+  | "note"
   /** A new page in a world category: `entity:<category key>`. */
   | `entity:${string}`
   /** A new page of a story's text. */
@@ -23,19 +25,17 @@ export interface ChooserOption {
   icon: LucideIcon
   title: string
   hint: string
-  /** What is made often (a page, a world page) comes first; the rest is offered after it. */
-  group: "common" | "rare"
+  group: ChooserGroup
 }
 
-/** The options split into the frequent ones and the rare ones, each in its own order. */
-export function splitChooserOptions(options: ChooserOption[]): {
-  common: ChooserOption[]
-  rare: ChooserOption[]
-} {
-  return {
-    common: options.filter((option) => option.group === "common"),
-    rare: options.filter((option) => option.group === "rare"),
-  }
+const CHOOSER_GROUPS = ["story", "reference", "structure"] as const
+type ChooserGroup = (typeof CHOOSER_GROUPS)[number]
+
+export function groupChooserOptions(options: ChooserOption[]) {
+  return CHOOSER_GROUPS.map((group) => ({
+    group,
+    options: options.filter((option) => option.group === group),
+  })).filter((item) => item.options.length > 0)
 }
 
 /**
@@ -51,20 +51,14 @@ export function useChooserOptions(
   return [
     ...extra.map((entry): ChooserOption => ({
       ...entry,
-      icon:
-        entry.icon ??
-        (entry.value === "page"
-          ? FileText
-          : entry.value.startsWith("section:")
-            ? Section
-            : FilePlus),
-      group: entry.value === "page" || entry.value.startsWith("entity:") ? "common" : "rare",
+      icon: entry.icon ?? (entry.value === "page" ? FileText : FilePlus),
+      group: entry.value.startsWith("entity:") ? "reference" : "story",
     })),
     ...(canWrite
       ? [
           {
             value: "story" as const,
-            group: "rare" as const,
+            group: "structure" as const,
             icon: BookOpen,
             title: t("creative.panel.newStory", "Новая история"),
             hint: t("creative.chooser.storyInside", {
@@ -74,14 +68,14 @@ export function useChooserOptions(
           },
           {
             value: "universe" as const,
-            group: "rare" as const,
+            group: "structure" as const,
             icon: Globe2,
             title: t("creative.kind.universe", "Вселенная"),
             hint: t("creative.kind.universeHint", "Мир или сеттинг для историй"),
           },
           {
             value: "section" as const,
-            group: "rare" as const,
+            group: "structure" as const,
             icon: Section,
             title: t("creative.panel.newSection", "Новый раздел"),
             hint: t("creative.chooser.sectionHint", {

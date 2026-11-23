@@ -247,7 +247,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
 
   it("creates a page in the shown story linked to it, and in a universe or the whole workshop with no link", async () => {
     const make = async (title: string) => {
-      fireEvent.click(await screen.findByRole("button", { name: "Добавить: Персонажи" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Персонаж" }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: title } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -295,7 +295,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
     expect(links).toHaveLength(2)
 
     // A page made here carries no link: there is nowhere to write one.
-    fireEvent.click(await screen.findByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Персонаж" }))
     const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
     fireEvent.change(field, { target: { value: "Лев" } })
     fireEvent.keyDown(field, { key: "Enter" })

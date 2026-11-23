@@ -383,7 +383,7 @@ export function ChaptersWidget({
             )}
             {onCreateAnchor && (
               <QuickCreate
-                label={t("creative.plot.ribbon.create")}
+                label={t("creative.createItem.anchors")}
                 placeholder={t("creative.plot.ribbon.creating")}
                 failed={(message) => t("creative.plot.ribbon.failed", { message })}
                 onCreate={onCreateAnchor}

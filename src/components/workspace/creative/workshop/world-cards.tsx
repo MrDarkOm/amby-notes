@@ -1,5 +1,6 @@
 import { Database } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { sectionCreateLabel } from "../section-create-label"
 import type { DatabaseRow, WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
@@ -127,7 +128,7 @@ export function WorldCards({
             {create && (
               <div className="pt-1">
                 <QuickCreate
-                  label={t("creative.workshop.world.addEntity", { name: sectionTitle(section) })}
+                  label={sectionCreateLabel(t, section.role, sectionTitle(section))}
                   placeholder={t("creative.workshop.newEntityPlaceholder", {
                     name: sectionTitle(section),
                   })}

@@ -3381,7 +3381,6 @@ const ru = {
         title: "Мир",
         noCategories: "Разделов мира пока нет. Добавьте первый кнопкой «+».",
         noItems: "Пока пусто.",
-        addEntity: "Добавить: {{name}}",
       },
       menu: {
         open: "Открыть",
@@ -3755,7 +3754,7 @@ const ru = {
       storyInside: "Внутри «{{name}}»",
       section: "Раздел",
       sectionHint: "Общий раздел в «{{name}}»",
-      rare: "Нужно реже",
+      groups: { story: "В истории", reference: "В справочнике", structure: "Структура" },
     },
     createProject: {
       title: "Новая история",
@@ -3871,6 +3870,16 @@ const ru = {
       notFoundHint: "Файл amby-workshop.json перенесён или удалён. Обновите список мастерских.",
       readOnlyBanner:
         "Формат мастерской (версия {{version}}) новее известного этой версии Amby: мастерская открыта только для чтения, файл не изменяется.",
+    },
+    createItem: {
+      characters: "Персонаж",
+      locations: "Локация",
+      arcs: "Арка",
+      anchors: "Якорь",
+      notes: "Заметка",
+      stories: "История",
+      universes: "Вселенная",
+      inSection: "Добавить в «{{name}}»",
     },
     storyDescription: {
       title: "Описание",
@@ -7956,7 +7965,6 @@ const en: LocaleShape<typeof ru> = {
         title: "World",
         noCategories: "No world sections yet. Add the first with “+”.",
         noItems: "Nothing here yet.",
-        addEntity: "Add: {{name}}",
       },
       menu: {
         open: "Open",
@@ -8314,7 +8322,7 @@ const en: LocaleShape<typeof ru> = {
       storyInside: "Inside “{{name}}”",
       section: "Section",
       sectionHint: "A shared section in “{{name}}”",
-      rare: "Needed less often",
+      groups: { story: "In the story", reference: "In the reference", structure: "Structure" },
     },
     createProject: {
       title: "New story",
@@ -8431,6 +8439,16 @@ const en: LocaleShape<typeof ru> = {
       notFoundHint: "The amby-workshop.json file was moved or deleted. Refresh the workshop list.",
       readOnlyBanner:
         "The workshop format (version {{version}}) is newer than this Amby knows: it is read-only and the file is not changed.",
+    },
+    createItem: {
+      characters: "Character",
+      locations: "Location",
+      arcs: "Arc",
+      anchors: "Anchor",
+      notes: "Note",
+      stories: "Story",
+      universes: "Universe",
+      inSection: "Add to “{{name}}”",
     },
     storyDescription: {
       title: "Description",

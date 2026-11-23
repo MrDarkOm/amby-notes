@@ -484,7 +484,7 @@ describe("ProjectDesk", () => {
     )
     const card = await screen.findByRole("region", { name: "Персонажи" })
     expect(await within(card).findByText("Пока пусто.")).toBeTruthy()
-    fireEvent.click(within(card).getByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(within(card).getByRole("button", { name: "Персонаж" }))
     const field = within(card).getByLabelText("Название — Персонажи")
     fireEvent.change(field, { target: { value: "Анна" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
