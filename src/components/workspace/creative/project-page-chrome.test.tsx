@@ -490,11 +490,13 @@ describe("read mode of a story's page", () => {
   it("lets the story be written, then stops every edit while locked and starts again after", async () => {
     mount("hills")
     const region = await chapters()
-    expect(within(region).getByRole("button", { name: "Глава" })).toBeTruthy()
+    expect(within(region).getByRole("button", { name: "Новая: Глава" })).toBeTruthy()
 
     fireEvent.click(screen.getByTitle("Режим просмотра"))
     expect(useViewStateStore.getState().lockedFileIds.has("creative:hills")).toBe(true)
-    await waitFor(() => expect(within(region).queryByRole("button", { name: "Глава" })).toBeNull())
+    await waitFor(() =>
+      expect(within(region).queryByRole("button", { name: "Новая: Глава" })).toBeNull(),
+    )
     // The layout of the desk cannot be changed either: no button, no menu row.
     expect(screen.queryByTitle("Настроить стол")).toBeNull()
     openMenu()
@@ -505,7 +507,7 @@ describe("read mode of a story's page", () => {
 
     fireEvent.click(screen.getByTitle("Режим редактирования"))
     expect(useViewStateStore.getState().lockedFileIds.has("creative:hills")).toBe(false)
-    expect(await within(region).findByRole("button", { name: "Глава" })).toBeTruthy()
+    expect(await within(region).findByRole("button", { name: "Новая: Глава" })).toBeTruthy()
   })
 
   it("leaves the layout mode when the page is locked", async () => {

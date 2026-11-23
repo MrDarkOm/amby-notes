@@ -13,6 +13,7 @@ export interface TrailStep {
   key: string
   label: string
   to?: TrailTarget
+  levelName?: string | null
 }
 
 export interface NoteTrailInput {
@@ -149,7 +150,9 @@ export function noteTrail(input: NoteTrailInput): TrailStep[] | null {
     const parents = above.map((id) =>
       stepOf(`page:${id}`, findNode(roots, id)?.title ?? "", { kind: "note", noteId: id }),
     )
-    return [...head, ...parents, own]
+    const levelId = findNode(roots, row.noteId)?.levelId
+    const levelName = text.story.text.levels.find((level) => level.id === levelId)?.name
+    return [...head, ...parents, { ...own, levelName }]
   }
 
   for (const workshop of catalog?.workshops ?? []) {
