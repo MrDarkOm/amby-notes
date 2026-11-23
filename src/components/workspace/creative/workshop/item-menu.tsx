@@ -11,6 +11,7 @@ import {
   IndentDecrease,
   IndentIncrease,
   Link2Off,
+  Layers,
   Pencil,
   Trash2,
   type LucideIcon,
@@ -209,6 +210,7 @@ export function ItemMenu({
   onSelectStatus,
   move,
   arrange,
+  changeLevel,
   plot,
   children,
 }: {
@@ -229,6 +231,7 @@ export function ItemMenu({
   move?: MoveMenu
   /** "Up", "Down" and, for a page of the text, "Nest" / "Move out": what dragging does, by keyboard. */
   arrange?: () => ArrangeMenu | null
+  changeLevel?: { choices: { id: string; name: string | null }[]; onSelect: (id: string) => void }
   /** "Anchors", "Arcs" and "Unbind from a page": the keyboard-reachable way to what dragging does. */
   plot?: PlotMenu
   /** The row; it receives the trigger's props. */
@@ -381,6 +384,21 @@ export function ItemMenu({
             </ContextMenuSub>
           )}
           {arrange && <ArrangeItems arrange={arrange} />}
+          {changeLevel && changeLevel.choices.length > 0 && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                <Layers className="size-3.5 text-muted-foreground" />
+                {t("creative.workshop.changeLevel")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-52">
+                {changeLevel.choices.map((level) => (
+                  <ContextMenuItem key={level.id} onSelect={() => changeLevel.onSelect(level.id)}>
+                    {level.name}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
           {hasStatusChoices && statusOptions && onSelectStatus && (
             <>
               <ContextMenuSeparator />

@@ -1,4 +1,5 @@
 import type * as React from "react"
+import { useTranslation } from "react-i18next"
 import type { PageCrumb } from "../page-chrome/page-chrome-types"
 import type { NoteTrailProps } from "../editor/document-header"
 import { useNoteTrail } from "./use-note-trail"
@@ -37,12 +38,26 @@ export function CreativeNoteTrail({
   onOpenNote,
   render,
 }: NoteTrailProps) {
+  const { t } = useTranslation()
   const steps = useNoteTrail(noteId)
   if (!steps) return render(folderCrumbs)
   const icon = folderCrumbs[folderCrumbs.length - 1]?.icon
   return render(
     steps.map((step, index) =>
-      crumbOf(step, index === steps.length - 1, { onOpenPage, onOpenNote }, icon),
+      crumbOf(
+        step.levelName
+          ? {
+              ...step,
+              label: t("creative.workshop.pageWithLevel", {
+                title: step.label,
+                level: step.levelName,
+              }),
+            }
+          : step,
+        index === steps.length - 1,
+        { onOpenPage, onOpenNote },
+        icon,
+      ),
     ),
   )
 }

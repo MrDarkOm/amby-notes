@@ -15,6 +15,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { DatabaseRow, TextLevelSummary, TextPageStat } from "@/lib/storage"
@@ -35,6 +38,7 @@ import { QuickCreate } from "../workshop/quick-create"
 import {
   canHaveChildPage,
   pageMoves,
+  pageLevelChoices,
   pageStatusDotClass,
   resolvePageStatus,
   startLevelId,
@@ -72,6 +76,7 @@ interface ChaptersWidgetProps {
   onOpenNote: (noteId: string) => void
   /** Makes a page under `parent` (the top of the text for `null`), named by the author. */
   onCreatePage: (parent: TextNode | null, title: string) => Promise<void>
+  onChangeLevel: (node: TextNode, levelId: string) => void
   onMovePage: (pageId: string, plan: MovePlan) => void
   /** Makes an anchor of the story; `null` where one cannot be made. */
   onCreateAnchor: ((title: string) => Promise<void>) | null
@@ -109,6 +114,7 @@ export function ChaptersWidget({
   onOpenNote,
   onCreatePage,
   onMovePage,
+  onChangeLevel,
   onCreateAnchor,
   moveError,
   loading,
@@ -119,14 +125,18 @@ export function ChaptersWidget({
   const [draft, setDraft] = React.useState<{ parentId: string | null } | null>(null)
   const [over, setOver] = React.useState<string | null>(null)
 
-  const firstLevelId = startLevelId(levels, null)
-  const firstLevelName = levels.find((level) => level.id === firstLevelId)?.name ?? null
+  const levelNameFor = (parent: TextNode | null) => {
+    const id = startLevelId(levels, parent)
+    return levels.find((level) => level.id === id)?.name
+  }
+  const firstLevelName = levelNameFor(null)
   const canBind = canWrite && binding !== null
 
   const draftRow = (parent: TextNode | null, depth: number) => (
     <InlineCreateRow
       depth={depth}
       icon={<FileText className="size-3.5" />}
+      label={t("creative.workshop.newPageAtLevel", { level: levelNameFor(parent) })}
       placeholder={t("creative.workshop.newPagePlaceholder")}
       onSubmit={async (title) => {
         await onCreatePage(parent, title)
@@ -144,7 +154,9 @@ export function ChaptersWidget({
       const status = resolvePageStatus(statusOptions, node.statusOptionId)
       const marks = pageMarks(bindings.get(node.noteId), plotTitleOf)
       const moves = pageMoves(roots, levels, node.noteId)
-      const canNest = canWrite && canHaveChildPage(levels, node)
+      const childLevelName = levelNameFor(node)
+      const canNest = canWrite && canHaveChildPage(levels, node) && Boolean(childLevelName)
+      const levelChoices = canWrite ? pageLevelChoices(roots, levels, node.noteId) : []
       return (
         <React.Fragment key={node.noteId}>
           <div
@@ -205,6 +217,7 @@ export function ChaptersWidget({
             </span>
             <button
               type="button"
+              title={level?.name ?? undefined}
               onClick={() => onOpenNote(node.noteId)}
               className="min-w-0 flex-1 break-words py-1.5 text-left text-sm font-medium outline-none focus-visible:underline"
             >
@@ -246,6 +259,23 @@ export function ChaptersWidget({
                       {t(`creative.arrange.${key}`)}
                     </DropdownMenuItem>
                   ))}
+                  {levelChoices.length > 0 && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        {t("creative.workshop.changeLevel")}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {levelChoices.map((choice) => (
+                          <DropdownMenuItem
+                            key={choice.id}
+                            onSelect={() => onChangeLevel(node, choice.id)}
+                          >
+                            {choice.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                   {canNest && (
                     <>
                       <DropdownMenuSeparator />
@@ -254,7 +284,7 @@ export function ChaptersWidget({
                         onSelect={() => setDraft({ parentId: node.noteId })}
                       >
                         <Plus className="size-3.5 text-muted-foreground" />
-                        {t("creative.workshop.addChildPage")}
+                        {t("creative.workshop.newPageAtLevel", { level: childLevelName })}
                       </DropdownMenuItem>
                     </>
                   )}
@@ -289,7 +319,7 @@ export function ChaptersWidget({
             className="mt-1 inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
           >
             <Plus className="size-3.5" />
-            {firstLevelName}
+            {t("creative.workshop.newPageAtLevel", { level: firstLevelName })}
           </button>
         )}
       </div>

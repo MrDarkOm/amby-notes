@@ -20,6 +20,7 @@ const writeNote = vi.fn()
 const exportTextFile = vi.fn()
 const createTextPage = vi.fn()
 const moveTextPage = vi.fn()
+const applyDatabaseValueBatch = vi.fn()
 const listNotebooks = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
@@ -33,6 +34,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
     createTextPage: (...args: unknown[]) => createTextPage(...args),
+    applyDatabaseValueBatch: (...args: unknown[]) => applyDatabaseValueBatch(...args),
     moveTextPage: (...args: unknown[]) => moveTextPage(...args),
     listNotebooks: (...args: unknown[]) => listNotebooks(...args),
     resolveDatabaseAssetPaths: async () => ({ paths: [] }),
@@ -220,7 +222,8 @@ describe("ProjectDesk", () => {
     const onOpenNote = renderDesk()
     const outline = await screen.findByRole("region", { name: "Главы" })
     await within(outline).findByRole("button", { name: "Книга первая" })
-    fireEvent.click(within(outline).getByRole("button", { name: "Книга" }))
+    fireEvent.click(within(outline).getByRole("button", { name: "Новая: Книга" }))
+    expect(within(outline).getByText("Новая: Книга")).toBeTruthy()
     const field = within(outline).getByPlaceholderText(/Название страницы/)
     fireEvent.change(field, { target: { value: "Книга третья" } })
     fireEvent.keyDown(field, { key: "Enter" })
@@ -234,6 +237,35 @@ describe("ProjectDesk", () => {
       }),
     )
     await waitFor(() => expect(onOpenNote).toHaveBeenCalledWith("new"))
+  })
+
+  it("writes only the new level from the desk page menu", async () => {
+    applyDatabaseValueBatch.mockResolvedValue({ revisions: [], warnings: [] })
+    renderDesk()
+    fireEvent.keyDown(
+      await screen.findByRole("button", {
+        name: "Действия со страницей «Книга вторая»",
+      }),
+      { key: "Enter" },
+    )
+    const levels = await screen.findByRole("menuitem", { name: "Изменить уровень" })
+    fireEvent.keyDown(levels, { key: "ArrowRight" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Глава" }))
+    await waitFor(() =>
+      expect(applyDatabaseValueBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: "db_text",
+          cells: [
+            {
+              noteId: "b2",
+              propertyId: "lvl",
+              valueJson: JSON.stringify({ type: "select", optionId: "chapter" }),
+              expectedRevision: "rev-b2",
+            },
+          ],
+        }),
+      ),
+    )
   })
 
   it("moves a page with the panel's own moves, from the page's menu", async () => {

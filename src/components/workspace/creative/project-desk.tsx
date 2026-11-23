@@ -46,6 +46,7 @@ import { useAnchorOrder } from "./workshop/use-anchor-order"
 import { useDatabaseRows } from "./workshop/use-database-rows"
 import { useNotebooks } from "./workshop/use-notebooks"
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
+import { writeTextPageLevel } from "./workshop/write-text-page-level"
 import { usePlotBinding } from "./workshop/use-plot-binding"
 import {
   buildTextTree,
@@ -337,6 +338,14 @@ export function ProjectDesk({
       .finally(bumpData)
   }
 
+  const changePageLevel = (node: TextNode, levelId: string) => {
+    if (!text || vaultGeneration === null) return
+    setMoveError(null)
+    void writeTextPageLevel(text, vaultGeneration, node, levelId)
+      .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+      .finally(bumpData)
+  }
+
   // Notes of this story, under their notebooks.
   const notesSection = sectionOf("notes")
   const noteRows = notesSection ? rowsOfSection.get(notesSection.id) : undefined
@@ -533,6 +542,7 @@ export function ProjectDesk({
               onOpenNote={onOpenNote}
               onCreatePage={createPage}
               onMovePage={movePage}
+              onChangeLevel={changePageLevel}
               onCreateAnchor={canCreateAnchor ? createAnchor : null}
               moveError={moveError}
               loading={data.status === "loading" || data.status === "idle"}

@@ -97,3 +97,5 @@ level": `pageMoves` is `planMove` (the drop's own rules: levels, loop, edges) ov
 refuse is greyed out and the others call `move_text_page` through the same `commitMove` as a drop. An anchor in "Ahead" has
 "Move up" / "Move down", which write the first view's `manualOrder` as dragging does (`stepAheadAnchor`); a bound anchor has none,
 its place is the text's. Tests: `creative-panel-arrange.test.tsx`.
+
+**Text levels.** The text tree and desk derive page creation labels and available level changes from the text schema. [write-text-page-level.ts](write-text-page-level.ts) updates the existing level property using the row revision. Drag refusals come from `assessPageMove` in [text-tree-model.ts](text-tree-model.ts).
