@@ -26,7 +26,12 @@ import {
 import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useCreativeSettingsStore } from "./creative-settings-store"
-import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
+import {
+  readWorkshopPrefs,
+  writeWorkshopPrefs,
+  WHOLE_WORKSHOP,
+  type WorkshopPrefs,
+} from "./creative-scope-storage"
 import { useProjectStore } from "./project-store"
 import { universeTargetId } from "./project-tree-model"
 import { sectionCreateLabel } from "./section-create-label"
@@ -119,7 +124,8 @@ export function CreativePanel({
     if (!vault) return
     const nav = useCreativeNavStore.getState()
     const prefs = readWorkshopPrefs(vault)
-    nav.setStoryFilter(prefs.story ?? null)
+    nav.setStoryFilter(prefs.story ?? "all")
+    if (prefs.story == null) writeWorkshopPrefs(vault, { story: "all" })
     nav.setUniverseFilter(prefs.universe && prefs.universe !== STANDALONE ? prefs.universe : null)
     const open = worksSectionsFromPrefs(prefs.works)
     nav.setWorksOpen({
@@ -150,9 +156,11 @@ export function CreativePanel({
   // The universe chosen stands until the list is read and shows it gone.
   const activeUniverseId =
     universeFilter !== null &&
+    universeFilter !== WHOLE_WORKSHOP &&
     (!universesKnown || universes.some((universe) => universe.noteId === universeFilter))
       ? universeFilter
       : null
+  const scopeId = universeFilter === WHOLE_WORKSHOP ? WHOLE_WORKSHOP : activeUniverseId
   // A universe made a moment ago is chosen before the list has read it: it is not "missing".
   const justCreatedUniverse = React.useRef<string | null>(null)
   const remember = React.useCallback(
@@ -163,7 +171,7 @@ export function CreativePanel({
   )
   // A remembered universe that is gone (deleted, or the base is) is dropped, not kept as a ghost.
   React.useEffect(() => {
-    if (universeFilter === null || !universesKnown) return
+    if (universeFilter === null || universeFilter === WHOLE_WORKSHOP || !universesKnown) return
     if (universes.some((universe) => universe.noteId === universeFilter)) {
       if (justCreatedUniverse.current === universeFilter) justCreatedUniverse.current = null
       return
@@ -178,8 +186,7 @@ export function CreativePanel({
     const nav = useCreativeNavStore.getState()
     nav.setUniverseFilter(universeId)
     const patch: WorkshopPrefs = { universe: universeId ?? STANDALONE }
-    // "No story chosen yet" meant the first story of the scope: choosing a scope shows it whole.
-    if (nav.storyFilter === null) {
+    if (universeId === WHOLE_WORKSHOP || nav.storyFilter === null) {
       nav.setStoryFilter("all")
       patch.story = "all"
     }
@@ -482,7 +489,7 @@ export function CreativePanel({
           onOpenNote={openNote}
           activeNoteId={selectedId}
           onOpenProject={openProject}
-          universeId={activeUniverseId}
+          universeId={scopeId}
           onCreateEntity={createEntity}
           onLinkSection={linkSection}
           onEnsurePlot={ensurePlot}
@@ -498,7 +505,7 @@ export function CreativePanel({
           onOpenCreate={() => setChooserOpen(true)}
           universe={{
             universes,
-            selectedUniverseId: activeUniverseId,
+            selectedUniverseId: scopeId,
             onSelectUniverse: chooseUniverse,
             onNewUniverse: workshop.readOnly
               ? null

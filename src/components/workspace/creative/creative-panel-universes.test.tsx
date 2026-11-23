@@ -157,7 +157,7 @@ async function pick(name: string, option: RegExp) {
   fireEvent.click(await screen.findByRole("option", { name: option }))
 }
 /** The panel has read the stories' cards: with none chosen it shows the first standalone story. */
-const settled = () => waitFor(() => expect(selectedText("История")).toContain("Lone"))
+const settled = () => waitFor(() => expect(selectedText("История")).toContain("1 история"))
 /** The card of the stories lists the two stories of "Мир": the scope was read. */
 const inUniverse = () => waitFor(() => expect(selectedText("История")).toContain("2 истории"))
 const labels = (options: HTMLElement[]) => options.map((option) => option.textContent ?? "")
@@ -199,7 +199,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
   afterEach(cleanup)
 
   describe("the card of the stories", () => {
-    it("names the stories, shows the first story of the scope, and ends its list with 'New story'", async () => {
+    it("defaults to All stories explicitly and offers the whole workshop", async () => {
       render(<CreativePanel {...props()} />)
       // One bar holds the universe and the story, in that order.
       const card = cardOf("История")
@@ -210,14 +210,21 @@ describe("CreativePanel: the stories above the lists, the universes below them",
         universe.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy()
       // The panel opens on the standalone stories: Lone is the only one.
-      await waitFor(() => expect(selectedText("История")).toContain("Lone"))
+      await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
+      expect(prefs().story).toBe("all")
+      await pick("Вселенная", /Вся мастерская/)
+      expect(selectedText("Вселенная")).toContain("Вся мастерская")
+      expect(prefs().universe).toBe("all-workshop")
 
       const options = await open("История")
-      expect(labels(options)).toEqual([
-        expect.stringContaining("Lone"),
-        "Все истории",
-        "Новая история",
-      ])
+      expect(labels(options)).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("Lone"),
+          expect.stringContaining("MoleHills"),
+          expect.stringContaining("Все истории"),
+          "Новая история",
+        ]),
+      )
     })
 
     it("says 'All stories' with their count when none is chosen, and no pages or words", async () => {
@@ -258,6 +265,8 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       const onOpenCreativeProject = vi.fn()
       render(<CreativePanel {...props({ onOpenCreativeProject })} />)
       const top = () => within(rowOf("История"))
+      await settled()
+      await pick("История", /^Lone/)
       await waitFor(() => expect(selectedText("История")).toContain("Lone"))
       fireEvent.click(top().getByRole("button", { name: "Открыть страницу истории" }))
       expect(onOpenCreativeProject).toHaveBeenLastCalledWith("lone", undefined)
@@ -285,12 +294,13 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       expect(card.textContent).not.toContain("Мастерская")
     })
 
-    it("lists 'Standalone stories' first, then the universes by the rows of their base, then 'New universe'", async () => {
+    it("lists whole workshop, standalone stories, universes and the creation action", async () => {
       render(<CreativePanel {...props()} />)
       await open("Вселенная")
       await waitFor(() => expect(labels(screen.getAllByRole("option"))).toContain("Мир"))
       expect(labels(screen.getAllByRole("option"))).toEqual([
         expect.stringContaining("Отдельные истории"),
+        "Вся мастерская",
         "Мир",
         "Пустой",
         "Новая вселенная",
@@ -374,7 +384,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       expect(group.textContent).toContain("Ева")
     })
 
-    it("is always there: 'Standalone stories' and 'New universe' only, when there are no universes", async () => {
+    it("offers the whole workshop and standalone stories even with no universes", async () => {
       ROWS.db_univ.splice(0)
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Глеб/ })
@@ -382,6 +392,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       const options = await open("Вселенная")
       expect(labels(options)).toEqual([
         expect.stringContaining("Отдельные истории"),
+        "Вся мастерская",
         "Новая вселенная",
       ])
     })
@@ -393,6 +404,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       const options = await open("Вселенная")
       expect(labels(options)).toEqual([
         expect.stringContaining("Отдельные истории"),
+        "Вся мастерская",
         "Новая вселенная",
       ])
       fireEvent.click(options[options.length - 1])
@@ -473,7 +485,10 @@ describe("CreativePanel: the stories above the lists, the universes below them",
   describe("a story made while a universe is chosen", () => {
     /** The dialog made the story "fresh" with its card "note_fresh"; the lists read it again. */
     /** `first`: what the story card shows; `null` when the scope holds no story and it offers one. */
-    async function makeStory(first: string | null = "MoleHills", onOpenCreativeProject = vi.fn()) {
+    async function makeStory(
+      first: string | null = "Все истории",
+      onOpenCreativeProject = vi.fn(),
+    ) {
       ROWS.db_stories.push(row("note_fresh", "Свежая"))
       render(
         <CreativePanel
@@ -563,7 +578,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
     })
 
     it("writes no link under the standalone stories", async () => {
-      const onOpen = await makeStory("Lone")
+      const onOpen = await makeStory("Все истории")
       await waitFor(() => expect(onOpen).toHaveBeenCalledWith("fresh", undefined))
       expect(updateDatabaseRelationValue).not.toHaveBeenCalled()
       expect(addStoryLinks).not.toHaveBeenCalled()

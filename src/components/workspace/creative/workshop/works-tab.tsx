@@ -29,6 +29,7 @@ import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { writeTextPageLevel } from "./write-text-page-level"
 import { InlineCreateRow } from "./inline-create-row"
+import { WHOLE_WORKSHOP } from "../creative-scope-storage"
 import { StoryHeader, type UniverseSwitch } from "./story-header"
 import { ItemMenu, type ArrangeMenu, type PlotChoice, type PlotMenu } from "./item-menu"
 import { LinkAction } from "./link-action"
@@ -145,6 +146,7 @@ interface WorksTabProps {
 export interface PlotPart {
   /** The anchors that belong to the story (a "Stories" relation, or bound to its text). */
   anchors: DatabaseRow[]
+  anchorsFootnote?: React.ReactNode
   /** The arcs that belong to the story. */
   arcs: DatabaseRow[]
   /** What each page of the story's text is bound to. */
@@ -966,6 +968,7 @@ function StoryWorks({
             </>
           )}
           {anchorDraftRow}
+          {plot.anchorsFootnote}
         </>
       ),
     },
@@ -1064,7 +1067,9 @@ export function WorksTab({
   }, [activeNoteId, stats, textRows])
 
   const handleOpenScope = () => {
-    if (selectedUniverseId) {
+    if (selectedUniverseId === WHOLE_WORKSHOP) {
+      onOpenProject(workshop.workshopId)
+    } else if (selectedUniverseId) {
       onOpenProject(universeTargetId(selectedUniverseId))
     } else {
       onOpenProject(standaloneTargetId(workshop.workshopId))

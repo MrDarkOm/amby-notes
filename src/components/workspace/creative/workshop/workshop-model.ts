@@ -1,3 +1,4 @@
+import { WHOLE_WORKSHOP } from "../creative-scope-storage"
 import type {
   DatabasePropertySummary,
   DatabaseRow,
@@ -356,6 +357,7 @@ export function buildSearchGroups(query: string, sources: SearchSource[]): Searc
  * universe holds is the standalone stories and everything that belongs to one of them or to none.
  */
 export type PanelFilter =
+  | { kind: "workshop" }
   | { kind: "standalone" }
   | { kind: "story"; storyId: string }
   | { kind: "universe"; universeId: string }
@@ -369,6 +371,7 @@ export function storiesInScope(
   membership: Membership,
   universeId: string | null,
 ): StorySummary[] {
+  if (universeId === WHOLE_WORKSHOP) return [...stories]
   return stories.filter((story) => membership.universeOf(story.storyId) === universeId)
 }
 
@@ -376,9 +379,7 @@ export function storiesInScope(
  * The filter the stored choices mean, on two axes: the card of the universes sets the scope (a
  * universe, or the standalone stories) and a story inside it narrows to that story. A story wins
  * over a universe, a universe over the standalone scope. `"all"` is every story of the scope; a
- * story that is gone, or that the scope does not hold (`scopeStoryIds`, `null` while that is not
- * known), counts as "all" as well; none chosen yet is the first story of the scope, and the whole
- * scope when it has none or when the scope is not read yet.
+ * story that is gone, outside the current scope or unspecified counts as "all".
  */
 export function resolvePanelFilter(
   stories: readonly StorySummary[],
@@ -389,13 +390,12 @@ export function resolvePanelFilter(
   const inScope = (story: StorySummary) =>
     scopeStoryIds === null || scopeStoryIds.has(story.storyId)
   let story: StorySummary | null = null
-  // Before the scope is read the first story is not known: the scope is shown meanwhile.
-  if (storyFilter === null) story = scopeStoryIds === null ? null : (stories.find(inScope) ?? null)
-  else if (storyFilter !== "all") {
+  if (storyFilter && storyFilter !== "all") {
     const named = stories.find((candidate) => candidate.storyId === storyFilter) ?? null
     story = named && inScope(named) ? named : null
   }
   if (story) return { kind: "story", storyId: story.storyId }
+  if (universeId === WHOLE_WORKSHOP) return { kind: "workshop" }
   return universeId !== null ? { kind: "universe", universeId } : { kind: "standalone" }
 }
 
@@ -484,6 +484,7 @@ export function scopeEntities<T extends EntityItem>(
   filter: PanelFilter,
   membership: Membership,
 ): ScopedEntities<T> {
+  if (filter.kind === "workshop") return { shown: [...items], withoutStory: [] }
   if (filter.kind === "standalone") {
     // A page is here when it is in a standalone story, or in no story at all; one that is in a
     // standalone story and in a universe's is in both scopes.

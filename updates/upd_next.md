@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: see how many entries are outside the selected story and open the whole workshop from that list. Universe pages show entries from every story in the universe and mark the shared ones. The story picker starts at All stories.
+
 - Creative workshop: bind an existing anchor or create and bind one from the text page. The page plot takes less space when empty, and its fold setting is remembered per vault.
 
 - Creative workshop: Create groups story pages, anchors and notes, reference entries, and workshop structure. Add buttons name the item they create.

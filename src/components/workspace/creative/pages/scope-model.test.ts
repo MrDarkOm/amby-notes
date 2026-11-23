@@ -27,23 +27,17 @@ describe("sharedInUniverse", () => {
     dina: ["s1", "s2", "s3"],
   })
 
-  it("keeps the pages that two or more stories of the universe hold, and counts the rest", () => {
+  it("marks only rows held by at least two stories of this universe", () => {
     const result = sharedInUniverse(["anna", "boris", "clara", "dina", "nobody"].map(row), m, [
       "s1",
       "s2",
       "s3",
     ])
-    expect(result.shared.map((r) => r.noteId)).toEqual(["anna", "dina"])
-    expect(result.hidden).toBe(3)
+    expect([...result]).toEqual(["anna", "dina"])
   })
 
   it("is empty with one story, which can share nothing", () => {
     const result = sharedInUniverse([row("anna")], m, ["s1"])
-    expect(result.shared).toEqual([])
-    expect(result.hidden).toBe(1)
-  })
-
-  it("takes the threshold as a parameter", () => {
-    expect(sharedInUniverse([row("boris")], m, ["s1"], 1).shared).toHaveLength(1)
+    expect([...result]).toEqual([])
   })
 })

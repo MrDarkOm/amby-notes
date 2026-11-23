@@ -168,9 +168,7 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   it("lists the anchors of the standalone stories in the author's order, those of no story last", async () => {
     render(<CreativePanel {...props()} />)
-    // The panel opens on the first standalone story; all of them are chosen with the top card.
-    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
-    await choose(/Все истории/)
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     await screen.findByRole("button", { name: /Одинокий/ })
     const names = titles(document.body)
     expect(names.map((text) => text.replace(/MoleHills|Lone/, "").trim())).toEqual([
@@ -205,7 +203,7 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   async function addIn(filter: RegExp, title: string, shown = /Потоп|Встреча/) {
     render(<CreativePanel {...props()} />)
-    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     await choose(filter)
     await screen.findAllByRole("button", { name: shown })
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))

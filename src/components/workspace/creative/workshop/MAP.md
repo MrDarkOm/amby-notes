@@ -30,12 +30,11 @@ sections wraps its button. With a universe or the standalone stories shown, the 
 "Story" caption; an absent base is a quiet line that points at the panel's "Create the missing sections".
 Tests: none for the wrapping itself (the class-name assertions were dropped in `8465744c`); check a narrow panel by eye.
 
-**One bar.** The universe and the story are one card, the universe a small grey line over the story (`scope-bar.tsx`); each choice has its own small arrow, shown while the bar is hovered, that opens its page (the story's only when a story is chosen), and the "Continue: …" line sits in the same frame. Names wrap instead of ending in an ellipsis. A scope with no story shows a "Create the first story" prompt in the story's place and hides its empty parts. The universe is
-`universeFilter` (`null` is "Standalone stories", stored as `standalone`; the rows of the "Universes" base come from
-`use-universes.ts`); the story is `storyFilter` (`all`, an ID, or `null`: the first story of the scope). `resolvePanelFilter`
-gives story > universe > standalone; a story the scope does not hold (`storiesInScope`) or that is gone is written back as
-"all", a universe that is gone as `standalone`. A universe is made by the dialog (`createWorkshopEntity`) and chosen at
-once; "Universes" is left out of `worldCategories`. A story made under a universe gets its "Universe" relation written at once (`story-universe-link.ts`). Tests: `creative-panel-universes.test.tsx`, `workshop-model.test.ts`.
+**One bar.** [scope-bar.tsx](scope-bar.tsx) shows scope, story and Continue. The scope is a universe ID,
+`standalone` or `all-workshop`. The story is an ID or `all`, saved on first visit.
+`resolvePanelFilter` narrows the scope to a valid story. The link at the end of a filtered list opens
+the whole workshop. "New story" inside a universe writes its relation through `story-universe-link.ts`.
+Tests: `creative-panel-universes.test.tsx`, `workshop-model.test.ts`.
 
 **Notes and notebooks.** The notes part is the notes base shown as notebooks, under the same story / universe /
 standalone filter as the world: `scopeEntities` over the base's rows, so only the notes of the shown stories; the

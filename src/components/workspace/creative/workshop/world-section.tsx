@@ -39,6 +39,7 @@ export interface PlotRow {
 interface WorldSectionProps {
   categories: WorkshopTab[]
   itemsByCategory: Record<string, EntityItem[]>
+  footnoteOf?: (key: string) => React.ReactNode
   /** Pages in no story and named by no text, per category: a group of their own at the end. */
   withoutStoryByCategory?: Record<string, EntityItem[]>
   /** The story names for a page's row (up to two and "+N"); `null` shows none. */
@@ -80,6 +81,7 @@ interface WorldSectionProps {
 export function WorldSection({
   categories,
   itemsByCategory,
+  footnoteOf,
   withoutStoryByCategory = {},
   storyLabelsOf = null,
   plotRowOf = null,
@@ -278,6 +280,7 @@ export function WorldSection({
                   .map(renderItem)}
               </div>
             )}
+            {footnoteOf?.(tab.key)}
           </Accordion>
         )
       })}

@@ -34,7 +34,8 @@ interface SectionGalleryProps {
   /** Makes a page under a typed name; `null` where this gallery cannot get one. */
   createFor?: ((title: string) => Promise<void>) | null
   /** A quiet line under the gallery (what is left out and why). */
-  footnote?: string | null
+  footnote?: React.ReactNode
+  sharedNoteIds?: ReadonlySet<string>
   /**
    * A small list for a widget of the desk, which has its own header: no categories, no heading,
    * small avatars or titles, at most `COMPACT_LIMIT` pages and then "N more".
@@ -68,6 +69,7 @@ export function SectionGallery({
   openLabel,
   createFor,
   footnote,
+  sharedNoteIds,
   compact = false,
 }: SectionGalleryProps) {
   const { t } = useTranslation()
@@ -135,7 +137,7 @@ export function SectionGallery({
           </p>
         )}
         {create}
-        {footnote && <p className="text-xs text-muted-foreground">{footnote}</p>}
+        {footnote}
       </div>
     )
   }
@@ -224,6 +226,11 @@ export function SectionGallery({
                         <span className="break-words text-sm font-medium leading-snug">
                           {row.title}
                         </span>
+                        {sharedNoteIds?.has(row.noteId) && (
+                          <span className="w-fit rounded-full bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                            {t("creative.scope.sharedRow")}
+                          </span>
+                        )}
                         {labels && (labels.names.length > 0 || labels.more > 0) && (
                           <span className="flex flex-wrap gap-1">
                             {labels.names.map((storyName) => (
@@ -250,7 +257,7 @@ export function SectionGallery({
           </ul>
         </div>
       ))}
-      {footnote && <p className="text-xs text-muted-foreground">{footnote}</p>}
+      {footnote}
     </section>
   )
 }

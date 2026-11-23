@@ -288,7 +288,7 @@ describe("CreativePanel", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: false, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       dataNonce: 0,
       search: "",
       pageRequest: null,

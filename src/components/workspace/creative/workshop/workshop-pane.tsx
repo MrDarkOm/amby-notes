@@ -21,8 +21,9 @@ import { PanelSearch } from "../../panels/panel-header"
 import { groupChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
 import { useDatabaseStore } from "../../database/database-store"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { writeWorkshopPrefs } from "../creative-scope-storage"
+import { WHOLE_WORKSHOP, writeWorkshopPrefs } from "../creative-scope-storage"
 import { useTextStats } from "../use-text-stats"
+import { OutsideStoryLink } from "./outside-story-link"
 import { SearchResults } from "./search-results"
 import {
   buildTextTree,
@@ -532,8 +533,27 @@ export function WorkshopPane({
       ? readBindings(data.rows[text.databaseId] ?? [], text.properties)
       : new Map<string, PageBinding>()
   }, [data.rows, selectedStory])
+  const showAllStories = () => {
+    setDraft(null)
+    setStoryFilter("all")
+    remember({ story: "all" })
+  }
+  const outsideStory = (count: number) =>
+    filter.kind === "story" && data.status === "ready" ? (
+      <OutsideStoryLink
+        count={count}
+        onShow={() => {
+          if (universe) universe.onSelectUniverse(WHOLE_WORKSHOP)
+          showAllStories()
+        }}
+      />
+    ) : null
   const plot: PlotPart = {
     anchors: storyAnchors,
+    anchorsFootnote: outsideStory(
+      (anchorsSection ? (data.rows[anchorsSection.databaseId]?.length ?? 0) : 0) -
+        storyAnchors.length,
+    ),
     arcs: storyArcs,
     bindings,
     binding:
@@ -782,32 +802,35 @@ export function WorkshopPane({
         count: notesTree.count + (notesWithoutStory?.count ?? 0),
         onAdd: scope.workshop?.readOnly ? null : () => startNote([]),
         content: (
-          <NotesPart
-            tree={notesTree}
-            withoutStory={notesWithoutStory}
-            canWrite={!scope.workshop?.readOnly}
-            loading={data.status === "loading" || data.status === "idle"}
-            activeNoteId={activeNoteId}
-            onOpenNote={onOpenNote}
-            collapsed={collapsed}
-            onToggle={toggleCollapsed}
-            storyLabelsOf={labelsOf}
-            draft={draft}
-            onCommitDraft={commitDraft}
-            onCancelDraft={() => setDraft(null)}
-            onAddNote={startNote}
-            onAddNotebook={startNotebook}
-            actions={notebookActions}
-            link={
-              notesSection && !notesSection.storiesPropertyId && !scope.workshop?.readOnly
-                ? {
-                    pending: linking === notesSection.id,
-                    error: linkError,
-                    onLink: () => void linkSection(notesSection.id),
-                  }
-                : null
-            }
-          />
+          <>
+            <NotesPart
+              tree={notesTree}
+              withoutStory={notesWithoutStory}
+              canWrite={!scope.workshop?.readOnly}
+              loading={data.status === "loading" || data.status === "idle"}
+              activeNoteId={activeNoteId}
+              onOpenNote={onOpenNote}
+              collapsed={collapsed}
+              onToggle={toggleCollapsed}
+              storyLabelsOf={labelsOf}
+              draft={draft}
+              onCommitDraft={commitDraft}
+              onCancelDraft={() => setDraft(null)}
+              onAddNote={startNote}
+              onAddNotebook={startNotebook}
+              actions={notebookActions}
+              link={
+                notesSection && !notesSection.storiesPropertyId && !scope.workshop?.readOnly
+                  ? {
+                      pending: linking === notesSection.id,
+                      error: linkError,
+                      onLink: () => void linkSection(notesSection.id),
+                    }
+                  : null
+              }
+            />
+            {outsideStory(allNotes.length - scopedNotes.shown.length)}
+          </>
         ),
       }
     : null
@@ -869,8 +892,6 @@ export function WorkshopPane({
                   selectedUniverseId={universeId}
                   universe={universe}
                   onSelectStory={(storyId) => {
-                    // `null` is all the stories of the scope; it is stored as "all" because an
-                    // empty choice means "the first story".
                     setDraft(null)
                     const next = storyId ?? "all"
                     setStoryFilter(next)
@@ -909,6 +930,11 @@ export function WorkshopPane({
                     <WorldSection
                       categories={shownWorldCategories}
                       itemsByCategory={scoped.shown}
+                      footnoteOf={(key) =>
+                        outsideStory(
+                          (itemsByCategory[key]?.length ?? 0) - (scoped.shown[key]?.length ?? 0),
+                        )
+                      }
                       withoutStoryByCategory={scoped.withoutStory}
                       storyLabelsOf={labelsOf}
                       plotRowOf={plotRowOf}
