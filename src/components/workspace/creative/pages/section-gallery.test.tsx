@@ -108,6 +108,30 @@ describe("SectionGallery", () => {
     expect(within(card).getByText("+3")).toBeTruthy()
   })
 
+  it("shows a prominent creation card and purpose while the gallery has fewer than three entries", () => {
+    const onCreate = vi.fn(async () => undefined)
+    const { rerender } = render(
+      <SectionGallery
+        section={section}
+        rows={[row("a", "Анна")]}
+        onOpenNote={vi.fn()}
+        createFor={onCreate}
+      />,
+    )
+    expect(screen.getByText("Здесь живут персонажи ваших историй.")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Персонаж" }))
+    expect(screen.getByRole("textbox", { name: "Название — Персонажи" })).toBeTruthy()
+    rerender(
+      <SectionGallery
+        section={section}
+        rows={[row("a", "Анна"), row("b", "Боб"), row("c", "Вера")]}
+        onOpenNote={vi.fn()}
+        createFor={onCreate}
+      />,
+    )
+    expect(screen.queryByText("Здесь живут персонажи ваших историй.")).toBeNull()
+  })
+
   it("offers the whole base only when asked to, with the words it is given", () => {
     const onOpenAsBase = vi.fn()
     const { rerender } = render(<SectionGallery section={section} rows={[]} onOpenNote={vi.fn()} />)

@@ -175,6 +175,7 @@ fn names_follow_the_labels_of_the_active_language() {
         ("section:characters".to_owned(), "Characters".to_owned()),
         ("preset:importance".to_owned(), "Importance".to_owned()),
         ("preset:portrait".to_owned(), "Portrait".to_owned()),
+        ("preset:role".to_owned(), "Role".to_owned()),
         ("importance:main".to_owned(), "Main".to_owned()),
         ("importance:side".to_owned(), "Supporting".to_owned()),
         ("importance:episode".to_owned(), "Minor".to_owned()),
@@ -192,6 +193,7 @@ fn names_follow_the_labels_of_the_active_language() {
         ["Main", "Supporting", "Minor"]
     );
     assert_eq!(property(&manifest, "Portrait")["type"], "files");
+    assert_eq!(property(&manifest, "Role")["type"], "text");
     assert_eq!(manifest["views"][0]["name"], "Gallery");
     let file = &manifest["templates"][0];
     assert_eq!(file["name"], "Dossier");

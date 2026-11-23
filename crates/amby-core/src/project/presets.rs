@@ -47,6 +47,7 @@ fn default_label(key: &str) -> &'static str {
         "preset:status" => "Статус",
         "preset:synopsis" => "Синопсис",
         "preset:description" => "Описание",
+        "preset:role" => "Роль",
         "preset:importance" => "Значимость",
         "preset:kind" => "Тип",
         "preset:portrait" => "Портрет",
@@ -100,6 +101,7 @@ pub fn is_preset_label(key: &str) -> bool {
             "synopsis",
             "description",
             "importance",
+            "role",
             "kind",
             "portrait",
             "image",
@@ -278,6 +280,9 @@ pub fn plan(
             )?;
             let (portrait_prop, _) =
                 builder.add("files", &label(labels, "preset:portrait")?, &[], &|_| {})?;
+            let (role_prop, _) =
+                builder.add("text", &label(labels, "preset:role")?, &[], &|_| {})?;
+            properties.push(role_prop);
             properties.push(importance_prop);
             properties.push(portrait_prop);
 
