@@ -36,9 +36,9 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 
 **One workshop** ([format §2.1](../../../../docs/creative-format.md)). The folder `moduleSettings.creative.workshopPath` names
 (default: the localized "Workshop") is the workshop. `useProjectStore` keeps every marker (`rawCatalog`) and, as `catalog`,
-only the active one plus an `otherWorkshop` diagnostic per marker left out; the rest of the module reads `catalog`. With
+only the active one plus diagnostics. On refresh, the same marker ID at a new path updates the saved folder. With
 none active the panel is `WorkshopInitScreen` ("Initialize"; Rust refuses a folder with other content before writing). A
-workshop of an earlier stage that lacks bases or links gets the notice "Create the missing sections" (`workshopGaps`,
+workshop of an earlier stage that lacks bases or links gets the notice "Update workshop" (`workshopGaps`,
 `completeWorkshop`); opening writes nothing. No workshop switch, no "New workshop", no per-part "Create the section".
 
 **Data flow.** `useProjectController` (mounted in `workspace-orchestration.tsx`) reads the

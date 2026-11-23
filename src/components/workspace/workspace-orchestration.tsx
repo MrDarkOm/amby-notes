@@ -78,7 +78,7 @@ import { errorType, logger } from "@/lib/logger"
 import type { TreeItem } from "./sidebar-tree"
 import { useDatabaseController } from "./database/use-database-controller"
 import { useProjectController } from "./creative/use-project-controller"
-import { useProjectStore } from "./creative/project-store"
+import { refreshAfterWorkshopMove, useProjectStore } from "./creative/project-store"
 import { useCollectionFolderSelect } from "./creative/use-collection-folder-select"
 import { useCreativeTreeItems } from "./creative/use-creative-tree-items"
 import { resolveProjectTarget } from "./creative/project-tree-model"
@@ -163,6 +163,7 @@ export function WorkspaceOrchestration() {
 
   const onPathsMoved = React.useCallback(
     (changes: Array<{ oldPath: string; newPath: string }>) => {
+      if (vault) refreshAfterWorkshopMove(vault, changes)
       remapExternalLayers(
         changes,
         [
@@ -194,6 +195,7 @@ export function WorkspaceOrchestration() {
       sketchAutosaveKey,
       sketchRevisions,
       recoveryScope,
+      vault,
     ],
   )
 
@@ -647,6 +649,7 @@ export function WorkspaceOrchestration() {
       : false
     if (!patched) setTreeItems((prev) => applyTreePatch(prev, result))
     if (!hasChanges) return patched
+    if (vault) refreshAfterWorkshopMove(vault, result.pathChanges)
 
     const deleted = new Set(deletedIds)
     // Fan out to each store with the same deletedIds.

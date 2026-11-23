@@ -11,6 +11,7 @@ import { DossierFrame } from "./dossier-frame"
 const storage = vi.hoisted(() => ({
   getDatabaseNoteContext: vi.fn(),
   listNoteReferences: vi.fn(),
+  updateDatabaseRelationValue: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -241,6 +242,30 @@ describe("DossierFrame", () => {
     await settle()
     expect(screen.queryByRole("complementary")).toBeNull()
     expect(screen.getByTestId("editor")).toBeTruthy()
+  })
+
+  it("shows the deleted story link and preserves other stories when the author removes it", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    const entry = context("db_characters")
+    entry.row.valuesJson = JSON.stringify({
+      story: { type: "relation", targetNoteIds: ["note_molehills_story", "deleted"] },
+    })
+    storage.getDatabaseNoteContext.mockResolvedValue(entry)
+    storage.updateDatabaseRelationValue.mockReset().mockResolvedValue({ warnings: [] })
+    mount()
+    expect(await screen.findByText("История удалена")).toBeTruthy()
+    expect(storage.updateDatabaseRelationValue).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Убрать ссылку" }))
+    await settle()
+    expect(storage.updateDatabaseRelationValue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_characters",
+        noteId: "n1",
+        propertyId: "story",
+        targetNoteIds: ["note_molehills_story"],
+        expectedRevision: "r",
+      }),
+    )
   })
 
   it("marks a related page that is no longer in the index", async () => {

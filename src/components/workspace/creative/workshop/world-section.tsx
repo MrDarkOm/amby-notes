@@ -40,6 +40,7 @@ interface WorldSectionProps {
   categories: WorkshopTab[]
   itemsByCategory: Record<string, EntityItem[]>
   footnoteOf?: (key: string) => React.ReactNode
+  storyLinkOf?: (databaseId: string, noteId: string) => React.ReactNode
   /** Pages in no story and named by no text, per category: a group of their own at the end. */
   withoutStoryByCategory?: Record<string, EntityItem[]>
   /** The story names for a page's row (up to two and "+N"); `null` shows none. */
@@ -82,6 +83,7 @@ export function WorldSection({
   categories,
   itemsByCategory,
   footnoteOf,
+  storyLinkOf,
   withoutStoryByCategory = {},
   storyLabelsOf = null,
   plotRowOf = null,
@@ -185,6 +187,7 @@ export function WorldSection({
                   {storyLabelsOf && <RowStories labels={storyLabelsOf(item.noteId)} />}
                 </button>
               </ItemMenu>
+              {storyLinkOf?.(item.databaseId, item.noteId)}
               {plot?.error && <RowError message={plot.error} indent={treeIndent(1)} />}
             </React.Fragment>
           )

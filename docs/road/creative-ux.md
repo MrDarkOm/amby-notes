@@ -15,7 +15,7 @@ first (section 2).
 | F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented        |
 | G     | Dossier and empty sections                              | 18–21         | implemented        |
 | H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |
-| I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | planned            |
+| I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | implemented        |
 | J     | Desk, panel and small polish                            | 14, 17, 25–30 | planned            |
 
 ## 1. Rules for whoever implements this

@@ -135,7 +135,7 @@ describe("SectionGallery", () => {
   it("offers the whole base only when asked to, with the words it is given", () => {
     const onOpenAsBase = vi.fn()
     const { rerender } = render(<SectionGallery section={section} rows={[]} onOpenNote={vi.fn()} />)
-    expect(screen.queryByRole("button", { name: "Открыть как базу" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Открыть таблицей" })).toBeNull()
     expect(screen.getByText("Пока пусто.")).toBeTruthy()
     rerender(
       <SectionGallery
@@ -145,7 +145,7 @@ describe("SectionGallery", () => {
         onOpenAsBase={onOpenAsBase}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Открыть как базу" }))
+    fireEvent.click(screen.getByRole("button", { name: "Открыть таблицей" }))
     expect(onOpenAsBase).toHaveBeenCalledTimes(1)
   })
 })

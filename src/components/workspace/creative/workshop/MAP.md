@@ -100,3 +100,5 @@ its place is the text's. Tests: `creative-panel-arrange.test.tsx`.
 **Text levels.** The text tree and desk derive page creation labels and available level changes from the text schema. [write-text-page-level.ts](write-text-page-level.ts) updates the existing level property using the row revision. Drag refusals come from `assessPageMove` in [text-tree-model.ts](text-tree-model.ts).
 
 [Chooser groups](../chooser-options.ts) start the same drafts as the lists. [Role labels](../section-create-label.ts) also serve the galleries.
+
+[Deleted story links](dangling-story-link.tsx) share a revision-checked remove action across lists, galleries and dossiers.

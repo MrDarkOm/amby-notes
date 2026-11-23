@@ -147,6 +147,7 @@ export interface PlotPart {
   /** The anchors that belong to the story (a "Stories" relation, or bound to its text). */
   anchors: DatabaseRow[]
   anchorsFootnote?: React.ReactNode
+  storyLinkOf?: (row: DatabaseRow) => React.ReactNode
   /** The arcs that belong to the story. */
   arcs: DatabaseRow[]
   /** What each page of the story's text is bound to. */
@@ -867,6 +868,7 @@ function StoryWorks({
             )}
           </button>
         </ItemMenu>
+        {plot.storyLinkOf?.(row)}
         {error && <RowError message={error} indent={treeIndent(1)} />}
       </React.Fragment>
     )

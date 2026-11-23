@@ -95,7 +95,7 @@ export function DossierFrame({
   const sideBySide = useWidth(frameRef) >= SIDE_BY_SIDE_MIN_WIDTH
   return (
     <div ref={frameRef} className="min-w-0">
-      {dossier ? <DossierHeader dossier={dossier} /> : null}
+      {dossier ? <DossierHeader dossier={dossier} locked={locked} /> : null}
       {textPlace && folded && (
         <Button type="button" size="sm" variant="ghost" onClick={toggle} aria-expanded={false}>
           <ChevronDown aria-hidden="true" className="size-3.5" />

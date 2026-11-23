@@ -70,6 +70,8 @@ export function ScopedSection({
       {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
       <SectionGallery
         section={section}
+        workshop={workshop}
+        locked={locked}
         rows={shownRows}
         sharedNoteIds={sharedNoteIds}
         loading={data.loading}
@@ -83,6 +85,8 @@ export function ScopedSection({
       {list && list.withoutStory.length > 0 && (
         <SectionGallery
           section={section}
+          workshop={workshop}
+          locked={locked}
           rows={list.withoutStory}
           title={t("creative.workshop.noStory")}
           loading={data.loading}

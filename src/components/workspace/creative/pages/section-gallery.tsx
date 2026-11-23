@@ -2,11 +2,12 @@ import * as React from "react"
 import { Database, FolderOpen } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { sectionCreateLabel } from "../section-create-label"
-import type { DatabaseRow, WorkshopSectionSummary } from "@/lib/storage"
+import type { DatabaseRow, WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
 import { useDatabaseStore } from "../../database/database-store"
 import { sectionRoleIcon } from "../section-icons"
+import { DanglingStoryLink } from "../workshop/dangling-story-link"
 import { StoryNoteMenu } from "../workshop/story-note-menu"
 import { PortraitDot } from "../workshop/portrait-dot"
 import { QuickCreate } from "../workshop/quick-create"
@@ -17,6 +18,8 @@ import { projectErrorText } from "@/lib/operation-errors"
 
 interface SectionGalleryProps {
   section: WorkshopSectionSummary
+  workshop?: WorkshopSummary
+  locked?: boolean
   /** The pages to show, already filtered by what the page holds. */
   rows: readonly DatabaseRow[]
   /** The name over the gallery when it is not the section's (the group "No story"). */
@@ -58,6 +61,8 @@ function sectionTitle(section: WorkshopSectionSummary): string {
  */
 export function SectionGallery({
   section,
+  workshop,
+  locked,
   rows,
   title,
   loading = false,
@@ -129,6 +134,12 @@ export function SectionGallery({
                   )}
                   <span className="min-w-0 break-words">{row.title}</span>
                 </button>
+                <DanglingStoryLink
+                  workshop={workshop}
+                  databaseId={section.databaseId}
+                  row={row}
+                  locked={locked}
+                />
               </li>
             )
           })}
@@ -253,6 +264,12 @@ export function SectionGallery({
                       </span>
                     </button>
                   </StoryNoteMenu>
+                  <DanglingStoryLink
+                    workshop={workshop}
+                    databaseId={section.databaseId}
+                    row={row}
+                    locked={locked}
+                  />
                 </li>
               )
             })}
