@@ -21,7 +21,6 @@ import { useViewStateStore } from "../use-view-state-store"
 import { PanelHeader } from "./panel-header"
 import { findTreeItem, formatModified } from "../workspace-tree-utils"
 import { InfoPanelBody } from "./info-panel-body"
-import { NOTE_PAGES_FLAG } from "../tiptap/note-pages"
 import { InfoPanelDatabaseView } from "./info-panel-database-view"
 
 function MetadataSection({
@@ -180,8 +179,9 @@ export function InfoPanel({
         ? []
         : (properties.frontmatter.properties ?? []).filter((property) => {
             const key = property.key.trim().toLowerCase()
-            // Identity keys, and the pages flag that the note menu switches, are not properties.
-            return key !== "amby-id" && key !== "id" && key !== NOTE_PAGES_FLAG
+            // `amby-` keys belong to the app (id, title, story link, pages flag), as in the Rust core;
+            // a generic `id` is an identity too. None of them is a property.
+            return !key.startsWith("amby-") && key !== "id"
           }),
     [properties],
   )
