@@ -4,7 +4,7 @@ export const SUPERNOTES_MODULE_DEFINITION: ModuleDefinition = {
   manifest: {
     formatVersion: 1,
     id: "amby.supernotes",
-    name: "Supernotes",
+    name: "Bundles",
     version: "1.0.0",
     publisher: "Amby",
     kind: "official",

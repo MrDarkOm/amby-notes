@@ -1,17 +1,9 @@
 "use client"
 
-import {
-  BookOpenText,
-  Database,
-  FileText,
-  Folder,
-  LayoutGrid,
-  PanelsTopLeft,
-  PenLine,
-  Star,
-} from "lucide-react"
+import { Database, FileText, Folder, LayoutGrid, PanelsTopLeft, PenLine, Star } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
@@ -56,7 +48,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
     case "folder":
       return <Folder className={cls} />
     case "supernote":
-      return <BookOpenText className={cls} />
+      return <CompositeNoteIcon className={cls} />
     case "supercanvas":
       return <LayoutGrid className={cls} />
     case "supersketch":
@@ -140,7 +132,7 @@ export function TreeItemStatusIcon({
 }) {
   const isFavoriteItem = isFavorite
   const isInteractive = !!onActivate
-  const isSuperNote = isExpandableSuperNote(item)
+  const isSuperNote = item.icon === "supernote" || isExpandableSuperNote(item)
   const Icon =
     item.type === "folder"
       ? Folder
@@ -151,7 +143,7 @@ export function TreeItemStatusIcon({
           : item.type === "database"
             ? Database
             : isSuperNote
-              ? BookOpenText
+              ? CompositeNoteIcon
               : FileText
 
   return (

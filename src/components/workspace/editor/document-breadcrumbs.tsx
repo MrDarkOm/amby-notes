@@ -1,4 +1,5 @@
-import { BookOpenText, Database, FileText, LayoutGrid, PenLine } from "lucide-react"
+import { Database, FileText, LayoutGrid, PenLine } from "lucide-react"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 
 import type { TreeItem } from "../sidebar-tree"
 import type { PageCrumb } from "../page-chrome/page-chrome-types"
@@ -42,7 +43,7 @@ export function documentCrumbs(
         ) : rowType === "database" ? (
           <Database className="size-3 shrink-0" />
         ) : isSuperNote ? (
-          <BookOpenText className="size-3 shrink-0" />
+          <CompositeNoteIcon className="size-3 shrink-0" />
         ) : (
           <FileText className="size-3 shrink-0" />
         )
