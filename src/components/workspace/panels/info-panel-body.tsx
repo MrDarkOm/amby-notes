@@ -172,7 +172,7 @@ export function InfoPanelBody({
         count={
           nonDatabaseFrontmatterProperties.length +
           nonDuplicateCustomProperties.length +
-          (noteDatabaseContext?.properties.length ?? 0)
+          orderedNoteDatabaseProperties.length
         }
         actions={
           !properties.frontmatter.parseError ? (

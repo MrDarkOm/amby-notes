@@ -48,8 +48,7 @@ import { useScopeData } from "./workshop/use-scope-data"
 import { useUniverses } from "./workshop/use-universes"
 import { scopeSections, type PanelFilter } from "./workshop/workshop-model"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
-import { readWorkshopPrefs, writeWorkshopPrefs } from "./creative-scope-storage"
-import type { DeskItem } from "./desk/desk-layout-model"
+import { useDeskLayout } from "./desk/use-desk-layout"
 import { useProjectStore } from "./project-store"
 import {
   groupSections,
@@ -106,6 +105,7 @@ export interface CreativePageHost {
   onToggleFavorite?: (noteId: string) => void
   /** Shows a folder of the vault (vault-relative; empty is the vault itself) in the file manager. */
   onShowInExplorer?: (vaultPath: string) => void
+  onShowInTree?: (vaultPath: string) => void
 }
 
 const NO_STORIES: readonly StorySummary[] = []
@@ -158,14 +158,6 @@ export function ProjectPage({
   const [addingStory, setAddingStory] = React.useState(false)
   const [editingSettings, setEditingSettings] = React.useState(false)
   const [customizingDesk, setCustomizingDesk] = React.useState(false)
-  // One layout of the desk for every story, kept per vault.
-  const [deskLayout, setDeskLayout] = React.useState<DeskItem[] | undefined>(() =>
-    vaultPath ? readWorkshopPrefs(vaultPath).deskLayout : undefined,
-  )
-  const changeDeskLayout = (next: DeskItem[]) => {
-    setDeskLayout(next)
-    if (vaultPath) writeWorkshopPrefs(vaultPath, { deskLayout: next })
-  }
   // The anchors may need a relation to a base that was just made; a failure is shown, not lost.
   const { ensureAnchorLinks } = usePlotEnsurer(onChanged)
   const { putStoryInUniverse } = useStoryLinks(onChanged)
@@ -175,6 +167,7 @@ export function ProjectPage({
   const workshop = target?.workshop ?? null
   const scope = scopeOf(target)
   const story = target?.kind === "story" ? target.story : null
+  const desk = useDeskLayout(vaultPath, story?.storyId ?? null)
 
   // A universe is named by its card, which is a row of the universes section; the workshop's
   // page counts them and names them on its stories' cards.
@@ -415,6 +408,16 @@ export function ProjectPage({
         disabled: !host?.onShowInExplorer,
         onSelect: () => host?.onShowInExplorer?.(folderPath),
       },
+      ...(target.kind === "workshop" && host?.onShowInTree
+        ? [
+            {
+              id: "show-in-tree",
+              label: t("creative.page.showInTree"),
+              icon: icon16(FolderOpen),
+              onSelect: () => host.onShowInTree?.(folderPath),
+            },
+          ]
+        : []),
       ...(hasSettings
         ? [
             {
@@ -627,9 +630,10 @@ export function ProjectPage({
                   onOpenNote={openNote}
                   onOpenSection={(sectionId) => showSection(sectionId)}
                   onChanged={onChanged}
-                  layout={deskLayout}
+                  layout={desk.layout}
                   editing={customizing}
-                  onLayoutChange={changeDeskLayout}
+                  onLayoutChange={desk.change}
+                  onApplyLayoutToAll={desk.applyToAll}
                   stats={textStats}
                   locked={readMode}
                   compileRef={compileRef}

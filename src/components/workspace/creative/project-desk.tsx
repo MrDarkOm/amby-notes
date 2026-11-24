@@ -35,6 +35,7 @@ import {
 } from "./desk/desk-layout-model"
 import { ProgressWidget, type CompileState } from "./desk/progress-widget"
 import { StoryDescription } from "./desk/story-description"
+import { useDeskGrid } from "./desk/use-desk-grid"
 import { useElementWidth } from "./desk/use-element-width"
 import { NotesBoard } from "./pages/notes-board"
 import { SectionGallery } from "./pages/section-gallery"
@@ -92,6 +93,7 @@ interface ProjectDeskProps {
   editing?: boolean
   /** Asks the page to keep a changed layout. */
   onLayoutChange?: (next: DeskItem[]) => void
+  onApplyLayoutToAll?: (next: DeskItem[]) => void
   /** Read mode: nothing is made, moved or bound from the desk. */
   locked?: boolean
   /**
@@ -140,6 +142,7 @@ export function ProjectDesk({
   layout,
   editing = false,
   onLayoutChange,
+  onApplyLayoutToAll,
   locked = false,
   compileRef,
 }: ProjectDeskProps) {
@@ -426,6 +429,7 @@ export function ProjectDesk({
   const items = React.useMemo(() => reconcileDeskLayout(layout, available), [available, layout])
   const [deskRef, width] = useElementWidth<HTMLDivElement>()
   const columns = deskColumns(width)
+  const gridRef = useDeskGrid(columns, items)
   const sectionOfWidget = (id: string) => worldSections.find((s) => worldWidgetId(s) === id)
 
   const description = vaultPath && resolvedStory?.cardNoteId && (
@@ -619,11 +623,20 @@ export function ProjectDesk({
     <div ref={deskRef} className="mb-8 flex w-full min-w-0 flex-col gap-4">
       {description}
       {editing && (
-        <p className="rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
-          {t("creative.desk.editHint")}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
+          <p>{t("creative.desk.editHint")}</p>
+          {onApplyLayoutToAll && (
+            <button
+              type="button"
+              onClick={() => onApplyLayoutToAll(items)}
+              className="rounded-md px-2 py-1 font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {t("creative.desk.applyToAll")}
+            </button>
+          )}
+        </div>
       )}
-      <div className={cn("grid items-start gap-4", COLUMN_CLASS[columns])}>
+      <div ref={gridRef} className={cn("grid items-start gap-4", COLUMN_CLASS[columns])}>
         {shown.map(renderWidget)}
       </div>
       {editing && (

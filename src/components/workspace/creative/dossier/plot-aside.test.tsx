@@ -394,6 +394,7 @@ describe("the plot on the page of an arc and of a character", () => {
       within(region).getByRole("heading", { name: title }).parentElement as HTMLElement
     await within(region).findByText("Встреча")
     const anchors = block("Якоря арки")
+    expect(within(anchors).getByTitle("По первой привязанной странице")).toBeTruthy()
     const listed = within(anchors)
       .getAllByRole("button")
       .map((button) => button.textContent)

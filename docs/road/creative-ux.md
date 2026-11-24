@@ -1,6 +1,7 @@
 # Creative workshop: UX fix plan
 
-Status as of 2026-11-23: **first wave implemented (A, B items 4 and 15, E, F).** Source: a review of the workshop in the
+Status as of 2026-11-24: **two waves implemented (A, B items 4 and 15, D, E, F, G, I, J).**
+Native drag-and-drop checks for item 30 are pending. Source: a review of the workshop in the
 installed 0.1.9-beta.9 on the owner's vault (marked 👁, seen on screen) plus a reading of the maps,
 the format and the code (marked 📄, not checked on screen). Batches C and H need owner decisions
 first (section 2).
@@ -16,7 +17,7 @@ first (section 2).
 | G     | Dossier and empty sections                              | 18–21         | implemented        |
 | H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |
 | I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | implemented        |
-| J     | Desk, panel and small polish                            | 14, 17, 25–30 | planned            |
+| J     | Desk, panel and small polish                            | 14, 17, 25–30 | implemented        |
 
 ## 1. Rules for whoever implements this
 

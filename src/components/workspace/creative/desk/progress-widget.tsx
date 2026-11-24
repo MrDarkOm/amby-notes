@@ -31,7 +31,7 @@ export function ProgressWidget({ pages, words, groups, onCompile, compile }: Pro
       {groups ? (
         <>
           <p className="text-2xl font-bold">
-            {t("creative.page.desk.doneOf", { done: groups.done, total: pages })}
+            {t("creative.desk.donePages", { done: groups.done, total: pages })}
           </p>
           <div
             role="progressbar"

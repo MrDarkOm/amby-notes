@@ -12,6 +12,8 @@ writes only through the calls the panel uses (`createTextPage`, `moveTextPage`, 
 | The card of a widget (title, count, "Open")       | [desk-widget.tsx](desk-widget.tsx)                                                      |
 | Layout mode: up, down, width, hide                | [desk-controls.tsx](desk-controls.tsx); the tray and the hint are in `project-desk.tsx` |
 | Own width of the desk                             | [use-element-width.ts](use-element-width.ts)                                            |
+| Pack widgets below shorter cards                  | [use-desk-grid.ts](use-desk-grid.ts)                                                    |
+| Per-story layout and apply to all                 | [use-desk-layout.ts](use-desk-layout.ts)                                                |
 | Continue, Progress (and the manuscript)           | [continue-widget.tsx](continue-widget.tsx), [progress-widget.tsx](progress-widget.tsx)  |
 | Chapters: outline, moves, new page, "Ahead" strip | [chapters-widget.tsx](chapters-widget.tsx)                                              |
 | Notes of the story, the world of the story        | `NotesBoard` (`embedded`) and `SectionGallery` (`compact`) of [pages/](../pages/MAP.md) |
@@ -23,8 +25,7 @@ desk itself because side panels change its width; unmeasured is wide). A widget 
 the desk has (`effectiveSpan`). Default order: Continue (2), Progress (1), Chapters (2), Notes (1), Characters, Locations,
 Arcs (1 each), then the author's own sections (`availableWidgets`; ID `section:<sectionId>`).
 
-**One layout for every story.** `WorkshopPrefs.deskLayout` (`{ id, span, hidden }[]`, per vault) is written by the page
-(`project-page.tsx`, "Customize desk" in the page's "⋯" menu and on the floating bar) and reconciled with the widgets the story can show
+**Layouts.** `useDeskLayout` reads the story’s override in `WorkshopPrefs.deskLayoutsByStory` and falls back to the existing vault-wide `deskLayout`. "Apply to all stories" saves the current layout as the default and clears overrides. The page opens the controls from its menu and floating bar. A layout is reconciled with the widgets the story can show
 before use (`reconcileDeskLayout`: new widgets appear last, unknown ones and repeats are dropped, a bad width is the
 default). `moveWidget`, `nextSpan` / `setWidgetSpan` and `setWidgetHidden` are the changes; no free dragging.
 

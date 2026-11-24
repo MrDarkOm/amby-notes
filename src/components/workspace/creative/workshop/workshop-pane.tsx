@@ -39,7 +39,7 @@ import {
 import { useDatabaseRows } from "./use-database-rows"
 import { useAnchorOrder } from "./use-anchor-order"
 import { NotesPart } from "./notes-part"
-import { buildNotebookTree, noteItemsOf } from "./notebook-model"
+import { buildNotebookTree, notebookKey, noteItemsOf } from "./notebook-model"
 import { useNotebookActions } from "./use-notebook-actions"
 import { useNotebooks } from "./use-notebooks"
 import { AnchorsOverview } from "./anchors-overview"
@@ -332,6 +332,17 @@ export function WorkshopPane({
   const scopedNotes = React.useMemo(
     () => scopeEntities(allNotes, filter, membership),
     [allNotes, filter, membership],
+  )
+  const notebooksWithNotes = React.useMemo(
+    () =>
+      filter.kind === "story"
+        ? new Set(
+            allNotes.flatMap(({ categoryPath }) =>
+              categoryPath.map((_, index) => notebookKey(categoryPath.slice(0, index + 1))),
+            ),
+          )
+        : null,
+    [allNotes, filter.kind],
   )
   const notesTree = React.useMemo(
     () =>
@@ -828,6 +839,7 @@ export function WorkshopPane({
           <>
             <NotesPart
               tree={notesTree}
+              notebooksWithNotes={notebooksWithNotes}
               storyLinkOf={(note) => storyLinkOf(note.databaseId, note.noteId)}
               withoutStory={notesWithoutStory}
               canWrite={!scope.workshop?.readOnly}

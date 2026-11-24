@@ -327,7 +327,10 @@ export function ChaptersWidget({
       {hasAnchors && (
         <div className="flex flex-col gap-2 rounded-xl bg-accent/40 px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-muted-foreground">
+            <span
+              title={t("creative.plot.aheadHint")}
+              className="text-xs font-semibold text-muted-foreground"
+            >
               {t("creative.plot.ahead")}
             </span>
             {ahead.map((anchor) => (

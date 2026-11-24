@@ -19,6 +19,7 @@ interface EntityRequest {
 interface CreativeNavState {
   /** The section each project's page shows: `overview` or a section id. */
   sectionByProject: Record<string, string>
+  revealedWorkshop: { vault: string; folderId: string } | null
   /** Folded nodes of the sidebar, by project ID or `story:`/`page:` key. */
   collapsed: Record<string, boolean>
   showSection: (projectId: string, sectionId: string) => void
@@ -61,6 +62,7 @@ interface CreativeNavState {
 
 export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   sectionByProject: {},
+  revealedWorkshop: null,
   collapsed: {},
   worksOpen: { text: true, anchors: false, notes: false },
   setWorksOpen: (worksOpen) => set({ worksOpen }),

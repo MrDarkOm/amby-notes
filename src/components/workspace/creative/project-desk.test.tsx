@@ -405,7 +405,7 @@ describe("ProjectDesk", () => {
     it("explains the mode and gives every widget its controls, off outside the mode", async () => {
       mountEditing()
       await screen.findByRole("region", { name: "Главы" })
-      expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+      expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
       for (const name of ["Продолжить", "Прогресс", "Главы"]) {
         expect(screen.getByRole("button", { name: `Выше: «${name}»` })).toBeTruthy()
         expect(screen.getByRole("button", { name: `Ниже: «${name}»` })).toBeTruthy()
@@ -422,7 +422,7 @@ describe("ProjectDesk", () => {
       renderDesk()
       await screen.findByRole("region", { name: "Главы" })
       expect(screen.queryByRole("button", { name: /Скрыть виджет/ })).toBeNull()
-      expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+      expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
     })
 
     it("moves a widget and changes its width, handing the whole layout on", async () => {
@@ -657,7 +657,7 @@ describe("ProjectDesk", () => {
       />,
     )
     await screen.findByRole("region", { name: "Прогресс" })
-    await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("Готово 2 из 3 стр.")).toBeTruthy())
     const bar = screen.getByRole("progressbar")
     expect(bar.getAttribute("aria-valuenow")).toBe("67")
   })

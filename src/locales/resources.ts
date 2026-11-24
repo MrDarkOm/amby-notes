@@ -3515,6 +3515,7 @@ const ru = {
       outdent: "Вынести на уровень выше",
     },
     notebooks: {
+      hiddenByStory: "Заметки скрыты фильтром истории",
       root: "Без блокнота",
       add: "Новый блокнот",
       addInside: "Новый блокнот внутри",
@@ -3560,7 +3561,8 @@ const ru = {
       noArcs: "Не удалось подготовить связь «Арки»: в мастерской нет раздела «Арки».",
       ahead: "Впереди",
       aheadHint:
-        "Якоря, ещё не привязанные к страницам этой истории. Их порядок задаёте вы: перетаскивайте строки.",
+        "Привязанные якоря стоят по первой привязанной странице. Порядок непривязанных задаёте вы.",
+      anchorOrder: "По первой привязанной странице",
       placedHint:
         "Порядок привязанных якорей задаёт текст. Чтобы переставить якорь, перетащите его на другую страницу.",
       menu: {
@@ -3838,6 +3840,7 @@ const ru = {
       addingStatus: "Добавляю…",
     },
     page: {
+      showInTree: "Показать в дереве",
       overview: "Обзор",
       settings: "Настройки",
       sections: "Разделы мастерской",
@@ -3946,6 +3949,8 @@ const ru = {
     },
     desk: {
       open: "Открыть",
+      applyToAll: "Применить ко всем историям",
+      donePages: "Готово {{done}} из {{total}} стр.",
       progress: "Прогресс",
       chapters: "Главы",
       noStatus: "Без статуса",
@@ -3956,7 +3961,7 @@ const ru = {
       customize: "Настроить стол",
       customizeDone: "Готово",
       editHint:
-        "Режим настройки: стрелки меняют порядок, кнопка со ⅓ — ширину, глаз прячет виджет. Раскладка одна для всех историй.",
+        "Режим настройки: стрелки меняют порядок, кнопка со ⅓ — ширину, глаз прячет виджет. Изменения сохраняются для этой истории.",
       hiddenTitle: "Скрытые виджеты",
       noHidden: "Все виджеты на столе.",
       show: "Вернуть на стол «{{name}}»",
@@ -8114,6 +8119,7 @@ const en: LocaleShape<typeof ru> = {
       outdent: "Move out one level",
     },
     notebooks: {
+      hiddenByStory: "Notes are hidden by the story filter",
       root: "No notebook",
       add: "New notebook",
       addInside: "New notebook inside",
@@ -8159,7 +8165,8 @@ const en: LocaleShape<typeof ru> = {
       noArcs: "Could not prepare the “Arcs” link: the workshop has no “Arcs” section.",
       ahead: "Ahead",
       aheadHint:
-        "Anchors not yet bound to a page of this story. You set their order: drag the rows.",
+        "Bound anchors follow their first linked page. You set the order of unbound anchors.",
+      anchorOrder: "Ordered by the first linked page",
       placedHint:
         "The text sets the order of bound anchors. To move one, drag it onto another page.",
       menu: {
@@ -8426,6 +8433,7 @@ const en: LocaleShape<typeof ru> = {
       addingStatus: "Adding…",
     },
     page: {
+      showInTree: "Show in file tree",
       overview: "Overview",
       settings: "Settings",
       sections: "Workshop sections",
@@ -8534,6 +8542,8 @@ const en: LocaleShape<typeof ru> = {
     },
     desk: {
       open: "Open",
+      applyToAll: "Apply to all stories",
+      donePages: "{{done}} of {{total}} pages done",
       progress: "Progress",
       chapters: "Chapters",
       noStatus: "No status",
@@ -8544,7 +8554,7 @@ const en: LocaleShape<typeof ru> = {
       customize: "Customize desk",
       customizeDone: "Done",
       editHint:
-        "Customizing: the arrows change the order, the ⅓ button the width, the eye hides a widget. The layout is the same for every story.",
+        "Customizing: the arrows change the order, the ⅓ button the width, the eye hides a widget. Changes are saved for this story.",
       hiddenTitle: "Hidden widgets",
       noHidden: "Every widget is on the desk.",
       show: "Put “{{name}}” back on the desk",

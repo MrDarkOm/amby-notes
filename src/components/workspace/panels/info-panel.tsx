@@ -14,6 +14,8 @@ import {
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { createRelationTargetRow, usePropertyMutation } from "../database/use-property-mutation"
+import { textStoryOf } from "../creative/dossier/dossier-model"
+import { useProjectStore } from "../creative/project-store"
 import { useDatabaseStore } from "../database/database-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { PanelHeader } from "./panel-header"
@@ -124,6 +126,10 @@ export function InfoPanel({
     noteContextState?.noteId === contextNoteId && noteContextState?.generation === vaultGeneration
       ? noteContextState.context
       : null
+  const creativeCatalog = useProjectStore((state) => state.catalog)
+  const hiddenFormatId = noteDatabaseContext
+    ? textStoryOf(creativeCatalog, noteDatabaseContext.databaseId)?.story.text?.properties.format
+    : null
   const setNoteDatabaseContext = React.useCallback(
     (next: React.SetStateAction<DatabaseNoteContext | null>) => {
       setNoteContextState((previous) => {
@@ -344,9 +350,15 @@ export function InfoPanel({
     [databaseProperties, invalidateDatabaseHosts, setDatabaseCatalog, vaultGeneration],
   )
   const persistNoteDatabaseOrder = React.useCallback(
-    async (propertyIds: string[]) => {
+    async (visibleIds: string[]) => {
       const context = noteDatabaseContext
       if (!context || context.locked) return
+      const propertyIds = [...visibleIds]
+      const formatIndex = context.properties.findIndex(
+        (property) => property.propertyId === hiddenFormatId,
+      )
+      if (formatIndex !== -1)
+        propertyIds.splice(formatIndex, 0, context.properties[formatIndex].propertyId)
       const propertyById = new Map(
         context.properties.map((property) => [property.propertyId, property]),
       )
@@ -383,7 +395,13 @@ export function InfoPanel({
         setPropertyOrderBusy(false)
       }
     },
-    [invalidateDatabaseHosts, noteDatabaseContext, refreshDatabaseCatalog, setNoteDatabaseContext],
+    [
+      hiddenFormatId,
+      invalidateDatabaseHosts,
+      noteDatabaseContext,
+      refreshDatabaseCatalog,
+      setNoteDatabaseContext,
+    ],
   )
 
   const persistDatabaseSchemaOrder = React.useCallback(
@@ -421,7 +439,9 @@ export function InfoPanel({
   )
 
   const noteDatabaseOrder = useMotionPropertyOrder(
-    noteDatabaseContext?.properties.map((property) => property.propertyId) ?? [],
+    noteDatabaseContext?.properties
+      .filter((property) => property.propertyId !== hiddenFormatId)
+      .map((property) => property.propertyId) ?? [],
     persistNoteDatabaseOrder,
   )
   const databaseSchemaOrder = useMotionPropertyOrder(
@@ -459,7 +479,7 @@ export function InfoPanel({
   const hasNoteProperties =
     nonDatabaseFrontmatterProperties.length +
       nonDuplicateCustomProperties.length +
-      (noteDatabaseContext?.properties.length ?? 0) >
+      orderedNoteDatabaseProperties.length >
     0
   const metadataId = databaseProperties?.id ?? properties?.id
   const metadataKind = databaseProperties ? "database" : (properties?.kind ?? "document")

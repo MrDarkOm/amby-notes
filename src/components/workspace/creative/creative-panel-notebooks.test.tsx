@@ -207,6 +207,9 @@ describe("CreativePanel: notebooks of the notes base", () => {
     expect(notebookRow("Архив").dataset.muted).toBe("true")
     expect(notebookRow("Идеи/Сюжеты").dataset.muted).toBe("true")
     expect(notebookRow("Идеи").dataset.muted).toBeUndefined()
+    const hint = "Заметки скрыты фильтром истории"
+    expect(within(notebookRow("Идеи/Сюжеты")).getByTitle(hint).textContent).toBe("0")
+    expect(within(notebookRow("Пустой")).queryByTitle(hint)).toBeNull()
     expect(screen.getByText("Зарисовка")).toBeTruthy()
     expect(screen.queryByText("Поворот")).toBeNull()
     expect(screen.queryByText("Ничья")).toBeNull()

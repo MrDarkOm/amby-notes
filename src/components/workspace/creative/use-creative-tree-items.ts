@@ -1,5 +1,6 @@
 import * as React from "react"
 import type { TreeItem } from "../tree/tree-types"
+import { useCreativeNavStore } from "./creative-nav-store"
 import { applyCreativeTree } from "./creative-tree-model"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
@@ -16,8 +17,12 @@ export function useCreativeTreeItems(
 ): TreeItem[] {
   const catalog = useProjectStore((state) => state.catalog)
   const showInTree = useCreativeSettingsStore((state) => state.showInTree)
+  const temporarilyRevealed = useCreativeNavStore(
+    (state) => state.revealedWorkshop?.vault === vault,
+  )
   return React.useMemo(
-    () => (enabled ? applyCreativeTree(items, catalog, vault, showInTree) : items),
-    [enabled, items, catalog, vault, showInTree],
+    () =>
+      enabled ? applyCreativeTree(items, catalog, vault, showInTree || temporarilyRevealed) : items,
+    [enabled, items, catalog, vault, showInTree, temporarilyRevealed],
   )
 }

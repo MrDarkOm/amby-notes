@@ -137,7 +137,7 @@ export function ArcBlocks({
   return (
     <>
       {anchorsSection && (
-        <Block title={t("creative.plot.arc.anchors")}>
+        <Block title={t("creative.plot.arc.anchors")} hint={t("creative.plot.anchorOrder")}>
           {view.anchors.byStory.length === 0 && view.anchors.unbound.length === 0 ? (
             <QuietLine>{t("creative.plot.arc.anchorsEmpty")}</QuietLine>
           ) : (
