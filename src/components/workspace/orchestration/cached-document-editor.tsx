@@ -1,4 +1,5 @@
 import * as React from "react"
+import { CreativeNoteProvider } from "../creative/dossier/creative-note-provider"
 import { useDocStore } from "../use-doc-store"
 import type { DocumentEditorProps } from "../document-editor"
 import type { HeaderTab } from "../header-tabs"
@@ -93,20 +94,24 @@ const CachedDocumentEditor = React.memo(
 
     return (
       <div ref={editorRootRef} className="flex min-h-0 min-w-0 flex-1">
-        <MemoizedDocumentEditor
-          key={editorProps.document?.id ?? "none"}
-          {...editorProps}
-          isFocusMode={controls.isFocusMode}
-          isLocked={editorProps.isLocked}
-          hideNavigation={controls.hideNavigation}
-          focusTabs={controls.focusTabs}
-          activeTabKey={controls.activeTabKey}
-          onFocusTabChange={controls.onFocusTabChange}
-          focusFavorites={controls.focusFavorites}
-          onFocusToggleFavorite={controls.onFocusToggleFavorite}
-          onFocusCloseAllTabs={controls.onFocusCloseAllTabs}
-          onToggleFocusMode={controls.onToggleFocusMode}
-        />
+        <CreativeNoteProvider
+          noteId={editorProps.editorFrame ? (editorProps.document?.id ?? null) : null}
+        >
+          <MemoizedDocumentEditor
+            key={editorProps.document?.id ?? "none"}
+            {...editorProps}
+            isFocusMode={controls.isFocusMode}
+            isLocked={editorProps.isLocked}
+            hideNavigation={controls.hideNavigation}
+            focusTabs={controls.focusTabs}
+            activeTabKey={controls.activeTabKey}
+            onFocusTabChange={controls.onFocusTabChange}
+            focusFavorites={controls.focusFavorites}
+            onFocusToggleFavorite={controls.onFocusToggleFavorite}
+            onFocusCloseAllTabs={controls.onFocusCloseAllTabs}
+            onToggleFocusMode={controls.onToggleFocusMode}
+          />
+        </CreativeNoteProvider>
       </div>
     )
   },

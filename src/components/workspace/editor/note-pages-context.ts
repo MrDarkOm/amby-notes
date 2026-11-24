@@ -1,6 +1,6 @@
 import { createContext } from "react"
 
-/** Dossiers page by their `##` sections, without the `amby-pages` flag (see `notePagesRule`). */
+/** Workshop dossiers default to pages by their top-level sections (see `notePagesRule`). */
 export const NotePagesDossierContext = createContext(false)
 
 /** The place in the note's title row where the "Whole note / Show pages" switch is shown. */

@@ -671,8 +671,11 @@ panel (under 640 pixels) they move below the text. The backend is queried only i
 workshops, and only a note of a workshop section gets the presentation.
 
 **A world-section page** (everything except text, notes and "Stories" («Истории»)): a header with the value of the key
-properties, blocks "Sections" («Разделы», the page headings), "Appears in" («Появляется в», text pages that link to it) and
-"Links" («Связи», the other links in both directions). Additionally, depending on the section's role:
+properties and blocks "Appears in" («Появляется в», text pages that link to it) and "Links" («Связи», the
+other links in both directions). The dossier uses the shared note tabs for its shallowest Markdown
+headings by default. "Sections" («Разделы») appears alongside the whole note as a table of contents.
+The editor-wide setting and the note's explicit `amby-pages: false` override the dossier default.
+Additionally, depending on the section's role:
 
 - **Character** — an "Arcs" («Арки») block: arcs whose "Characters" («Персонажи», `charactersPropertyId` of the `arcs` section)
   contains the character, with the arc colour (`arcColor`). These are incoming links through that property, so

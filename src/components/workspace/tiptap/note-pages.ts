@@ -36,7 +36,7 @@ const PAGE_EDIT = "notePagesEdit"
 
 /**
  * Which top-level headings start pages: `h1` takes only first-level headings (ordinary notes);
- * `top` takes the highest level actually present (dossiers, whose sections are `##`).
+ * `top` takes the shallowest heading level present (Workshop dossiers).
  */
 export type NotePagesLevel = "h1" | "top"
 
@@ -56,7 +56,7 @@ export function readNotePagesFlag(
 
 /**
  * Whether a note offers pages and which headings make them. `off` disables pages everywhere and
- * `amby-pages: false` disables them in one note; dossiers keep their `##` sections as pages.
+ * `amby-pages: false` disables them in one note; dossiers default to pages.
  */
 export function notePagesRule(
   mode: NotePagesPref,
@@ -70,10 +70,14 @@ export function notePagesRule(
 
 /**
  * The `amby-pages` value that turns pages on or off for one note: the smallest change from the
- * setting's default, so `null` (no property) whenever the default already gives the wish.
+ * default, so `null` (no property) whenever the note already has the requested default.
  */
-export function notePagesFlagFor(mode: NotePagesPref, enabled: boolean): boolean | null {
-  const byDefault = mode === "always"
+export function notePagesFlagFor(
+  mode: NotePagesPref,
+  enabled: boolean,
+  dossier = false,
+): boolean | null {
+  const byDefault = notePagesRule(mode, null, dossier) !== null
   if (enabled === byDefault) return null
   return enabled
 }
