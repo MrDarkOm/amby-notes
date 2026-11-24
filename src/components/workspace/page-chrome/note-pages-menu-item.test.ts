@@ -13,7 +13,7 @@ describe("note pages menu item", () => {
   it("marks a flagged note as paged and asks to remove the flag when unchecked", () => {
     const change = vi.fn()
     const item = notePagesMenuItem(t, "flagged", true, change)!
-    expect(item.label).toBe("Страницы по заголовкам #")
+    expect(item.label).toBe("Страницы в заметке")
     expect(item.checked).toBe(true)
     item.onSelect?.()
     expect(change).toHaveBeenCalledWith(null)
@@ -32,7 +32,7 @@ describe("note pages menu item", () => {
   it("shows the dossier default and lets the author explicitly disable it", () => {
     const change = vi.fn()
     const enabled = notePagesMenuItem(t, "flagged", null, change, false, true)!
-    expect(enabled.label).toBe("Страницы по разделам")
+    expect(enabled.label).toBe("Страницы в заметке")
     expect(enabled.checked).toBe(true)
     enabled.onSelect?.()
     expect(change).toHaveBeenLastCalledWith(false)

@@ -2616,8 +2616,7 @@ const ru = {
     nestedNotesDisplay: "Отображение вложений",
     notePages: {
       label: "Страницы заметки",
-      menu: "Страницы по заголовкам #",
-      dossierMenu: "Страницы по разделам",
+      menu: "Страницы в заметке",
       show: "Показать страницы",
       continuous: "Вся заметка",
       introduction: "Введение",
@@ -7290,8 +7289,7 @@ const en: LocaleShape<typeof ru> = {
     nestedNotesDisplay: "Nested notes display",
     notePages: {
       label: "Note pages",
-      menu: "Pages by # headings",
-      dossierMenu: "Pages by section",
+      menu: "Pages in this note",
       show: "Show pages",
       continuous: "Whole note",
       introduction: "Introduction",

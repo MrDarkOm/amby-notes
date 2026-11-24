@@ -1,5 +1,6 @@
-import { Maximize2, PanelBottomClose, PanelBottomOpen, PanelTop } from "lucide-react"
+import { Maximize2, PanelBottomClose, PanelBottomOpen } from "lucide-react"
 import type { TFunction } from "i18next"
+import { NotePagesIcon } from "@/themes/note-pages-icon"
 
 import type { ContentWidth, NotePagesPref } from "../app-config"
 import { notePagesFlagFor, notePagesRule } from "../tiptap/note-pages"
@@ -74,8 +75,8 @@ export function notePagesMenuItem(
   return {
     id: "note-pages",
     growLabel: true,
-    label: t(dossier ? "docEditor.notePages.dossierMenu" : "docEditor.notePages.menu"),
-    icon: <PanelTop className="size-3.5 text-muted-foreground" />,
+    label: t("docEditor.notePages.menu"),
+    icon: <NotePagesIcon className="size-3.5 text-muted-foreground" />,
     checked: enabled,
     disabled,
     onSelect: () => onChange(notePagesFlagFor(mode, !enabled, dossier)),
