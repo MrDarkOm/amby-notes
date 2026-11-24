@@ -127,7 +127,7 @@ export const OFFICIAL_BUILTIN_CATALOG: ModuleCatalog = {
       "vault.write",
       "workspace.tabs",
     ]),
-    "amby.supernotes": createOfficialEntry("amby.supernotes", "Supernotes", "1.0.0", 0, 0, [
+    "amby.supernotes": createOfficialEntry("amby.supernotes", "Bundles", "1.0.0", 0, 0, [
       "vault.read",
       "vault.write",
     ]),

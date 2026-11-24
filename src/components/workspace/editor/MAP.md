@@ -29,8 +29,7 @@ The full Markdown editor offers [note pages](../tiptap/note-page-controls.tsx) f
 headings. The `editor.notePages` setting (off / every note / only notes with `amby-pages: true`)
 and the note's flag decide it in `notePagesRule`; [DocumentBody](document-body.tsx) passes both.
 Workshop dossiers default to pages by their shallowest heading level through [NotePagesDossierContext](note-pages-context.ts),
-which the editor and note menu share. The note menu item "Pages by # headings" (dossiers: "Pages by section")
-writes the flag through
+which the editor and note menu share. The note menu item "Pages in this note" writes the flag through
 `usePropertyActions` → `setNotePagesFlag` (Rust `set_note_pages_flag`; `amby-` keys are app-owned, so
 not through the property panel commands) for the active note. The "Whole note / Show pages" switch is rendered into the title row through `NotePagesSlotContext`
 (a slot in [DocumentTitle](document-title.tsx)). Switching to the whole note is remembered per vault and note.

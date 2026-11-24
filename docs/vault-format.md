@@ -168,7 +168,7 @@ its first-level headings become tabs. It only matters when the editor setting
 "Note pages" is "Only in marked notes"; `amby-pages: false` turns pages off for
 that note in every mode. The view never rewrites the file: pages are a display of
 ordinary headings, so other Markdown tools show a normal note. Amby writes or
-removes the field only when the person uses "Pages by # headings" in the note
+removes the field only when the person uses "Pages in this note" in the note
 menu, and then writes the smallest value for the current setting.
 
 A generic `id`, whatever it holds (a canonical ULID included), belongs to the

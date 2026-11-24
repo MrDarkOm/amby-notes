@@ -2,24 +2,16 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  BookOpenText,
-  Database,
-  FileText,
-  Folder,
-  FolderPlus,
-  LayoutGrid,
-  PenTool,
-  Plus,
-  Search,
-} from "lucide-react"
+import { Database, Folder, FolderPlus, LayoutGrid, PenTool, Plus, Search } from "lucide-react"
 import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 import { IconValue } from "./icon-value"
 import type { TreeItem } from "./sidebar-tree"
 import { countFolderContents } from "./folder-view-utils"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
+import { TreeItemIcon } from "./tree/tree-icons"
 
 interface FolderViewProps {
   folder: TreeItem
@@ -56,7 +48,7 @@ function itemIcon(item: TreeItem) {
   if (item.type === "canvas") return <LayoutGrid className="size-5" />
   if (item.type === "sketch") return <PenTool className="size-5" />
   if (item.type === "database") return <Database className="size-5" />
-  return <FileText className="size-5" />
+  return <TreeItemIcon item={item} className="size-5" />
 }
 
 export function FolderView({
@@ -151,7 +143,7 @@ export function FolderView({
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
                 onClick={() => onConvertToNote(folder.id)}
               >
-                <BookOpenText className="size-4" />
+                <CompositeNoteIcon className="size-4" />
                 {t("folderView.convertToSupernote")}
               </button>
             )}
