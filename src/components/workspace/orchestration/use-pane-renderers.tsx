@@ -36,6 +36,7 @@ import type { DatabaseRowActions } from "../database/use-row-menu"
 import { ModuleRequiredFallback } from "../editor/module-required-fallback"
 import type { DatabaseSummary } from "@/lib/storage/database-types"
 import { type DatabaseRow } from "@/lib/storage"
+import { useCreativeNavStore } from "../creative/creative-nav-store"
 import { showInFileManager } from "../show-in-file-manager"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { usePaneEditorProps } from "./use-pane-editor-props"
@@ -581,6 +582,8 @@ export function usePaneRenderers({
     const { projectId, sectionId } = location
     const root = vault?.replace(/[\\/]+$/u, "") ?? ""
     const separator = root.includes("\\") ? "\\" : "/"
+    const folderPath = (relative: string) =>
+      relative ? `${root}${separator}${relative.split("/").join(separator)}` : root
     return (
       <ProjectPage
         key={projectId}
@@ -614,11 +617,20 @@ export function usePaneRenderers({
           onSplitDown: () => handleSplitDown({ tabKey: targetTab.key, paneId }),
           onToggleFavorite: handleToggleFavorite,
           onShowInExplorer: root
-            ? (relative) =>
-                void showInFileManager(
-                  relative ? `${root}${separator}${relative.split("/").join(separator)}` : root,
-                )
+            ? (relative) => void showInFileManager(folderPath(relative))
             : undefined,
+          onShowInTree:
+            vault && root
+              ? (relative) => {
+                  useCreativeNavStore.setState({
+                    revealedWorkshop: {
+                      vault,
+                      folderId: `folder:${folderPath(relative)}`,
+                    },
+                  })
+                  activatePanelAnywhere("files")
+                }
+              : undefined,
         }}
       />
     )

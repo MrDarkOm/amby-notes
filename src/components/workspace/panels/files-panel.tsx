@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
 import { useTreeFileDrop } from "../tree/use-tree-file-drop"
+import { useCreativeNavStore } from "../creative/creative-nav-store"
 import { SidebarTree } from "../sidebar-tree"
 import {
   TREE_ORDER_STORAGE_PREFIX,
@@ -215,6 +216,9 @@ export function FilesPanel(props: PanelRenderProps) {
   } = props
   // A module may present the tree differently here; the other panels keep the vault's own.
   const treeItems = fileTreeItems ?? vaultTreeItems
+  const reveal = useCreativeNavStore((state) =>
+    state.revealedWorkshop?.vault === vault ? state.revealedWorkshop : null,
+  )
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const templatesEnabled = useNoteModulesStore((state) => state.templatesEnabled)
@@ -235,7 +239,8 @@ export function FilesPanel(props: PanelRenderProps) {
     readManualTreeOrder(vault),
   )
   const { key: sortKey, direction: sortDirection } = sortSelection
-  const [query, setQuery] = React.useState("")
+  const [search, setSearch] = React.useState("")
+  const query = reveal ? "" : search
   const treeDropRef = React.useRef<HTMLDivElement>(null)
   useTreeFileDrop({ containerRef: treeDropRef, vault, treeItems: vaultTreeItems })
   React.useEffect(() => {
@@ -495,7 +500,10 @@ export function FilesPanel(props: PanelRenderProps) {
       />
       <PanelSearch
         value={query}
-        onChange={setQuery}
+        onChange={(value) => {
+          if (reveal) useCreativeNavStore.setState({ revealedWorkshop: null })
+          setSearch(value)
+        }}
         ariaLabel={t("filesPanel.search")}
         placeholder={t("filesPanel.search")}
       />
@@ -522,8 +530,11 @@ export function FilesPanel(props: PanelRenderProps) {
               ) : (
                 <SidebarTree
                   items={visibleTreeItems}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
+                  selectedId={reveal?.folderId ?? selectedId}
+                  onSelect={(id) => {
+                    if (reveal) useCreativeNavStore.setState({ revealedWorkshop: null })
+                    onSelect(id)
+                  }}
                   onRename={onRename}
                   onDelete={onDelete}
                   onDeleteMany={onDeleteMany}
@@ -552,7 +563,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}
                   sketchEnabled={sketchEnabled}
-                  autoReveal={autoReveal}
+                  autoReveal={autoReveal || Boolean(reveal)}
                 />
               )}
             </div>

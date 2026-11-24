@@ -32,6 +32,7 @@ import { NoticeLine } from "@/components/workspace/notices/notice-line"
 interface NotesPartProps {
   /** The notebooks and notes the filter lets through; every notebook is in it, empty or not. */
   tree: NotebookTree
+  notebooksWithNotes: ReadonlySet<string> | null
   /** Notes in no story, only when the standalone stories are shown: a group of their own at the end. */
   withoutStory: NotebookTree | null
   canWrite: boolean
@@ -70,6 +71,7 @@ const ROOT = "root"
  */
 export function NotesPart({
   tree,
+  notebooksWithNotes,
   withoutStory,
   canWrite,
   loading,
@@ -235,6 +237,11 @@ export function NotesPart({
             <Folder className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{node.name}</span>
             <span
+              title={
+                muted && notebooksWithNotes?.has(node.key)
+                  ? t("creative.notebooks.hiddenByStory")
+                  : undefined
+              }
               className={cn(
                 "shrink-0 text-[11px] tabular-nums text-muted-foreground",
                 muted && "opacity-60",

@@ -71,9 +71,3 @@ img.ProseMirror-separator {
 .ProseMirror-focused .ProseMirror-gapcursor {
   display: block;
 }
-
-.ProseMirror .amby-heading-hint {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.875em;
-  pointer-events: none;
-}

@@ -1,4 +1,5 @@
 import { BookOpen, Globe2, Library, Play, Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { useTranslation } from "react-i18next"
 import type { StorySummary } from "@/lib/storage"
 import { WHOLE_WORKSHOP } from "../creative-scope-storage"
@@ -34,7 +35,7 @@ interface StoryHeaderProps {
   openTarget: "story" | "universe" | "standalone"
   onOpenTarget: () => void
   /** The page of the text changed last, offered as the place to go on from; none hides the row. */
-  resume?: { noteId: string; title: string; when: string } | null
+  resume?: { noteId: string; title: string; when: string; active: boolean } | null
   onOpenNote?: (noteId: string) => void
   /** The universe the stories are looked at in; none leaves the story alone in the bar. */
   universe?: UniverseSwitch | null
@@ -159,9 +160,14 @@ export function StoryHeader({
       <button
         type="button"
         onClick={() => onOpenNote(resume.noteId)}
+        disabled={resume.active}
+        aria-hidden={resume.active || undefined}
         title={t("creative.workshop.resume", { name: resume.title })}
         aria-label={t("creative.workshop.resume", { name: resume.title })}
-        className="flex w-full items-center gap-2 px-2.5 py-1 text-left text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn(
+          "flex w-full items-center gap-2 px-2.5 py-1 text-left text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          resume.active && "invisible",
+        )}
       >
         <Play aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
         <span className="min-w-0 flex-1 break-words">{resume.title}</span>

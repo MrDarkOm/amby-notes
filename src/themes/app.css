@@ -6848,3 +6848,14 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   pointer-events: none;
   z-index: -1;
 }
+
+.amby-desk-packed {
+  grid-auto-rows: 4px;
+  row-gap: 0;
+}
+
+.ProseMirror .amby-heading-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875em;
+  pointer-events: none;
+}

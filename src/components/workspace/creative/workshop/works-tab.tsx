@@ -1064,8 +1064,13 @@ export function WorksTab({
         latestAt = at
       }
     }
-    if (!latest || latest.noteId === activeNoteId) return null
-    return { noteId: latest.noteId, title: latest.title, when: formatModified(latestAt) ?? "" }
+    if (!latest) return null
+    return {
+      noteId: latest.noteId,
+      title: latest.title,
+      when: formatModified(latestAt) ?? "",
+      active: latest.noteId === activeNoteId,
+    }
   }, [activeNoteId, stats, textRows])
 
   const handleOpenScope = () => {

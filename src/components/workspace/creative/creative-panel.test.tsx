@@ -566,7 +566,7 @@ describe("CreativePanel", () => {
       act(() => useCreativeNavStore.setState({ collapsed: { "page:b1": true } }))
       render(<CreativePanel {...props({ selectedId: "c1" })} />)
       // The book was folded; the open page is inside it, so it unfolds.
-      const chapter = (await screen.findByText("Глава первая")).closest("button") as HTMLElement
+      const chapter = await screen.findByRole("button", { name: /^Глава первая/ })
       expect(chapter.getAttribute("aria-current")).toBe("true")
       expect(await within(chapter).findByText(/^1\D?240$/)).toBeTruthy()
       expect(
@@ -587,6 +587,9 @@ describe("CreativePanel", () => {
       expect(onSelect).toHaveBeenCalledWith("c1")
       view.rerender(<CreativePanel {...props({ onSelect, selectedId: "c1" })} />)
       await waitFor(() => expect(screen.queryByRole("button", { name: /Продолжить:/ })).toBeNull())
+      expect(screen.getByTitle(/Продолжить: Глава первая/).classList.contains("invisible")).toBe(
+        true,
+      )
     })
 
     it("heads the story with its name and one quiet line of its numbers, shown once read", async () => {
