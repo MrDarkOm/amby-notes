@@ -39,6 +39,7 @@ import {
 } from "../page-chrome/page-menu-items"
 import type { PageMenuGroup, PageMenuItem } from "../page-chrome/page-chrome-types"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
+import { NotePagesDossierContext } from "./note-pages-context"
 import type { LayerKind } from "./document-actions"
 
 const MUTED = "size-3.5 text-muted-foreground"
@@ -137,6 +138,7 @@ export function useDocumentMenuGroups({
   const { t } = useTranslation()
   const showAreaControls = useSettingsStore((s) => s.prefs.editor.showAreaControls ?? true)
   const notePagesMode = useSettingsStore((s) => s.prefs.editor.notePages)
+  const notePagesDossier = React.useContext(NotePagesDossierContext)
 
   const hasNote = Boolean(linkedLayers?.note || activeLayer === "editor")
   const hasDatabase = Boolean(
@@ -287,7 +289,14 @@ export function useDocumentMenuGroups({
   }
   if (activeLayer === "editor") {
     viewGroup.push(bottomBarMenuItem(t, showAreaControls, off))
-    const pages = notePagesMenuItem(t, notePagesMode, notePagesFlag, onNotePagesFlagChange, off)
+    const pages = notePagesMenuItem(
+      t,
+      notePagesMode,
+      notePagesFlag,
+      onNotePagesFlagChange,
+      off,
+      notePagesDossier,
+    )
     if (pages) viewGroup.push(pages)
   }
 

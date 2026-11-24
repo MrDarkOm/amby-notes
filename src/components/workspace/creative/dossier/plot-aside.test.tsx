@@ -19,6 +19,7 @@ import {
 import { useProjectStore } from "../project-store"
 import { arcColor } from "../workshop/plot-model"
 import { DossierFrame } from "./dossier-frame"
+import { CreativeNoteProvider } from "./creative-note-provider"
 
 const storage = vi.hoisted(() => ({
   getDatabaseNoteContext: vi.fn(),
@@ -146,16 +147,18 @@ function context(databaseId: string, noteId: string, title: string): DatabaseNot
 
 function mount(noteId: string, onOpenNote = vi.fn(), vaultPath = "/vault") {
   render(
-    <DossierFrame
-      noteId={noteId}
-      vaultPath={vaultPath}
-      content=""
-      canJump
-      scrollToHeading={vi.fn()}
-      onOpenNote={onOpenNote}
-    >
-      <div data-testid="editor">editor</div>
-    </DossierFrame>,
+    <CreativeNoteProvider noteId={noteId}>
+      <DossierFrame
+        noteId={noteId}
+        vaultPath={vaultPath}
+        content=""
+        canJump
+        scrollToHeading={vi.fn()}
+        onOpenNote={onOpenNote}
+      >
+        <div data-testid="editor">editor</div>
+      </DossierFrame>
+    </CreativeNoteProvider>,
   )
   return onOpenNote
 }

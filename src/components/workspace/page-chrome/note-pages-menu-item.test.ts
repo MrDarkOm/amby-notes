@@ -28,4 +28,17 @@ describe("note pages menu item", () => {
     always.onSelect?.()
     expect(change).toHaveBeenLastCalledWith(false)
   })
+
+  it("shows the dossier default and lets the author explicitly disable it", () => {
+    const change = vi.fn()
+    const enabled = notePagesMenuItem(t, "flagged", null, change, false, true)!
+    expect(enabled.label).toBe("Страницы по разделам")
+    expect(enabled.checked).toBe(true)
+    enabled.onSelect?.()
+    expect(change).toHaveBeenLastCalledWith(false)
+    const disabled = notePagesMenuItem(t, "flagged", false, change, false, true)!
+    expect(disabled.checked).toBe(false)
+    disabled.onSelect?.()
+    expect(change).toHaveBeenLastCalledWith(null)
+  })
 })

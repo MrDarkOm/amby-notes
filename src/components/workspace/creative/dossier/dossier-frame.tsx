@@ -4,14 +4,13 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { localeResources } from "@/locales/resources"
-import { NotePagesDossierContext } from "../../editor/note-pages-context"
 import { HeadingHintsContext } from "../../editor/heading-hints-context"
 import { DossierAside } from "./dossier-aside"
 import { hasPlotSections } from "./dossier-model"
 import { DossierHeader } from "./dossier-header"
 import { TextPageAside } from "./text-page-aside"
 import { usePlotFold } from "./use-plot-fold"
-import { useNotePlace } from "./use-note-dossier"
+import { NotePlaceContext } from "./use-note-dossier"
 
 /** Side by side only where the text keeps a readable column next to the blocks. */
 const SIDE_BY_SIDE_MIN_WIDTH = 640
@@ -65,7 +64,7 @@ export function DossierFrame({
   children,
 }: DossierFrameProps) {
   const { t } = useTranslation()
-  const place = useNotePlace(noteId)
+  const place = React.useContext(NotePlaceContext)
   const { folded, toggle } = usePlotFold(vaultPath)
   const dossier = place?.kind === "world" ? place.dossier : null
   const role = dossier?.world.section.role
@@ -111,11 +110,9 @@ export function DossierFrame({
         )}
       >
         <div className={framed ? "min-w-0 flex-1" : "contents"}>
-          <NotePagesDossierContext.Provider value={role === "characters" || role === "locations"}>
-            <HeadingHintsContext.Provider value={headingHints}>
-              {children}
-            </HeadingHintsContext.Provider>
-          </NotePagesDossierContext.Provider>
+          <HeadingHintsContext.Provider value={headingHints}>
+            {children}
+          </HeadingHintsContext.Provider>
         </div>
         {dossier ? (
           <DossierAside

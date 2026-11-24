@@ -2617,6 +2617,7 @@ const ru = {
     notePages: {
       label: "Страницы заметки",
       menu: "Страницы по заголовкам #",
+      dossierMenu: "Страницы по разделам",
       show: "Показать страницы",
       continuous: "Вся заметка",
       introduction: "Введение",
@@ -7290,6 +7291,7 @@ const en: LocaleShape<typeof ru> = {
     notePages: {
       label: "Note pages",
       menu: "Pages by # headings",
+      dossierMenu: "Pages by section",
       show: "Show pages",
       continuous: "Whole note",
       introduction: "Introduction",
