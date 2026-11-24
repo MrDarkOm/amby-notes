@@ -28,25 +28,23 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Amby blocks and callouts                     | [amby-block-node.ts](amby-block-node.ts), [AmbyBlockView.tsx](AmbyBlockView.tsx), [callout-node.ts](callout-node.ts)                                                                                                                                                                                                    |
 | Source ↔ rich selection                      | [markdown-selection.ts](markdown-selection.ts), pointer gaps: [use-gap-selection.ts](use-gap-selection.ts), [nearest-line.ts](nearest-line.ts)                                                                                                                                                                          |
 
+[Note pages](note-pages.ts) decorate first-level heading ranges (dossiers: the top heading level)
+without changing the document or undo history. The open page always hides its own heading (the tab names it);
+an empty page shows a widget line, and typing there starts its text; tabs that do not fit fold into one menu of the open page. `addNotePage` / `renameNotePage` are
+the only edits allowed outside the open page (marked with a plugin meta).
+Edits stay in the visible range. Find shows the full note.
+
 Block-link IDs: [block-anchors.ts](block-anchors.ts).
 
 Drag: [placement](image-placement.ts), [feedback](image-drag-feedback.ts), [shared geometry](block-drop-geometry.ts). Selection: [selection-highlight.ts](selection-highlight.ts).
 
-The insert menu's "Database view" item opens the database picker inside
-`BlockInsertPanel`; the slash text is removed only together with the insertion.
+"Database view" opens the block picker. Insertion removes the slash text.
 
-A top-level block keeps the text it was read from and is written as that text
-until it is edited; the items of a top-level list keep theirs too, so an edited list is
-written item by item when that reads back as the same list (`composeListByItems`); `docToMarkdown` reads its result back before trusting kept
-text in a new place. `docToNormalizedMarkdown` is the editor's own form of every
-block. A note is admitted to Live only when that form reads back as the same
-document, also for the independent reading in `markdown-meaning.ts`; teach that
-reading a new equivalence only when two spellings are the same to every reader.
-A block whose rewriting would lose anything is kept as its source text (`isolateUnsafeBlocks`), never rebuilt. Preserve `amby:columns` comments,
-column order, explicit widths and empty blocks. Editor-only unlink controls must
-leave the visible label as ordinary text, never appear in Markdown, and preserve
-normal navigation outside the control. Do not add feature rules to the serializer
-without a lossless fixture and a rejection case for unsupported input.
+Top-level blocks and list items retain their source while unchanged. `docToMarkdown` checks
+the result before reusing kept bytes, including after movement. Live admission also checks
+an independent Markdown reading (`markdown-meaning.ts`). Unsafe blocks keep their original
+source (`isolateUnsafeBlocks`). Preserve column comments, order, widths and empty blocks.
+New serializer rules require a lossless fixture and an unsupported-input case.
 
 Markdown paste uses the note parser and creates new blocks without kept source,
 rebuilt for the editor's schema. Behaviour that depends on

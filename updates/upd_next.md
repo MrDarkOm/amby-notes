@@ -1,5 +1,9 @@
 # Amby — Next version
 
+- Notes can show their first-level headings (#) as page tabs in Live Preview and Read mode. Settings → Editor → Note pages chooses Off, In every note, or Only in marked notes (the default). Turn pages on or off for one note with “Pages by # headings” in the note menu; it stores the `amby-pages` property in the note. Character and location dossiers keep their section tabs. Page tabs are rounded pills, and the open one slides smoothly to the tab you choose; add a page or a page with a database view from the + menu next to them (Esc while naming a new page takes it back), and rename or delete one from its context menu. Deleting asks first: delete everything on the page, or move its text to the neighbouring page. The open page never shows its heading (an empty page invites you to start writing), and tabs that do not fit fold into a menu on the open page. Switch between pages and the whole note next to the note title.
+
+- Deleting the last property of a note no longer leaves an empty line at the end of the note header.
+
 - Creative workshop: link notes from folders and Amby databases in one import. Preview the notes and match their fields to a workshop section. The originals stay in place and you can undo the import.
 
 - Creative workshop: find characters, locations and storylines under Reference. Stories without a universe remain under Standalone stories. Add an Arc level when creating or editing any story.

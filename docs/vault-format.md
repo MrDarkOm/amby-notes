@@ -162,8 +162,14 @@ The optional Amby-owned `amby-title` field is a non-empty display-title
 override. Readers resolve titles as `amby-title`, then the first Markdown H1,
 then the filename. It does not replace the generic `title` field and does not
 require a filesystem rename.
-New notes are published with their `amby-id` in the first atomic no-replace
-write, so there is no temporary on-disk state that requires a second ID write.
+
+The optional Amby-owned `amby-pages` boolean asks for the paged view of a note:
+its first-level headings become tabs. It only matters when the editor setting
+"Note pages" is "Only in marked notes"; `amby-pages: false` turns pages off for
+that note in every mode. The view never rewrites the file: pages are a display of
+ordinary headings, so other Markdown tools show a normal note. Amby writes or
+removes the field only when the person uses "Pages by # headings" in the note
+menu, and then writes the smallest value for the current setting.
 
 A generic `id`, whatever it holds (a canonical ULID included), belongs to the
 user or to another app. Amby never reads it as identity, never copies it into

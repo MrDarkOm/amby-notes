@@ -1527,6 +1527,16 @@ export class WebAdapterCore implements StoragePort {
     return { word_count: content.split(/\s+/).filter(Boolean).length }
   }
 
+  async setNotePagesFlag(_vaultPath: string, noteId: string, flag: boolean | null): Promise<void> {
+    const source = webGet(FILE_PREFIX + noteId)
+    if (source === null) throw new Error(`Note not found: ${noteId}`)
+    const updated =
+      flag === null
+        ? removeWebFrontmatterProperty(source, "amby-pages")
+        : upsertWebFrontmatterProperty(source, noteId, "amby-pages", String(flag), "checkbox")
+    if (updated !== source) webSet(FILE_PREFIX + noteId, updated)
+  }
+
   async getNoteProperties(_vaultPath: string, noteId: string): Promise<NoteProperties> {
     const result = webNoteProperties(webGet(FILE_PREFIX + noteId) ?? "")
     try {

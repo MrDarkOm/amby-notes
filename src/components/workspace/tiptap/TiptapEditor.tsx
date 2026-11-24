@@ -9,6 +9,8 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { HeadingHintsContext } from "../editor/heading-hints-context"
 import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
+import { NotePageControls, type NotePagesSource } from "./note-page-controls"
+import { revealNotePageAt } from "./note-pages"
 import { buildExtensions } from "./extensions"
 import { markdownToDoc } from "./markdown"
 import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
@@ -62,6 +64,8 @@ interface TiptapEditorProps {
   editorRef?: React.RefObject<EditorHandle>
   placeholder?: string
   editable?: boolean
+  /** Full notes may offer the paged view; embedded editors keep their usual layout. */
+  notePages?: NotePagesSource
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
   resolveWikiLinkTarget?: (target: string) => string | null
@@ -152,6 +156,7 @@ export function TiptapEditor({
   editorRef,
   placeholder = i18n.t("editor.placeholder"),
   editable = true,
+  notePages,
   onTagClick,
   onWikiLinkClick,
   resolveWikiLinkTarget,
@@ -547,6 +552,7 @@ export function TiptapEditor({
     restoredSelectionRef.current = true
     const mapped = markdownSelectionToDocSelection(editor.state.doc, value, selection)
     if (!mapped) return
+    revealNotePageAt(editor, mapped.from)
     editor.commands.setTextSelection(mapped)
   }, [editor, selection, value])
 
@@ -934,7 +940,19 @@ export function TiptapEditor({
       {editor && editable && !isReadOnly && (
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}
-      <EditorContent editor={editor} />
+      {notePages ? (
+        <NotePageControls
+          editor={editor}
+          source={notePages}
+          noteId={noteId}
+          vaultPath={vaultPath}
+          paused={find !== null}
+        >
+          <EditorContent editor={editor} />
+        </NotePageControls>
+      ) : (
+        <EditorContent editor={editor} />
+      )}
       {editor && lightbox && (
         <ImageLightbox
           editor={editor}

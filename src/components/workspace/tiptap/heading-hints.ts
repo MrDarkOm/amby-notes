@@ -1,4 +1,5 @@
 import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { notePageContains, notePagesKey } from "./note-pages"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 
 export const headingHintsKey = new PluginKey("headingHints")
@@ -8,7 +9,9 @@ export function headingHintsPlugin(hints: ReadonlyMap<string, string>) {
   return new Plugin({
     key: headingHintsKey,
     props: {
-      decorations: ({ doc }) => {
+      decorations: (state) => {
+        const { doc } = state
+        const pages = notePagesKey.getState(state)
         const decorations: Decoration[] = []
         let empty: { position: number; text: string } | undefined
         const finish = () => {
@@ -31,7 +34,10 @@ export function headingHintsPlugin(hints: ReadonlyMap<string, string>) {
           if (node.type.name === "heading") {
             finish()
             const text = hints.get(node.textContent.trim())
-            empty = text ? { position: offset + node.nodeSize, text } : undefined
+            empty =
+              text && notePageContains(pages, offset)
+                ? { position: offset + node.nodeSize, text }
+                : undefined
           } else if (node.type.name !== "paragraph" || node.content.size > 0) {
             empty = undefined
           }

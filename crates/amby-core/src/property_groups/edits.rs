@@ -826,3 +826,34 @@ fn finish_rename(
 fn storage_is_not_groups(vault: &Path) -> bool {
     !matches!(files::storage_mode(vault), Ok(super::StorageMode::Groups))
 }
+
+// ----- the app-owned pages flag -----
+
+/// The app-owned header key that asks for the paged view of a note (docs/vault-format.md).
+pub const PAGES_FLAG_FIELD: &str = "amby-pages";
+
+/// Writes `amby-pages: true|false`, or removes it for `None`. The key is app-owned, so it lives
+/// outside the property panel and the group files; the rest of the header keeps its bytes.
+pub fn set_pages_flag(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    flag: Option<bool>,
+) -> Result<(), String> {
+    let access = open_note(conn, vault, note_id)?;
+    let updated = match flag {
+        Some(value) => frontmatter::upsert_frontmatter_property(
+            &access.text,
+            note_id,
+            PAGES_FLAG_FIELD,
+            if value { "true" } else { "false" },
+            "checkbox",
+        )?,
+        None => frontmatter::remove_frontmatter_property(&access.text, PAGES_FLAG_FIELD)?,
+    };
+    if updated != access.text {
+        write_note(vault, &access.path, &updated, "pages-flag")?;
+    }
+    refresh(conn, vault, note_id);
+    Ok(())
+}

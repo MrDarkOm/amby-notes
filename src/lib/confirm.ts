@@ -14,6 +14,11 @@ export interface ConfirmOptions {
   confirmLabel: string
   /** Only where "Cancel" would mislead (it drops something); otherwise the word of the application. */
   cancelLabel?: string
+  /**
+   * A second, milder action between "Cancel" and the main one (a page deleted with its text kept); its answer
+   * is `alternative`. Only through `confirmChoice`.
+   */
+  alternativeLabel?: string
   /** A dangerous action: the button is drawn as dangerous and the focus starts on the safe button. */
   destructive?: boolean
   /** Exact text required before confirming an irreversible server-space deletion (Л10). */
@@ -32,10 +37,10 @@ export interface PendingConfirm extends ConfirmOptions {
 }
 
 /**
- * How a question ended: `yes` (the action button), `no` (the second button) or `dismissed` (Escape or a click
- * beside the window: closed with no answer).
+ * How a question ended: `yes` (the action button), `no` (the second button), `alternative` (the optional
+ * middle action) or `dismissed` (Escape or a click beside the window: closed with no answer).
  */
-export type ConfirmOutcome = "yes" | "no" | "dismissed"
+export type ConfirmOutcome = "yes" | "no" | "alternative" | "dismissed"
 
 interface ConfirmState {
   /** The questions waiting for an answer; the first is on the screen. */

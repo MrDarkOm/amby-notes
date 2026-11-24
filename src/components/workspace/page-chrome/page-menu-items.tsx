@@ -1,7 +1,8 @@
-import { Maximize2, PanelBottomClose, PanelBottomOpen } from "lucide-react"
+import { Maximize2, PanelBottomClose, PanelBottomOpen, PanelTop } from "lucide-react"
 import type { TFunction } from "i18next"
 
-import type { ContentWidth } from "../app-config"
+import type { ContentWidth, NotePagesPref } from "../app-config"
+import { notePagesFlagFor, notePagesRule } from "../tiptap/note-pages"
 import { useSettingsStore } from "../use-settings-store"
 import type { PageMenuItem } from "./page-chrome-types"
 
@@ -52,5 +53,30 @@ export function bottomBarMenuItem(t: TFunction, shown: boolean, disabled = false
         editor: { ...currentEditor, showAreaControls: !(currentEditor.showAreaControls ?? true) },
       })
     },
+  }
+}
+
+/**
+ * "Pages by # headings": turns the paged view on or off for one note by writing the smallest
+ * `amby-pages` value for the current setting. Absent when the setting is off or the note's
+ * properties cannot be written from this pane.
+ */
+export function notePagesMenuItem(
+  t: TFunction,
+  mode: NotePagesPref,
+  flag: boolean | null,
+  onChange: ((flag: boolean | null) => void) | undefined,
+  disabled = false,
+): PageMenuItem | null {
+  if (mode === "off" || !onChange) return null
+  const enabled = notePagesRule(mode, flag, false) !== null
+  return {
+    id: "note-pages",
+    growLabel: true,
+    label: t("docEditor.notePages.menu"),
+    icon: <PanelTop className="size-3.5 text-muted-foreground" />,
+    checked: enabled,
+    disabled,
+    onSelect: () => onChange(notePagesFlagFor(mode, !enabled)),
   }
 }
