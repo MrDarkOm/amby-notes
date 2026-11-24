@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "../project-labels"
 import { Database } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { sectionCreateLabel } from "../section-create-label"
@@ -24,7 +25,8 @@ export interface WorldCard {
   title?: string
 }
 
-function sectionTitle(section: WorkshopSectionSummary): string {
+function sectionTitle(section: WorkshopSectionSummary, storylines: string): string {
+  if (section.role === "arcs") return sectionDisplayName(section, storylines)
   return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
 }
 
@@ -66,7 +68,7 @@ export function WorldCards({
     <>
       {cards.map((entry) => {
         const { owner, section, rows: items } = entry
-        const name = entry.title ?? sectionTitle(section)
+        const name = entry.title ?? sectionTitle(section, t("creative.sections.arcs"))
         const create = createFor?.(entry) ?? null
         const Icon = section.role ? sectionRoleIcon(section.role) : Database
         const people = section.role === "characters"
@@ -128,9 +130,13 @@ export function WorldCards({
             {create && (
               <div className="pt-1">
                 <QuickCreate
-                  label={sectionCreateLabel(t, section.role, sectionTitle(section))}
+                  label={sectionCreateLabel(
+                    t,
+                    section.role,
+                    sectionTitle(section, t("creative.sections.arcs")),
+                  )}
                   placeholder={t("creative.workshop.newEntityPlaceholder", {
-                    name: sectionTitle(section),
+                    name: sectionTitle(section, t("creative.sections.arcs")),
                   })}
                   failed={(message) => t("creative.workshop.createFailed", { message })}
                   onCreate={create}

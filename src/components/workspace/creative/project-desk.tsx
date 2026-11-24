@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
 import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -454,9 +455,11 @@ export function ProjectDesk({
   const loading = data.status === "loading" && rows === undefined
   const levelNameOf = (node: TextNode) => levels.find((level) => level.id === node.levelId)?.name
   const worldTitle = (section: WorkshopSectionSummary) =>
-    section.role && t(`creative.sections.${section.role}`, { defaultValue: "" })
-      ? t(`creative.sections.${section.role}`)
-      : section.databaseName?.trim() || section.name
+    section.role === "arcs"
+      ? sectionDisplayName(section, t("creative.sections.arcs"))
+      : section.role && t(`creative.sections.${section.role}`, { defaultValue: "" })
+        ? t(`creative.sections.${section.role}`)
+        : section.databaseName?.trim() || section.name
 
   const widgetTitle = (id: string): string => {
     switch (id) {

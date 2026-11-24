@@ -204,7 +204,7 @@ describe("the plot beside a page of the text", () => {
     expect(within(block("Отталкиваемся от")).getByText("на странице «Глава 1»")).toBeTruthy()
     expect(within(block("Должны прийти к")).getByText("Мечта")).toBeTruthy()
     expect(within(block("Должны прийти к")).getByText("впереди, ещё не привязан")).toBeTruthy()
-    const arcs = block("Арки")
+    const arcs = block("Сюжетные линии")
     expect(within(arcs).getByText("Любовь")).toBeTruthy()
     expect(within(arcs).getByText("Месть")).toBeTruthy()
     const dot = within(arcs).getByText("Любовь").previousElementSibling as HTMLElement
@@ -226,7 +226,7 @@ describe("the plot beside a page of the text", () => {
     expect(within(region).getByText("Встреча")).toBeTruthy()
     expect(within(region).getByText("Финал")).toBeTruthy()
     expect(within(region).getByRole("button", { name: "Привязать якорь" })).toBeTruthy()
-    expect(within(region).queryByRole("heading", { name: "Арки" })).toBeNull()
+    expect(within(region).queryByRole("heading", { name: "Сюжетные линии" })).toBeNull()
     expect(within(region).queryByText("впереди, ещё не привязан")).toBeNull()
   })
 
@@ -393,7 +393,7 @@ describe("the plot on the page of an arc and of a character", () => {
     const block = (title: string) =>
       within(region).getByRole("heading", { name: title }).parentElement as HTMLElement
     await within(region).findByText("Встреча")
-    const anchors = block("Якоря арки")
+    const anchors = block("Якоря сюжетной линии")
     expect(within(anchors).getByTitle("По первой привязанной странице")).toBeTruthy()
     const listed = within(anchors)
       .getAllByRole("button")
@@ -428,9 +428,11 @@ describe("the plot on the page of an arc and of a character", () => {
     ROWS.db_text2 = []
     mount("r2")
     const region = await screen.findByRole("complementary", { name: "Досье" })
-    expect(await within(region).findByText("Ни один якорь не указывает на эту арку.")).toBeTruthy()
     expect(
-      within(region).getByText("Арка пока не привязана ни к одной странице текста."),
+      await within(region).findByText("Ни один якорь не указывает на эту сюжетную линию."),
+    ).toBeTruthy()
+    expect(
+      within(region).getByText("Сюжетная линия пока не привязана ни к одной странице текста."),
     ).toBeTruthy()
   })
 
@@ -439,7 +441,7 @@ describe("the plot on the page of an arc and of a character", () => {
     storage.listNoteReferences.mockResolvedValue([reference({})])
     const onOpenNote = mount("anna")
     const region = await screen.findByRole("complementary", { name: "Досье" })
-    const block = await within(region).findByRole("heading", { name: "Арки" })
+    const block = await within(region).findByRole("heading", { name: "Сюжетные линии" })
     const arcs = block.parentElement as HTMLElement
     const button = within(arcs).getByRole("button", { name: "Любовь" })
     const dot = button.querySelector("span[aria-hidden]") as HTMLElement
@@ -456,6 +458,6 @@ describe("the plot on the page of an arc and of a character", () => {
     mount("bob")
     const region = await screen.findByRole("complementary", { name: "Досье" })
     await settle()
-    expect(within(region).queryByRole("heading", { name: "Арки" })).toBeNull()
+    expect(within(region).queryByRole("heading", { name: "Сюжетные линии" })).toBeNull()
   })
 })

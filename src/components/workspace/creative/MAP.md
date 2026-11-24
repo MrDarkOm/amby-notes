@@ -66,7 +66,7 @@ open page marked, its parents unfolded and the row scrolled into view once per c
 (`move_text_page`, after `planMove` refused what the backend would). Its "+" makes a top-level page
 (`defaultLevelId`), a row's "+" one inside; a last-level page has none (`canHaveChildPage`). _anchors_
 stand where the text puts them, with the rest "Ahead" in the author's order (`manualOrder`); _notes_ show
-notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`). Under them the **world**
+notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`). Under them the **reference**
 (`world-section.tsx`): one folding list per category (by role, or by name for an author's section). Two axes
 filter it: the universe in the bar (`UniverseSwitch`; `universeFilter`) sets the scope, a
 universe or "Standalone stories" (the default; no "whole workshop"), and the story in the bar narrows to one story
@@ -86,10 +86,10 @@ page first, then story, universe and section).
 the row. A page starts one level below its parent (`startLevelId`).
 
 **Names.** A base's folder is named once, at creation: the interface sends the names of the active language as `labels`
-(the backend only has Russian fallbacks). Add a language with `creative.*` keys, not in Rust.
+(the backend only has Russian fallbacks). The standard Storylines section has a localized display name; custom names and physical paths are kept.
 
 **Levels of a new story.** The dialog asks for the text schema: Novel (Book → Chapter → Scene, the default), Short story
-(Page), Comic (Book → Volume → Chapter → Page; "Arc" belongs to story arcs) or Custom (1 to 6 names). The names go as `textLevels` in the active
+(Page), Comic (Book → Arc → Chapter → Page) or Custom (1 to 6 names). Arc is optional in new and existing stories. The names go as `textLevels` in the active
 language; `levelsProblem` mirrors what the backend refuses; the list is part of the operation-ID payload.
 
 **Project settings.** `project-settings-dialog.tsx` (the "Settings" row of the page's "⋯" menu in `project-page.tsx`, off on

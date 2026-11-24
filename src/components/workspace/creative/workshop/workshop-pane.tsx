@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "../project-labels"
 import * as React from "react"
 import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -166,7 +167,10 @@ export function WorkshopPane({
   const entityRequest = useCreativeNavStore((state) => state.entityRequest)
 
   const scope = React.useMemo(() => workshopScope(catalog, scopeId), [catalog, scopeId])
-  const categories = React.useMemo(() => entityTabs(scope), [scope])
+  const categories = React.useMemo(
+    () => entityTabs(scope, (section) => sectionDisplayName(section, t("creative.sections.arcs"))),
+    [scope, t],
+  )
   // The universes are chosen with the card below the lists, not listed among the world.
   const worldCategories = React.useMemo(
     () => categories.filter((category) => category.role !== "universes"),

@@ -15,7 +15,7 @@ import {
   Star,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import type { StorySummary } from "@/lib/storage"
+import type { StorySummary, WorkshopSectionSummary } from "@/lib/storage"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
@@ -38,7 +38,7 @@ import { WorkshopSection } from "./pages/workshop-section"
 import { useStoriesStats } from "./pages/use-stories-stats"
 import { creativeFileId } from "./creative-history"
 import { creativeCrumbs } from "./page-crumbs"
-import { creativeTitleLabels } from "./project-labels"
+import { creativeTitleLabels, sectionDisplayName } from "./project-labels"
 import { ProjectDesk } from "./project-desk"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { ScopeDesk } from "./scope-desk"
@@ -192,14 +192,18 @@ export function ProjectPage({
   // the standalone stories only the lists that can hold their pages, each showing what belongs here.
   const groups = React.useMemo<SidebarGroup[]>(() => {
     if (!workshop) return []
-    if (target?.kind === "workshop") return groupSections(workshop)
+    const labelOf = (section: WorkshopSectionSummary) =>
+      sectionDisplayName(section, t("creative.sections.arcs")).trim() || section.id
+    if (target?.kind === "workshop") return groupSections(workshop, labelOf)
     return [
       {
         id: "custom",
-        sections: scopeSections(workshop).map((section) => toSidebarSection(workshop, section)),
+        sections: scopeSections(workshop).map((section) =>
+          toSidebarSection(workshop, section, labelOf(section)),
+        ),
       },
     ]
-  }, [target?.kind, workshop])
+  }, [target?.kind, workshop, t])
   const sections = groups.flatMap((group) => group.sections)
   const active =
     selected && sections.some((section) => section.id === selected) ? selected : OVERVIEW_SECTION

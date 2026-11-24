@@ -22,6 +22,7 @@ import { projectLabels } from "./project-labels"
 import {
   levelChain,
   levelsProblem,
+  canAddArcLevel,
   MAX_TEXT_LEVELS,
   presetLevelNames,
   TEXT_SCHEMAS,
@@ -298,6 +299,23 @@ export function CreateProjectDialog({
                     {t("creative.createProject.textSchema.addLevel")}
                   </Button>
                 </div>
+              )}
+
+              {canAddArcLevel(levelNames) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => {
+                    const [first, ...rest] = levelNames
+                    setCustomLevels([first, t("creative.schema.levels.arc"), ...rest])
+                    setSchema("custom")
+                  }}
+                >
+                  <Plus className="size-4" />
+                  {t("creative.createProject.textSchema.addArcLevel")}
+                </Button>
               )}
 
               <p className="text-xs text-muted-foreground">

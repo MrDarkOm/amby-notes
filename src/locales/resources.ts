@@ -3378,8 +3378,8 @@ const ru = {
       defaultFolder: "Мастерская",
       works: "Истории",
       world: {
-        title: "Мир",
-        noCategories: "Разделов мира пока нет. Добавьте первый кнопкой «+».",
+        title: "Справочник",
+        noCategories: "Разделов справочника пока нет. Добавьте первый кнопкой «+».",
         noItems: "Пока пусто.",
       },
       menu: {
@@ -3503,10 +3503,10 @@ const ru = {
       characters: "Персонажи",
       locations: "Локации",
       universes: "Вселенные",
-      arcs: "Арки",
+      arcs: "Сюжетные линии",
       anchors: "Якоря",
     },
-    groups: { work: "История", world: "Мир" },
+    groups: { work: "История", world: "Справочник" },
     // Menu entries that do by keyboard what dragging a row does.
     arrange: {
       up: "Выше",
@@ -3558,7 +3558,8 @@ const ru = {
       unavailable:
         "Здесь нельзя привязать: у истории нет текста или мастерская открыта только для чтения.",
       noAnchors: "Не удалось подготовить связь «Якоря»: в мастерской нет раздела «Якоря».",
-      noArcs: "Не удалось подготовить связь «Арки»: в мастерской нет раздела «Арки».",
+      noArcs:
+        "Не удалось подготовить связь «Сюжетные линии»: в мастерской нет раздела «Сюжетные линии».",
       ahead: "Впереди",
       aheadHint:
         "Привязанные якоря стоят по первой привязанной странице. Порядок непривязанных задаёте вы.",
@@ -3567,14 +3568,14 @@ const ru = {
         "Порядок привязанных якорей задаёт текст. Чтобы переставить якорь, перетащите его на другую страницу.",
       menu: {
         anchors: "Якоря",
-        arcs: "Арки",
+        arcs: "Сюжетные линии",
         noAnchors: "У истории пока нет якорей",
-        noArcs: "У истории пока нет арок",
+        noArcs: "У истории пока нет сюжетных линий",
         unbind: "Отвязать от страницы",
       },
       marks: {
         anchors: "Якоря: {{names}}",
-        arcs: "Арки: {{names}}",
+        arcs: "Сюжетные линии: {{names}}",
       },
       linksFailed: "Не удалось подготовить связи якорей: {{message}}",
       // The aside of a page of the text.
@@ -3590,7 +3591,7 @@ const ru = {
         from: "Отталкиваемся от",
         to: "Должны прийти к",
         toAhead: "впереди, ещё не привязан",
-        arcs: "Арки",
+        arcs: "Сюжетные линии",
         onPage: "на странице «{{page}}»",
       },
       // The ribbon of a story's desk.
@@ -3600,13 +3601,13 @@ const ru = {
       },
       // The page of an arc and of a character.
       arc: {
-        anchors: "Якоря арки",
-        anchorsEmpty: "Ни один якорь не указывает на эту арку.",
+        anchors: "Якоря сюжетной линии",
+        anchorsEmpty: "Ни один якорь не указывает на эту сюжетную линию.",
         unbound: "Не привязаны к тексту",
         chapters: "Главы",
-        chaptersEmpty: "Арка пока не привязана ни к одной странице текста.",
+        chaptersEmpty: "Сюжетная линия пока не привязана ни к одной странице текста.",
         span: "от «{{from}}» до «{{to}}»",
-        characterArcs: "Арки",
+        characterArcs: "Сюжетные линии",
       },
       // The events of a universe.
       events: {
@@ -3691,9 +3692,7 @@ const ru = {
       },
       levels: {
         book: "Книга",
-        // The second level of the comic schema. The key stays `arc` (it is part of the label
-        // contract with the backend), but the name is "Volume": "Arc" belongs to story arcs.
-        arc: "Том",
+        arc: "Арка",
         chapter: "Глава",
         scene: "Сцена",
         page: "Страница",
@@ -3783,6 +3782,7 @@ const ru = {
         levelName: "Название уровня {{number}}",
         removeLevel: "Убрать уровень {{number}}",
         addLevel: "Добавить уровень",
+        addArcLevel: "Добавить уровень «Арка»",
         problem: {
           empty: "Назовите каждый уровень.",
           duplicate: "Названия уровней не должны повторяться.",
@@ -3845,7 +3845,7 @@ const ru = {
       settings: "Настройки",
       sections: "Разделы мастерской",
       stories: "Истории",
-      groups: { world: "Мир", work: "Работа" },
+      groups: { world: "Справочник", work: "Работа" },
       openWhole: "Вся база",
       universe: {
         noStories:
@@ -3887,7 +3887,7 @@ const ru = {
     createItem: {
       characters: "Персонаж",
       locations: "Локация",
-      arcs: "Арка",
+      arcs: "Сюжетная линия",
       anchors: "Якорь",
       notes: "Заметка",
       stories: "История",
@@ -3917,8 +3917,8 @@ const ru = {
         inProgress: "В работе",
         finished: "Законченные",
       },
-      world: "Мир",
-      allWorlds: "Все миры",
+      world: "Вселенная",
+      allWorlds: "Вся мастерская",
       standaloneWorld: "Отдельные истории",
       sort: "Сортировка",
       sorts: {
@@ -3933,7 +3933,7 @@ const ru = {
       empty: "Историй пока нет.",
     },
     workshopPage: {
-      worlds: "Миров",
+      worlds: "Вселенных",
       stories: "Историй",
       words: "Написано слов",
       continue: "Продолжить",
@@ -3981,12 +3981,12 @@ const ru = {
       earlier: "Сдвинуть «{{name}}» раньше",
       later: "Сдвинуть «{{name}}» позже",
       newStory: "История",
-      hint: "Что за чем идёт внутри мира. Перетащите историю, чтобы поменять порядок.",
+      hint: "Что за чем идёт внутри вселенной. Перетащите историю, чтобы поменять порядок.",
       saveFailed: "Не удалось сохранить порядок историй: {{message}}",
     },
     scope: {
-      world: "Мир",
-      worldTabs: "Разделы мира",
+      world: "Справочник",
+      worldTabs: "Разделы справочника",
       sharedRow: "Общий",
     },
     danglingStory: { deleted: "История удалена", remove: "Убрать ссылку" },
@@ -3995,7 +3995,7 @@ const ru = {
       purpose: {
         characters: "Здесь живут персонажи ваших историй.",
         locations: "Места, где происходят ваши истории.",
-        arcs: "Арки, которые проходят через ваши истории.",
+        arcs: "Сюжетные линии, которые проходят через ваши истории.",
         anchors: "Ключевые события, которые можно привязать к тексту.",
         universes: "Вселенные объединяют истории общим миром.",
         notes: "Идеи и материалы для ваших историй.",
@@ -7987,8 +7987,8 @@ const en: LocaleShape<typeof ru> = {
       defaultFolder: "Workshop",
       works: "Stories",
       world: {
-        title: "World",
-        noCategories: "No world sections yet. Add the first with “+”.",
+        title: "Reference",
+        noCategories: "No reference sections yet. Add the first with “+”.",
         noItems: "Nothing here yet.",
       },
       menu: {
@@ -8107,10 +8107,10 @@ const en: LocaleShape<typeof ru> = {
       characters: "Characters",
       locations: "Locations",
       universes: "Universes",
-      arcs: "Arcs",
+      arcs: "Storylines",
       anchors: "Anchors",
     },
-    groups: { work: "Story", world: "World" },
+    groups: { work: "Story", world: "Reference" },
     // Menu entries that do by keyboard what dragging a row does.
     arrange: {
       up: "Move up",
@@ -8162,7 +8162,7 @@ const en: LocaleShape<typeof ru> = {
     plot: {
       unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
       noAnchors: "Could not prepare the “Anchors” link: the workshop has no “Anchors” section.",
-      noArcs: "Could not prepare the “Arcs” link: the workshop has no “Arcs” section.",
+      noArcs: "Could not prepare the “Storylines” link: the workshop has no “Storylines” section.",
       ahead: "Ahead",
       aheadHint:
         "Bound anchors follow their first linked page. You set the order of unbound anchors.",
@@ -8171,14 +8171,14 @@ const en: LocaleShape<typeof ru> = {
         "The text sets the order of bound anchors. To move one, drag it onto another page.",
       menu: {
         anchors: "Anchors",
-        arcs: "Arcs",
+        arcs: "Storylines",
         noAnchors: "This story has no anchors yet",
-        noArcs: "This story has no arcs yet",
+        noArcs: "This story has no storylines yet",
         unbind: "Unbind from a page",
       },
       marks: {
         anchors: "Anchors: {{names}}",
-        arcs: "Arcs: {{names}}",
+        arcs: "Storylines: {{names}}",
       },
       linksFailed: "Could not prepare the links of the anchors: {{message}}",
       // The aside of a page of the text.
@@ -8194,7 +8194,7 @@ const en: LocaleShape<typeof ru> = {
         from: "Starting from",
         to: "Heading for",
         toAhead: "ahead, not bound yet",
-        arcs: "Arcs",
+        arcs: "Storylines",
         onPage: "on “{{page}}”",
       },
       // The ribbon of a story's desk.
@@ -8204,13 +8204,13 @@ const en: LocaleShape<typeof ru> = {
       },
       // The page of an arc and of a character.
       arc: {
-        anchors: "Anchors of the arc",
-        anchorsEmpty: "No anchor points at this arc.",
+        anchors: "Anchors of the storyline",
+        anchorsEmpty: "No anchor points at this storyline.",
         unbound: "Not bound to the text",
         chapters: "Chapters",
-        chaptersEmpty: "The arc is not bound to any page of the text yet.",
+        chaptersEmpty: "The storyline is not bound to any page of the text yet.",
         span: "from “{{from}}” to “{{to}}”",
-        characterArcs: "Arcs",
+        characterArcs: "Storylines",
       },
       // The events of a universe.
       events: {
@@ -8291,8 +8291,7 @@ const en: LocaleShape<typeof ru> = {
       },
       levels: {
         book: "Book",
-        // The second level of the comic schema; see the Russian entry.
-        arc: "Volume",
+        arc: "Arc",
         chapter: "Chapter",
         scene: "Scene",
         page: "Page",
@@ -8375,6 +8374,7 @@ const en: LocaleShape<typeof ru> = {
         levelName: "Name of level {{number}}",
         removeLevel: "Remove level {{number}}",
         addLevel: "Add a level",
+        addArcLevel: "Add Arc level",
         problem: {
           empty: "Name every level.",
           duplicate: "Level names must not repeat.",
@@ -8438,7 +8438,7 @@ const en: LocaleShape<typeof ru> = {
       settings: "Settings",
       sections: "Workshop sections",
       stories: "Stories",
-      groups: { world: "World", work: "Work" },
+      groups: { world: "Reference", work: "Work" },
       openWhole: "Whole base",
       universe: {
         noStories:
@@ -8480,7 +8480,7 @@ const en: LocaleShape<typeof ru> = {
     createItem: {
       characters: "Character",
       locations: "Location",
-      arcs: "Arc",
+      arcs: "Storyline",
       anchors: "Anchor",
       notes: "Note",
       stories: "Story",
@@ -8510,8 +8510,8 @@ const en: LocaleShape<typeof ru> = {
         inProgress: "In progress",
         finished: "Finished",
       },
-      world: "World",
-      allWorlds: "All worlds",
+      world: "Universe",
+      allWorlds: "Whole workshop",
       standaloneWorld: "Standalone stories",
       sort: "Sort",
       sorts: {
@@ -8526,7 +8526,7 @@ const en: LocaleShape<typeof ru> = {
       empty: "No stories yet.",
     },
     workshopPage: {
-      worlds: "Worlds",
+      worlds: "Universes",
       stories: "Stories",
       words: "Words written",
       continue: "Continue",
@@ -8574,12 +8574,12 @@ const en: LocaleShape<typeof ru> = {
       earlier: "Move “{{name}}” earlier",
       later: "Move “{{name}}” later",
       newStory: "Story",
-      hint: "What comes after what inside the world. Drag a story to change the order.",
+      hint: "What comes after what inside the universe. Drag a story to change the order.",
       saveFailed: "Could not save the order of the stories: {{message}}",
     },
     scope: {
-      world: "World",
-      worldTabs: "Sections of the world",
+      world: "Reference",
+      worldTabs: "Reference sections",
       sharedRow: "Shared",
     },
     danglingStory: { deleted: "Story deleted", remove: "Remove link" },
@@ -8588,7 +8588,7 @@ const en: LocaleShape<typeof ru> = {
       purpose: {
         characters: "The characters in your stories.",
         locations: "The places where your stories happen.",
-        arcs: "The arcs that run through your stories.",
+        arcs: "The storylines that run through your stories.",
         anchors: "Key events you can bind to the text.",
         universes: "Universes bring together stories that share a world.",
         notes: "Ideas and material for your stories.",

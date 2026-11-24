@@ -104,7 +104,10 @@ export function sectionTabKey(section: WorkshopSectionSummary): string {
 }
 
 /** The entity tabs of a workshop: one per world section. */
-export function entityTabs(target: WorkshopScope | WorkshopSummary | null): WorkshopTab[] {
+export function entityTabs(
+  target: WorkshopScope | WorkshopSummary | null,
+  labelOf = (section: WorkshopSectionSummary) => section.name,
+): WorkshopTab[] {
   const workshop = target ? ("workshop" in target ? target.workshop : target) : null
   if (!workshop) return []
   const tabs: WorkshopTab[] = []
@@ -116,7 +119,7 @@ export function entityTabs(target: WorkshopScope | WorkshopSummary | null): Work
       key,
       role: section.role,
       sectionId: section.id,
-      name: section.name,
+      name: labelOf(section),
       databaseId: section.databaseId,
       readOnly: workshop.readOnly,
       storiesPropertyId: section.storiesPropertyId,

@@ -1,23 +1,22 @@
 # Creative workshop: UX fix plan
 
-Status as of 2026-11-24: **two waves implemented (A, B items 4 and 15, D, E, F, G, I, J).**
+Status as of 2026-11-24: **two waves implemented (A, B items 4 and 15, C, D, E, F, G, I, J).**
 Native drag-and-drop checks for item 30 are pending. Source: a review of the workshop in the
 installed 0.1.9-beta.9 on the owner's vault (marked 👁, seen on screen) plus a reading of the maps,
-the format and the code (marked 📄, not checked on screen). Batches C and H need owner decisions
-first (section 2).
+the format and the code (marked 📄, not checked on screen). Batch H awaits approval of the import design (section 2).
 
-| Batch | What                                                    | Items         | Status             |
-| ----- | ------------------------------------------------------- | ------------- | ------------------ |
-| A     | One entry to a story                                    | 1             | implemented        |
-| B     | Levels of text pages: visible and changeable            | 4, 15, 16     | 4, 15 implemented  |
-| C     | One word for universe / world; plot arcs vs text arcs   | 3, 8          | **owner decision** |
-| D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | implemented        |
-| E     | "Create" chooser and button labels                      | 9, 10         | implemented        |
-| F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented        |
-| G     | Dossier and empty sections                              | 18–21         | implemented        |
-| H     | Import an existing folder or bases into the workshop    | 2             | **owner decision** |
-| I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | implemented        |
-| J     | Desk, panel and small polish                            | 14, 17, 25–30 | implemented        |
+| Batch | What                                                    | Items         | Status            |
+| ----- | ------------------------------------------------------- | ------------- | ----------------- |
+| A     | One entry to a story                                    | 1             | implemented       |
+| B     | Levels of text pages: visible and changeable            | 4, 15, 16     | 4, 15 implemented |
+| C     | One word for universe / world; plot arcs vs text arcs   | 3, 8          | implemented       |
+| D     | Why a row is shown or hidden; whole-workshop scope      | 5, 6, 7       | implemented       |
+| E     | "Create" chooser and button labels                      | 9, 10         | implemented       |
+| F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented       |
+| G     | Dossier and empty sections                              | 18–21         | implemented       |
+| H     | Import an existing folder or bases into the workshop    | 2             | design for review |
+| I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | implemented       |
+| J     | Desk, panel and small polish                            | 14, 17, 25–30 | implemented       |
 
 ## 1. Rules for whoever implements this
 
@@ -36,19 +35,18 @@ first (section 2).
   `npm run docs:check`; `npm run verify` before review. Update the nearest map when ownership changes.
 - After each batch, check it on screen in `npm run tauri dev` (not in `/Applications/Amby.app`).
 
-## 2. Decisions the owner must make first
+## 2. Owner decisions
 
-1. **Universe vs world (item 3).** Proposal: the word is "Вселенная" / "Universe" everywhere. The header
-   count "Миров" becomes "Вселенных"; the panel group "Мир" (characters, locations, arcs) becomes
-   "Справочник" / "Reference" (or another word the owner picks). Interface only.
-2. **Arc as a text level (item 8).** The owner's own scheme is Books → Arcs → Chapters → Pages, but "Арки"
-   in the workshop are plot threads. Proposal: rename the plot base's visible name to "Сюжетные линии" /
-   "Storylines" (interface label and the `creative.sections.arcs` key for new workshops only; the role
-   stays `arcs`, existing folders keep their names), then allow "Арка" as a level name in the Comic
-   preset. Needs a yes on the word, and on whether existing workshops get a rename offer.
-3. **Import (item 2).** Scope of a first version: which sources (a folder of notes, an Amby database, both),
-   whether files move into the workshop or are linked where they are, and how to map existing
-   properties. Write a short design (section H) and get approval before code.
+1. **Universe and reference (item 3, approved).** Use "Universe" for the story grouping and its counts.
+   The panel groups characters, locations and storylines under "Reference". Standalone stories keep their
+   own scope and appear in the whole workshop.
+2. **Storylines and text arcs (item 8, approved).** The standard plot section is "Storylines", including
+   in existing workshops. Keep custom names, folders and existing relation keys. Arc is available as
+   a text level for any story, including those already created.
+3. **Import (item 2).** The first design covers folders of notes and existing Amby databases in one
+   preview. The proposed approach links in place and offers editable field mappings. Approve the
+   [import design](../creative-format.md#13-proposed-import-of-existing-material-item-2-pending-approval)
+   before implementation.
 
 ## 3. Items
 
@@ -99,7 +97,7 @@ a move to a deeper parent is refused without a word.
   tests in the style of `create_test.rs`.
 - Where: `crates/amby-core/src/project/settings.rs`, `project-settings-dialog.tsx`.
 
-### C. Words (owner decision first, section 2)
+### C. Words and text levels
 
 **3. 👁 "Миры", "Вселенные" and "Мир" mean different things.** Header count "Миров 0", tab "Вселенные",
 panel group "Мир" = characters and locations.
@@ -185,7 +183,7 @@ plural section name.
 **21. 👁 Empty or near-empty gallery.** One small card on a wide empty page. Show a large "+ Персонаж"
 card and one line on what the section is for while it has fewer than three rows.
 
-### H. Import (owner decision first, section 2.3)
+### H. Import (design approval first, section 2.3)
 
 **2. 👁 The owner's world lives outside the workshop.** The vault has `PaLooVerse/` with "Связи" and
 "Сущности" bases and separate "Персонажи", "Локации" folders and a "Персонаж" template; the workshop's
@@ -248,8 +246,8 @@ check by eye in `npm run tauri dev` and record the result in
 
 1. A, B (items 4, 15), E, F — no decisions needed, biggest effect.
 2. D, G, I, J.
-3. C and H after the owner's answers; item 16 (level removal) with B if time allows, it touches the
-   backend journal.
+3. C after the terminology and Arc level decisions. H after approval of the import design.
+4. Item 16 (level removal) remains outside these batches.
 
 Not in this plan: the screenplay editor and comic layout, and restoring a lost `amby-story.json` from
 the card's `amby-story-id` (both in [creative-format.md](../creative-format.md)).

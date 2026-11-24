@@ -338,7 +338,7 @@ describe("CreativePanel", () => {
       expect(initWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:stories": "Истории",
         "section:universes": "Вселенные",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
         "section:anchors": "Якоря",
         "section:notes": "Заметки",
       })
@@ -627,7 +627,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props()} />)
       await screen.findByText("Книга первая")
       expect(screen.getByText("История", { selector: "h3" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
     })
 
     it("offers to add the first page where the text is empty, as a row you can press", async () => {
@@ -719,7 +719,7 @@ describe("CreativePanel", () => {
       })
       expect(completeWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:anchors": "Якоря",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
       })
     })
 
@@ -835,8 +835,8 @@ describe("CreativePanel", () => {
     it("sits under the story's parts, with a folding list for each category", async () => {
       render(<CreativePanel {...props()} />)
       // The world is a region with a quiet caption of its own; it does not fold.
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: /(Свернуть|Развернуть): Мир/ })).toBeNull()
       expect(screen.getByRole("button", { name: /Свернуть: Персонажи/ })).toBeTruthy()
       expect(screen.getByRole("button", { name: /Свернуть: Организации/ })).toBeTruthy()
@@ -942,7 +942,7 @@ describe("CreativePanel", () => {
     it("has no switch without a shared world", async () => {
       selectScope("verse")
       render(<CreativePanel {...props()} />)
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: "Вселенная" })).toBeNull()
     })
 
@@ -1101,7 +1101,7 @@ describe("CreativePanel", () => {
     selectScope("verse")
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Борис/ })
-    const region = screen.getByRole("region", { name: "Мир" })
+    const region = screen.getByRole("region", { name: "Справочник" })
     expect(within(region).queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
@@ -1185,7 +1185,7 @@ describe("CreativePanel", () => {
     it("starts a named row from the menu of the empty space", async () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Борис/ })
-      fireEvent.contextMenu(screen.getByRole("region", { name: "Мир" }))
+      fireEvent.contextMenu(screen.getByRole("region", { name: "Справочник" }))
       fireEvent.click(await screen.findByRole("menuitem", { name: /^Персонаж(?:$| )/ }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Лев" } })
