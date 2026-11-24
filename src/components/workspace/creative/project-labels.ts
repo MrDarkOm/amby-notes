@@ -1,5 +1,22 @@
+import type { WorkshopSectionSummary } from "@/lib/storage"
 import type { TFunction } from "i18next"
 import type { TargetLabels } from "./project-tree-model"
+
+const STANDARD_STORYLINE_NAMES = new Set(["арки", "arcs", "сюжетные линии", "storylines"])
+
+/** The creative UI can rename its standard section without replacing the underlying names. */
+export function sectionDisplayName(
+  section: Pick<WorkshopSectionSummary, "role" | "name"> &
+    Partial<Pick<WorkshopSectionSummary, "databaseName">>,
+  storylines: string,
+): string {
+  if (section.role !== "arcs" || !STANDARD_STORYLINE_NAMES.has(section.name.trim().toLowerCase()))
+    return section.name
+  const databaseName = section.databaseName?.trim()
+  return databaseName && !STANDARD_STORYLINE_NAMES.has(databaseName.toLowerCase())
+    ? databaseName
+    : storylines
+}
 
 /**
  * Names of the base sections in the active language. The folder of

@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
 import {
   AlertTriangle,
@@ -146,7 +147,11 @@ export function CreativePanel({
       ),
     [rawCatalog, t, workshopSetting],
   )
-  const categories = React.useMemo(() => (workshop ? entityTabs(workshop) : []), [workshop])
+  const categories = React.useMemo(
+    () =>
+      entityTabs(workshop, (section) => sectionDisplayName(section, t("creative.sections.arcs"))),
+    [workshop, t],
+  )
   // A page is added to the story the lists show now; a universe or the standalone stories as a
   // whole have no story of their own.
   const shownStoryId = useCreativeNavStore((state) => state.shownStoryId)

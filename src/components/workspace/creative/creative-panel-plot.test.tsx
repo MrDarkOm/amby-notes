@@ -517,7 +517,7 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
 
     it("binds an arc from the page's menu", async () => {
       await ready()
-      await openSubmenu(pageRow("c2"), "Арки")
+      await openSubmenu(pageRow("c2"), "Сюжетные линии")
       fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Тайна" }))
       await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
       expect(updateDatabaseRelationValue.mock.calls[0][0]).toMatchObject({

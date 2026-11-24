@@ -233,13 +233,13 @@ describe("the page of the workshop", () => {
 
   it("counts worlds, stories and the words written under the name", async () => {
     mount()
-    const numbers = screen.getByText("Миров").closest("dl") as HTMLElement
+    const numbers = screen.getByText("Вселенных").closest("dl") as HTMLElement
     await waitFor(() =>
       expect(within(numbers).getByText("Написано слов").nextSibling?.textContent).toBe(
         (180).toLocaleString(),
       ),
     )
-    expect(within(numbers).getByText("Миров").nextSibling?.textContent).toBe("1")
+    expect(within(numbers).getByText("Вселенных").nextSibling?.textContent).toBe("1")
     expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("2")
   })
 
@@ -308,10 +308,10 @@ describe("the page of the workshop", () => {
   it("narrows the stories to a world", async () => {
     mount()
     await screen.findByRole("button", { name: /MoleHills/ })
-    await screen.findByRole("combobox", { name: "Мир" })
-    await chooseOption("Мир", "Отдельные истории")
+    await screen.findByRole("combobox", { name: "Вселенная" })
+    await chooseOption("Вселенная", "Отдельные истории")
     expect(storyNames()).toEqual(["Одиночка"])
-    await chooseOption("Мир", "Палуверс")
+    await chooseOption("Вселенная", "Палуверс")
     expect(storyNames()).toEqual(["MoleHills"])
   })
 

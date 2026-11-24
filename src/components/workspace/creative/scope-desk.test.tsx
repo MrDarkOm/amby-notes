@@ -641,11 +641,11 @@ describe("the stories of a universe: order, cards and timeline", () => {
       expect.stringContaining("MoleHills"),
       expect.stringContaining("Близнец"),
     ])
-    expect(within(region).getByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(within(region).getByText(/Что за чем идёт внутри вселенной/)).toBeTruthy()
     expect(readWorkshopPrefs("/vault").scopes?.universe?.view).toBe("timeline")
     cleanup()
     mountPage("universe:u1", { vaultPath: "/vault" })
-    expect(await screen.findByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(await screen.findByText(/Что за чем идёт внутри вселенной/)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Таймлайн" }).getAttribute("aria-pressed")).toBe(
       "true",
     )

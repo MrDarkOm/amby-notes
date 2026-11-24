@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import type { DatabaseRow, ProjectCatalog, WorkshopSummary } from "@/lib/storage"
 import { sectionName, standaloneTargetId, universeTargetId } from "./project-tree-model"
 import { ancestorIds, buildTextTree, findNode } from "./workshop/text-tree-model"
@@ -32,6 +33,7 @@ export interface NoteTrailInput {
     /** A universe whose name is not known. */
     universe: string
     description: string
+    storylines?: string
   }
 }
 
@@ -190,11 +192,17 @@ export function noteTrail(input: NoteTrailInput): TrailStep[] | null {
   if (world && !SECTION_BASES.has(world.section.role ?? "")) {
     return [
       stepOf("workshop", labels.workshop, { kind: "page", projectId: world.workshop.workshopId }),
-      stepOf("section", sectionName(world.section), {
-        kind: "page",
-        projectId: world.workshop.workshopId,
-        sectionId: world.section.id,
-      }),
+      stepOf(
+        "section",
+        labels.storylines
+          ? sectionDisplayName(world.section, labels.storylines)
+          : sectionName(world.section),
+        {
+          kind: "page",
+          projectId: world.workshop.workshopId,
+          sectionId: world.section.id,
+        },
+      ),
       own,
     ]
   }

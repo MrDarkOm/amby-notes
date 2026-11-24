@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
 import { Anchor } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -297,7 +298,7 @@ export function ScopeDesk({
                       : "border-transparent text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {list.section.name}
+                  {sectionDisplayName(list.section, t("creative.sections.arcs"))}
                 </button>
               )
             })}

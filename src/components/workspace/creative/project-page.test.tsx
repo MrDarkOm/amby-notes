@@ -201,7 +201,7 @@ describe("ProjectPage", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     mount("palooverse")
     const numbers = screen.getByText("Историй").closest("dl") as HTMLElement
-    expect(within(numbers).getByText("Миров")).toBeTruthy()
+    expect(within(numbers).getByText("Вселенных")).toBeTruthy()
     expect(within(numbers).getByText("Написано слов")).toBeTruthy()
     expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("2")
   })
@@ -411,10 +411,8 @@ describe("ProjectSettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Уровни текста" }))
 
-    fireEvent.click(screen.getByRole("button", { name: "Добавить уровень" }))
-    fireEvent.change(screen.getByLabelText("Название уровня 3"), {
-      target: { value: "Эпизод" },
-    })
+    fireEvent.click(screen.getByRole("button", { name: "Добавить уровень «Арка»" }))
+    expect((screen.getByLabelText("Название уровня 3") as HTMLInputElement).value).toBe("Арка")
     fireEvent.click(screen.getByRole("button", { name: "Сохранить уровни" }))
 
     await waitFor(() => expect(updateTextLevels).toHaveBeenCalledTimes(1))
@@ -423,7 +421,7 @@ describe("ProjectSettingsDialog", () => {
       levels: [
         { id: "opt_ch", name: "Глава", icon: null },
         { id: "opt_sc", name: "Сцена", icon: null },
-        { id: null, name: "Эпизод", icon: null },
+        { id: null, name: "Арка", icon: null },
       ],
     })
 

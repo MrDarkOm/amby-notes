@@ -294,8 +294,12 @@ The author picks the level scheme when creating a story:
 
 1. **«Роман»** (Novel) (default): Book → Chapter → Scene (3 levels).
 2. **«Рассказ»** (Short story): Page (1 level).
-3. **«Комикс»** (Comic): Book → Volume → Chapter → Page (4 levels; the term "Arc" is excluded from the text scheme, since it is reserved for plot lines, W8).
+3. **«Комикс»** (Comic): Book → Arc → Chapter → Page (4 levels).
 4. **«Своя»** (Custom): A custom list of 1 to 6 levels.
+
+Authors can add an Arc level to any text scheme during creation or in an existing story's settings.
+Existing level IDs and names stay as saved. The creative UI calls the standard `arcs` section **Storylines**.
+A customized section name, the role, the existing folder path and relation property names are preserved.
 
 The level names are sent by the UI in the active language (`textLevels`, from 1 to 6 non-empty names, with no
 duplicates ignoring case; the request is validated before writing). Text levels are implemented through the
@@ -725,3 +729,34 @@ event" («Новое событие»), "Add: …" («Добавить: …»)),
 - **Panel "open" buttons**: the universes card — the universe page or, for "Standalone stories",
   `standalone:<workshop>`; the stories card — the story page, with "All stories" («Все истории») the page of the scope's universe or
   of standalone stories. The workshop page is opened by the button next to the panel title (beside the module settings).
+
+## 13. Proposed import of existing material (item 2, pending approval)
+
+**Scope.** In one preview, select folders of Markdown notes and existing Amby databases in the same vault.
+Select the destination workshop section for each source and include or exclude individual notes. For example,
+a folder of characters can feed Characters while an existing Entities database supplies characters and locations
+through explicit assignments. A database source lists its existing rows and available fields. A folder source lists
+notes without treating nested databases as ordinary folders; nested databases can be added as their own sources.
+
+**Files and fields.** Link selected notes in place. Opening an imported entry opens its original note.
+Suggest compatible field matches by name and type, with examples in the preview. The author can change or omit
+each mapping. For example, a text field called Role can supply the character's Role. Unmapped source fields stay
+available on the original note. Retain the source database, notes, attachments, frontmatter IDs and existing
+relations. Notes without an unambiguous durable ID are listed for review and excluded from the first version.
+Deduplicate by note ID and destination section. Unlinking an import removes the workshop entry while the original
+note stays in its source.
+
+**Storage and rollback.** This proposal changes the workshop's portability contract in §1. Imported references
+are local to the same vault and are resolved by note ID. Copying only the workshop folder would leave external
+references unresolved. Design a versioned reference file under the workshop root and expose missing sources
+without removing their entries. The preview is read-only and identifies selected notes, field mappings, any
+unresolved rows and the workshop files that would be written. Apply with one journaled operation, rechecking
+the vault generation, source IDs and revisions before writing. Replays cannot duplicate entries. On failure,
+recover the previous reference file; an explicit undo removes that batch's links and keeps later changes.
+The source data is outside the write set.
+
+**Acceptance.** In a disposable vault, preview a folder and a database together, revise a proposed mapping and
+apply both. Open the original notes from the workshop, verify that the source bytes are identical, and rename a
+source path while keeping the reference working. Confirm re-import is idempotent, a changed source makes the
+preview stale, and undo removes only the imported references. Approve the link-in-place approach and the
+portability change before implementing the storage or IPC.

@@ -1,7 +1,7 @@
 # Workshop panel map
 
 The body of the "Workshop" panel: one column with the story header, the text tree, anchors, notes
-and the world. The owner of the whole creative interface is the [creative map](../MAP.md); the
+and the reference sections. The owner of the whole creative interface is the [creative map](../MAP.md); the
 backend of notebooks is [notebooks.rs](../../../../../crates/amby-core/src/project/notebooks.rs) and the contract is
 [format §8](../../../../../docs/creative-format.md).
 
@@ -10,7 +10,7 @@ backend of notebooks is [notebooks.rs](../../../../../crates/amby-core/src/proje
 | Composition, filter, drafts, data loading                  | [workshop-pane.tsx](workshop-pane.tsx), [use-database-rows.ts](use-database-rows.ts)                                    |
 | Story parts (text tree, anchors, notes slot)               | [works-tab.tsx](works-tab.tsx), [text-tree-model.ts](text-tree-model.ts)                                                |
 | Belonging, groups, scopes (pure)                           | [workshop-model.ts](workshop-model.ts)                                                                                  |
-| The world's lists                                          | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                              |
+| Reference lists                                            | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                              |
 | The bar: universe › story, "continue" line                 | [story-header.tsx](story-header.tsx) over [scope-bar.tsx](scope-bar.tsx); [use-universes.ts](use-universes.ts)          |
 | Notebooks: grouping, names, delete plan                    | [notebook-model.ts](notebook-model.ts) (pure)                                                                           |
 | Notebooks: listing from the disk                           | [use-notebooks.ts](use-notebooks.ts)                                                                                    |

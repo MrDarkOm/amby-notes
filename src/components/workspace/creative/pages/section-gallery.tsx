@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "../project-labels"
 import * as React from "react"
 import { Database, FolderOpen } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -49,7 +50,8 @@ interface SectionGalleryProps {
 /** How many pages the compact list shows before "N more". */
 export const COMPACT_LIMIT = 6
 
-function sectionTitle(section: WorkshopSectionSummary): string {
+function sectionTitle(section: WorkshopSectionSummary, storylines: string): string {
+  if (section.role === "arcs") return sectionDisplayName(section, storylines)
   return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
 }
 
@@ -87,15 +89,21 @@ export function SectionGallery({
     () => galleryGroups(rows, summary, t("creative.gallery.noCategory")),
     [rows, summary, t],
   )
-  const name = title ?? sectionTitle(section)
+  const name = title ?? sectionTitle(section, t("creative.sections.arcs"))
   const Icon = section.role ? sectionRoleIcon(section.role) : Database
   const people = section.role === "characters"
   const smallGallery = !compact && !loading && title === undefined && rows.length < 3
   const quickCreate = createFor ? (
     <QuickCreate
       tile={smallGallery}
-      label={sectionCreateLabel(t, section.role, sectionTitle(section))}
-      placeholder={t("creative.workshop.newEntityPlaceholder", { name: sectionTitle(section) })}
+      label={sectionCreateLabel(
+        t,
+        section.role,
+        sectionTitle(section, t("creative.sections.arcs")),
+      )}
+      placeholder={t("creative.workshop.newEntityPlaceholder", {
+        name: sectionTitle(section, t("creative.sections.arcs")),
+      })}
       failed={(message) => t("creative.workshop.createFailed", { message })}
       onCreate={createFor}
       describe={(caught) => projectErrorText(t, caught)}

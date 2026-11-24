@@ -27,7 +27,7 @@ import { IconPickerButton } from "../database/icon-picker-button"
 import { statusLabels } from "./project-labels"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
-import { levelsProblem, MAX_TEXT_LEVELS } from "./text-schema-presets"
+import { canAddArcLevel, levelsProblem, MAX_TEXT_LEVELS } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
 import { projectErrorText } from "@/lib/operation-errors"
 import { isEnterKey } from "@/lib/keyboard"
@@ -293,7 +293,7 @@ export function ProjectSettingsDialog({
     setError(null)
   }
 
-  const handleAddLevel = () => {
+  const handleAddLevel = (name = "") => {
     if (levels.length >= MAX_TEXT_LEVELS) return
     newLevelSeqRef.current += 1
     setLevels((prev) => [
@@ -301,7 +301,7 @@ export function ProjectSettingsDialog({
       {
         key: `new-${newLevelSeqRef.current}`,
         id: null,
-        name: "",
+        name,
         icon: null,
       },
     ])
@@ -720,6 +720,19 @@ export function ProjectSettingsDialog({
                 </p>
               )}
 
+              {canAddArcLevel(levelNames) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="self-start"
+                  disabled={pending}
+                  onClick={() => handleAddLevel(t("creative.schema.levels.arc"))}
+                >
+                  <Plus className="size-3.5" />
+                  {t("creative.createProject.textSchema.addArcLevel")}
+                </Button>
+              )}
               <div className="flex items-center justify-between gap-2">
                 {levels.length < MAX_TEXT_LEVELS ? (
                   <Button
@@ -727,7 +740,7 @@ export function ProjectSettingsDialog({
                     variant="outline"
                     size="sm"
                     disabled={pending}
-                    onClick={handleAddLevel}
+                    onClick={() => handleAddLevel()}
                   >
                     <Plus className="size-3.5" />
                     {t("creative.projectSettings.addLevel")}
