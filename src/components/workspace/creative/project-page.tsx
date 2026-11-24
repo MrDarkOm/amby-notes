@@ -15,7 +15,7 @@ import {
   Star,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import type { StorySummary, WorkshopSectionSummary } from "@/lib/storage"
+import { isTauri, type StorySummary, type WorkshopSectionSummary } from "@/lib/storage"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
@@ -48,6 +48,7 @@ import { useScopeData } from "./workshop/use-scope-data"
 import { useUniverses } from "./workshop/use-universes"
 import { scopeSections, type PanelFilter } from "./workshop/workshop-model"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
+import { WorkshopImportDialog } from "./workshop-import-dialog"
 import { useDeskLayout } from "./desk/use-desk-layout"
 import { useProjectStore } from "./project-store"
 import {
@@ -134,6 +135,7 @@ export function ProjectPage({
   const status = useProjectStore((state) => state.status)
   const catalog = useProjectStore((state) => state.catalog)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
+  const databases = useDatabaseStore((state) => state.databases)
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const memorySection = useCreativeNavStore((state) => state.sectionByProject[projectId])
@@ -154,6 +156,7 @@ export function ProjectPage({
   const compileRef = React.useRef<(() => void) | null>(null)
   // A page of the workshop is a dashboard: unless the author chose a width, it uses the whole one.
   const contentWidth: ContentWidth = storedWidth ?? "full"
+  const [importing, setImporting] = React.useState(false)
   const [addingSection, setAddingSection] = React.useState(false)
   const [addingStory, setAddingStory] = React.useState(false)
   const [editingSettings, setEditingSettings] = React.useState(false)
@@ -209,6 +212,20 @@ export function ProjectPage({
     selected && sections.some((section) => section.id === selected) ? selected : OVERVIEW_SECTION
   const activeSection = sections.find((section) => section.id === active)
   const activeSource = workshop?.sections.find((section) => section.id === activeSection?.id)
+  const importSections = (workshop?.sections ?? [])
+    .filter(
+      (section) => section.state !== "missing" && !["stories", "universes"].includes(section.role),
+    )
+    .map((section) => ({
+      id: section.id,
+      name: sectionDisplayName(section, t("creative.sections.arcs")),
+    }))
+  const canImport =
+    isTauri() &&
+    target?.kind === "workshop" &&
+    !workshop?.readOnly &&
+    vaultGeneration !== null &&
+    importSections.length > 0
 
   // A story's overview reads its own rows; its section lists are read only when one is open.
   const scopeData = useScopeData(
@@ -422,6 +439,16 @@ export function ProjectPage({
             },
           ]
         : []),
+      ...(canImport
+        ? [
+            {
+              id: "import-existing",
+              label: t("creative.import.title"),
+              icon: icon16(FolderOpen),
+              onSelect: () => setImporting(true),
+            },
+          ]
+        : []),
       ...(hasSettings
         ? [
             {
@@ -488,6 +515,20 @@ export function ProjectPage({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-[var(--note-surface)]">
+      {importing && canImport && vaultGeneration !== null && (
+        <WorkshopImportDialog
+          key={workshop.workshopId}
+          workshopId={workshop.workshopId}
+          generation={vaultGeneration}
+          sections={importSections}
+          databases={databases.map((database) => ({
+            id: database.databaseId,
+            name: database.title,
+          }))}
+          onClose={() => setImporting(false)}
+          onChanged={bumpData}
+        />
+      )}
       <PageHeaderBar
         crumbs={crumbs}
         showHistory

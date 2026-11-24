@@ -25,13 +25,13 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 | Text pages: create, move, loop check                           | [text.rs](text.rs)                                |
 | Words, modified and created times of a database's pages        | [text_stats.rs](text_stats.rs)                    |
 | Folder-name, tag and icon validation                           | [names.rs](names.rs)                              |
+| Existing note imports                                          | [workshop_import.rs](workshop_import.rs)          |
 | Watcher path classification (`project:changed`)                | [events.rs](events.rs)                            |
 
 **Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
 under the workshop folder; a story is a folder `<Workshop>/Истории/<Name>/` holding `<Name>.md` (card),
-`<Name>.json` (text manifest) and `amby-story.json`. The former v2 `amby-project.json` is no longer
-recognised (ignored, never changed). Every diagnostic code and its effect: [format §9](../../../../docs/creative-format.md).
+`<Name>.json` (text manifest) and `amby-story.json`. Former v2 markers are ignored. Diagnostics: [format §9](../../../../docs/creative-format.md).
 Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
 `db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 

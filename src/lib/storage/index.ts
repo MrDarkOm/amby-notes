@@ -61,6 +61,7 @@ import type {
   ReorderWorkshopSectionsRequest,
   UpdateWorkshopRequest,
   UpdateTextLevelsRequest,
+  WorkshopImportRequest,
 } from "./project-types"
 import type {
   CredentialInfo,
@@ -638,6 +639,8 @@ export const moveTextPage = (request: MoveTextPageRequest) => {
 }
 export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
 export const listTextStats = (databaseId: string) => getAdapter().listTextStats(databaseId)
+export const workshopImport = (request: WorkshopImportRequest) =>
+  getAdapter().workshopImport(request)
 export const listNotebooks = (databaseId: string) => getAdapter().listNotebooks(databaseId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>

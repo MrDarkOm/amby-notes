@@ -25,6 +25,7 @@ use crate::project::references::{self, NoteReference};
 use crate::project::settings;
 use crate::project::text;
 use crate::project::text_stats::{self, TextPageStat};
+use crate::project::workshop_import::{self, WorkshopImportRequest, WorkshopImportResult};
 use crate::vault_context::VaultContext;
 use crate::watcher::WatcherState;
 
@@ -651,4 +652,19 @@ pub fn create_workshop_entity(
         }
     }
     Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn workshop_import(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: WorkshopImportRequest,
+) -> Result<WorkshopImportResult, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    workshop_import::run(&active.connection, &active.root, &request)
 }

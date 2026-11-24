@@ -1,9 +1,9 @@
 # Creative workshop: UX fix plan
 
-Status as of 2026-11-24: **two waves implemented (A, B items 4 and 15, C, D, E, F, G, I, J).**
+Status as of 2026-11-24: **two waves implemented (A, B items 4 and 15, C, D, E, F, G, H, I, J).**
 Native drag-and-drop checks for item 30 are pending. Source: a review of the workshop in the
 installed 0.1.9-beta.9 on the owner's vault (marked 👁, seen on screen) plus a reading of the maps,
-the format and the code (marked 📄, not checked on screen). Batch H awaits approval of the import design (section 2).
+the format and the code (marked 📄, not checked on screen). Batch H links existing material in place (section 2).
 
 | Batch | What                                                    | Items         | Status            |
 | ----- | ------------------------------------------------------- | ------------- | ----------------- |
@@ -14,7 +14,7 @@ the format and the code (marked 📄, not checked on screen). Batch H awaits app
 | E     | "Create" chooser and button labels                      | 9, 10         | implemented       |
 | F     | Anchors: bind from the page, compact page plot          | 11, 12, 13    | implemented       |
 | G     | Dossier and empty sections                              | 18–21         | implemented       |
-| H     | Import an existing folder or bases into the workshop    | 2             | design for review |
+| H     | Import an existing folder or bases into the workshop    | 2             | implemented       |
 | I     | Plain-language texts, dangling story links, folder name | 22, 23, 24    | implemented       |
 | J     | Desk, panel and small polish                            | 14, 17, 25–30 | implemented       |
 
@@ -43,10 +43,8 @@ the format and the code (marked 📄, not checked on screen). Batch H awaits app
 2. **Storylines and text arcs (item 8, approved).** The standard plot section is "Storylines", including
    in existing workshops. Keep custom names, folders and existing relation keys. Arc is available as
    a text level for any story, including those already created.
-3. **Import (item 2).** The first design covers folders of notes and existing Amby databases in one
-   preview. The proposed approach links in place and offers editable field mappings. Approve the
-   [import design](../creative-format.md#13-proposed-import-of-existing-material-item-2-pending-approval)
-   before implementation.
+3. **Import (item 2, approved).** Import folders of notes and existing Amby databases in one preview.
+   Link originals in place with editable field mappings. [Import contract](../creative-format.md#13-import-of-existing-material-item-2).
 
 ## 3. Items
 
@@ -183,16 +181,15 @@ plural section name.
 **21. 👁 Empty or near-empty gallery.** One small card on a wide empty page. Show a large "+ Персонаж"
 card and one line on what the section is for while it has fewer than three rows.
 
-### H. Import (design approval first, section 2.3)
+### H. Import
 
 **2. 👁 The owner's world lives outside the workshop.** The vault has `PaLooVerse/` with "Связи" and
 "Сущности" bases and separate "Персонажи", "Локации" folders and a "Персонаж" template; the workshop's
 "Вселенные" is empty.
 
-- Fix: design first, as a new section of [creative-format.md](../creative-format.md): a journaled
-  `import_into_workshop` that links or moves existing notes into a workshop base, maps properties, never
-  changes frontmatter IDs, shows a preview of every file it touches and is restorable. Then the UI entry
-  ("Перенести в мастерскую…" on a folder or a database).
+- Fix: the workshop page menu opens a joint preview of folders and existing databases. Linked notes appear
+  on the selected section tabs without moving the originals. The preview maps properties and apply can be
+  undone as a batch. [Import contract](../creative-format.md#13-import-of-existing-material-item-2).
 
 ### I. Plain language and leftovers
 
@@ -246,7 +243,7 @@ check by eye in `npm run tauri dev` and record the result in
 
 1. A, B (items 4, 15), E, F — no decisions needed, biggest effect.
 2. D, G, I, J.
-3. C after the terminology and Arc level decisions. H after approval of the import design.
+3. C after the terminology and Arc level decisions. H after approval of link-in-place import.
 4. Item 16 (level removal) remains outside these batches.
 
 Not in this plan: the screenplay editor and comic layout, and restoring a lost `amby-story.json` from
