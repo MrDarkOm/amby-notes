@@ -24,6 +24,8 @@ export interface DocumentTitleProps {
   onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   onFileIconChange?: (icon: string) => void
   onSubmit?: () => void
+  /** Controls at the end of the title row (the note pages switch). */
+  trailing?: React.ReactNode
 }
 
 export function DocumentTitle({
@@ -34,6 +36,7 @@ export function DocumentTitle({
   onRenameTitle,
   onFileIconChange,
   onSubmit,
+  trailing,
 }: DocumentTitleProps) {
   const { t } = useTranslation()
   const [titleValue, setTitleValue] = React.useState(title)
@@ -56,8 +59,21 @@ export function DocumentTitle({
   React.useLayoutEffect(() => {
     const field = titleInputRef.current
     if (!field) return
-    field.style.height = "0px"
-    field.style.height = `${Math.max(field.scrollHeight, 32)}px`
+    const fit = () => {
+      field.style.height = "0px"
+      field.style.height = `${Math.max(field.scrollHeight, 32)}px`
+    }
+    fit()
+    // The width changes with the pane and with controls beside the title (note pages switch).
+    if (typeof ResizeObserver === "undefined") return
+    let width = field.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (field.clientWidth === width) return
+      width = field.clientWidth
+      fit()
+    })
+    observer.observe(field)
+    return () => observer.disconnect()
   }, [titleValue])
 
   /**
@@ -236,6 +252,7 @@ export function DocumentTitle({
           className="absolute left-0 top-full z-10 mt-1 max-w-full"
         />
       )}
+      {trailing}
     </div>
   )
 }

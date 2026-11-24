@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import i18n from "@/lib/i18n"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { confirm, useConfirmStore } from "@/lib/confirm"
+import { confirm, confirmChoice, useConfirmStore } from "@/lib/confirm"
 import { ConfirmDialogHost } from "./confirm-dialog-host"
 
 const danger = {
@@ -219,5 +219,27 @@ describe("over another window", () => {
     expect(result.answer).toBe(false)
     expect(closedBelow).toBe(0)
     expect(screen.getByRole("dialog", { name: "Журнал отладки" })).toBeTruthy()
+  })
+})
+
+describe("a third answer", () => {
+  it("offers a second action between Cancel and the main one and reports it", async () => {
+    render(<ConfirmDialogHost />)
+    let outcome: string | null = null
+    act(() => {
+      void confirmChoice({
+        title: "Удалить страницу «Цели»?",
+        description: "Всё, что на странице, будет удалено.",
+        confirmLabel: "Удалить всё",
+        alternativeLabel: "Перенести",
+        destructive: true,
+      }).then((value) => (outcome = value))
+    })
+    const buttons = screen.getAllByRole("button").map((button) => button.textContent)
+    expect(buttons).toEqual(["Отмена", "Перенести", "Удалить всё"])
+    fireEvent.click(screen.getByRole("button", { name: "Перенести" }))
+    await flush()
+    expect(outcome).toBe("alternative")
+    expect(dialog()).toBeNull()
   })
 })

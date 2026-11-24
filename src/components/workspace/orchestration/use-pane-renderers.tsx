@@ -96,6 +96,8 @@ interface UsePaneRenderersParams {
   handleToggleLayerLock: (docId: string, layer: EditorLayer) => void
   favorites: Set<string>
   handleToggleFavorite: (id: string) => void
+  /** Turns pages on or off for the active note (`amby-pages`). */
+  handleSetNotePagesFlag: (flag: boolean | null) => Promise<void>
   handleOpenInNewTab: (fileId: string) => Promise<void>
   nestedNotesPlacements: Record<string, NestedNotesPlacement>
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
@@ -202,6 +204,7 @@ export function usePaneRenderers({
   handleToggleLayerLock,
   favorites,
   handleToggleFavorite,
+  handleSetNotePagesFlag,
   handleOpenInNewTab,
   nestedNotesPlacements,
   setNestedNotesPlacement,
@@ -308,6 +311,7 @@ export function usePaneRenderers({
     handleToggleLayerLock,
     favorites,
     handleToggleFavorite,
+    handleSetNotePagesFlag,
     handleOpenInNewTab,
     nestedNotesPlacements,
     setNestedNotesPlacement,

@@ -169,6 +169,10 @@ confirmLabel, destructive })` from [confirm.ts](../src/lib/confirm.ts) returns `
   "Вернуть" (Restore) button); **deleting a notebook** (the notes move up a level, an empty folder goes to the trash, not permanently); since
   2026-11-22, **a rename or a move that rewrites links** and **a merge of two notes** (below). The question remains only where
   the edit is not reversible.
+- **Exception by the owner's decision (2026-11-24): deleting a page of a note** asks although Undo brings the
+  page back, and its question has a third answer: "Удалить всё" (dangerous), "Перенести" (only the page goes,
+  its text stays on the neighbouring page) and "Отмена". The middle answer is `alternativeLabel` of
+  `confirmChoice()`, which then returns `alternative`.
 - **Exact undo of a rename, a move and a merge** ([commands/undo.rs](../src-tauri/src/commands/undo.rs),
   [amby-core undo.rs](../crates/amby-core/src/undo.rs)). Before a link rewrite every rewritten note becomes a kept
   `link-refactor` version (a page's title that followed the name and a database folder's description: `rename`; the target of a

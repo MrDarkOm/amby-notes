@@ -105,6 +105,7 @@ interface UsePaneEditorPropsParams {
   handleToggleLayerLock: (docId: string, layer: EditorLayer) => void
   favorites: Set<string>
   handleToggleFavorite: (id: string) => void
+  handleSetNotePagesFlag: (flag: boolean | null) => Promise<void>
   handleOpenInNewTab: (fileId: string) => Promise<void>
   nestedNotesPlacements: Record<string, NestedNotesPlacement>
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
@@ -187,6 +188,7 @@ export function usePaneEditorProps({
   handleToggleLayerLock,
   favorites,
   handleToggleFavorite,
+  handleSetNotePagesFlag,
   handleOpenInNewTab,
   nestedNotesPlacements,
   setNestedNotesPlacement,
@@ -445,6 +447,14 @@ export function usePaneEditorProps({
           : () => {},
       isFavorite: doc ? favorites.has(doc.id) : false,
       onToggleFavorite: doc ? () => handleToggleFavorite(doc.id) : undefined,
+      // Property writes follow the active note, so only its pane can change the flag.
+      onNotePagesFlagChange:
+        doc && isPrimary
+          ? (flag: boolean | null) => {
+              // A failed write is already announced by the property notice.
+              handleSetNotePagesFlag(flag).catch(() => {})
+            }
+          : undefined,
       onOpenInNewTab: doc ? () => handleOpenInNewTab(doc.id) : undefined,
       nestedNotes: supernotesEnabled ? nestedNotes : [],
       nestedNotesPlacement: doc ? (nestedNotesPlacements[doc.id] ?? "top") : "top",

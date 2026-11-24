@@ -32,7 +32,11 @@ import {
 import type { TreeItem } from "../sidebar-tree"
 import { useSettingsStore } from "../use-settings-store"
 import type { ContentWidth } from "../app-config"
-import { bottomBarMenuItem, contentWidthMenuItem } from "../page-chrome/page-menu-items"
+import {
+  bottomBarMenuItem,
+  contentWidthMenuItem,
+  notePagesMenuItem,
+} from "../page-chrome/page-menu-items"
 import type { PageMenuGroup, PageMenuItem } from "../page-chrome/page-chrome-types"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import type { LayerKind } from "./document-actions"
@@ -60,6 +64,8 @@ export interface DocumentMenuArgs {
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  notePagesFlag?: boolean | null
+  onNotePagesFlagChange?: (flag: boolean | null) => void
   linkedLayers?: { note?: boolean; canvas: boolean; sketch: boolean; database: boolean }
   supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
@@ -106,6 +112,8 @@ export function useDocumentMenuGroups({
   nestedNotes,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
+  notePagesFlag = null,
+  onNotePagesFlagChange,
   linkedLayers,
   supernotesEnabled = true,
   canCreateDatabaseLayer = false,
@@ -128,6 +136,7 @@ export function useDocumentMenuGroups({
 }: DocumentMenuArgs): PageMenuGroup[] {
   const { t } = useTranslation()
   const showAreaControls = useSettingsStore((s) => s.prefs.editor.showAreaControls ?? true)
+  const notePagesMode = useSettingsStore((s) => s.prefs.editor.notePages)
 
   const hasNote = Boolean(linkedLayers?.note || activeLayer === "editor")
   const hasDatabase = Boolean(
@@ -278,6 +287,8 @@ export function useDocumentMenuGroups({
   }
   if (activeLayer === "editor") {
     viewGroup.push(bottomBarMenuItem(t, showAreaControls, off))
+    const pages = notePagesMenuItem(t, notePagesMode, notePagesFlag, onNotePagesFlagChange, off)
+    if (pages) viewGroup.push(pages)
   }
 
   const nestedGroup: PageMenuItem[] =

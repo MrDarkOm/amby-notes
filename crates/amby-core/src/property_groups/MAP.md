@@ -26,3 +26,7 @@ Rules that tests hold: a write replaces only its own line; a line that cannot be
 writes of its file and hides nothing; a header that cannot be trusted (З25) shows no sleeping
 records and accepts no edits; every deletion first leaves a copy in `.amby/property-backups/`;
 `properties.json` is never written; `layout.json` is written last by the migration.
+
+App-owned `amby-*` header keys are never properties. The one exception to "edits go through the
+panel" is `set_pages_flag` in [edits.rs](edits.rs): it writes or removes `amby-pages` (note pages
+view) losslessly, with a history snapshot, and touches no group file.

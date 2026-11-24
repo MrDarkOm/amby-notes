@@ -18,6 +18,7 @@ import {
   setPropertyList,
   setPropertySettings,
   setPropertyValue,
+  setNotePagesFlag,
   type CustomProperty,
   type NoteProperties,
   type TreeItem,
@@ -35,6 +36,7 @@ import {
 import { workspaceRelativePath } from "../vault/use-vault-session"
 import type { AttachmentItem } from "../panel-registry"
 import { isNotFoundError, operationErrorCode } from "@/lib/operation-errors"
+import { NOTE_PAGES_FLAG } from "../tiptap/note-pages"
 
 type OpenDocument = ReturnType<typeof useDocStore.getState>["openDocs"][string]
 
@@ -469,7 +471,29 @@ export function usePropertyActions({
     [currentDoc, noteId, scope, vault],
   )
 
+  /** Writes or removes the note's app-owned `amby-pages` flag (see `notePagesFlagFor`). */
+  const handleSetNotePagesFlag = React.useCallback(
+    async (flag: boolean | null) => {
+      const { run } = scope()
+      await run(
+        (current) => {
+          const properties = current.properties.filter((item) => item.key !== NOTE_PAGES_FLAG)
+          if (flag !== null)
+            properties.push({
+              key: NOTE_PAGES_FLAG,
+              value: String(flag),
+              valueKind: "checkbox",
+            })
+          return { ...current, properties }
+        },
+        () => setNotePagesFlag(vault!, noteId!, flag),
+      )
+    },
+    [noteId, scope, vault],
+  )
+
   return {
+    handleSetNotePagesFlag,
     currentProperties,
     propertyError:
       failure?.generation === generation && failure.noteId === noteId

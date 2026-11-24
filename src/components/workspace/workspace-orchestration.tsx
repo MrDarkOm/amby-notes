@@ -1169,6 +1169,7 @@ export function WorkspaceOrchestration() {
     handleChangePropertyType,
     handleSetPropertyValue,
     handleSetPropertyList,
+    handleSetNotePagesFlag,
   } = usePropertyActions({
     activeTab,
     currentDoc,
@@ -1402,6 +1403,7 @@ export function WorkspaceOrchestration() {
       handleToggleLayerLock,
       favorites,
       handleToggleFavorite,
+      handleSetNotePagesFlag,
       handleOpenInNewTab,
       nestedNotesPlacements,
       setNestedNotesPlacement,

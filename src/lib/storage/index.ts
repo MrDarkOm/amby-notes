@@ -252,6 +252,11 @@ export const getNoteMetadata = (vaultPath: string, noteId: string): Promise<File
   notesRepository.getNoteMetadata(vaultPath, noteId)
 export const getNoteProperties = (vaultPath: string, noteId: string): Promise<NoteProperties> =>
   notesRepository.getNoteProperties(vaultPath, noteId)
+export const setNotePagesFlag = (
+  vaultPath: string,
+  noteId: string,
+  flag: boolean | null,
+): Promise<void> => getAdapter().setNotePagesFlag(vaultPath, noteId, flag)
 export const upsertCustomProperty = (
   vaultPath: string,
   noteId: string,

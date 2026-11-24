@@ -25,6 +25,15 @@ save, sync: second version, deleted/returned on another computer) is a card of [
 bottom bar; there are no strips above the note. The editor passes the warning key of `noteEditingPolicy`; the note is read only
 (`effectiveLocked`) while an offer to restore a draft waits for an answer.
 
+The full Markdown editor offers [note pages](../tiptap/note-page-controls.tsx) from first-level
+headings. The `editor.notePages` setting (off / every note / only notes with `amby-pages: true`)
+and the note's flag decide it in `notePagesRule`; [DocumentBody](document-body.tsx) passes both.
+Dossiers page by their `##` sections through [NotePagesDossierContext](note-pages-context.ts).
+The note menu item "Pages by # headings" (`notePagesMenuItem`) writes the flag through
+`usePropertyActions` → `setNotePagesFlag` (Rust `set_note_pages_flag`; `amby-` keys are app-owned, so
+not through the property panel commands) for the active note. The "Whole note / Show pages" switch is rendered into the title row through `NotePagesSlotContext`
+(a slot in [DocumentTitle](document-title.tsx)). Switching to the whole note is remembered per vault and note.
+
 Content changes flow into the [save lifecycle](../autosave/MAP.md), not direct I/O.
 Use the existing document buffer for views of the same note. See database
 [editor-surface-lease.ts](../database/peek/editor-surface-lease.ts) for peek ownership.

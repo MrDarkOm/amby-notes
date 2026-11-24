@@ -39,9 +39,11 @@ import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { DocumentTitle } from "./document-title"
+import { NotePagesSlotContext } from "./note-pages-context"
 import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
 import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
+import { useSettingsStore } from "../use-settings-store"
 import { useHeldDraftGate } from "../held-drafts-store"
 import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
@@ -72,6 +74,8 @@ export interface DocumentBodyProps {
   onEditingTitleChange: (editing: boolean) => void
   onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   nestedNotes: TreeItem[]
+  /** The note's `amby-pages` property: whether it asked for pages (see `notePagesRule`). */
+  notePagesFlag?: boolean | null
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   onOpenItem?: (id: string) => void
@@ -141,6 +145,7 @@ export function DocumentBody({
   onEditingTitleChange,
   onRenameTitle,
   nestedNotes,
+  notePagesFlag = null,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
   onOpenItem,
@@ -171,6 +176,8 @@ export function DocumentBody({
   notices,
   treeItems,
 }: DocumentBodyProps) {
+  const notePagesMode = useSettingsStore((state) => state.prefs.editor.notePages)
+  const [notePagesSlot, setNotePagesSlot] = React.useState<HTMLDivElement | null>(null)
   const { t } = useTranslation()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const contentRef = React.useRef<HTMLDivElement>(null)
@@ -331,6 +338,7 @@ export function DocumentBody({
     ) : (
       <TiptapEditor
         key={docId}
+        notePages={{ mode: notePagesMode, flag: notePagesFlag }}
         value={content}
         onChange={onContentChange}
         onContentDirty={onContentDirty}
@@ -426,6 +434,7 @@ export function DocumentBody({
                   editorRef.current?.focus?.("start")
                 })
               }}
+              trailing={<div ref={setNotePagesSlot} className="flex shrink-0 empty:hidden" />}
             />
 
             {nestedNotesPlacement === "top" && nestedNotesBar ? (
@@ -434,7 +443,9 @@ export function DocumentBody({
               <div className="mb-2" />
             )}
 
-            {framedEditor}
+            <NotePagesSlotContext.Provider value={notePagesSlot}>
+              {framedEditor}
+            </NotePagesSlotContext.Provider>
             {nestedNotesPlacement === "bottom" && nestedNotesBar}
           </div>
         </div>

@@ -86,6 +86,8 @@ export interface DocumentHeaderProps {
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  notePagesFlag?: boolean | null
+  onNotePagesFlagChange?: (flag: boolean | null) => void
   onRequestAttachLayer: (layer: EditorLayer) => void
   onRequestMove?: () => void
   onRequestMerge?: () => void
@@ -147,6 +149,8 @@ export function DocumentHeader({
   nestedNotes,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
+  notePagesFlag,
+  onNotePagesFlagChange,
   onRequestAttachLayer,
   onRequestMove,
   onRequestMerge,
@@ -268,6 +272,8 @@ export function DocumentHeader({
     nestedNotes,
     nestedNotesPlacement,
     onNestedNotesPlacementChange,
+    notePagesFlag,
+    onNotePagesFlagChange,
     linkedLayers,
     supernotesEnabled,
     canCreateDatabaseLayer,

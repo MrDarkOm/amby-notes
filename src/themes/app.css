@@ -6859,3 +6859,15 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   font-size: 0.875em;
   pointer-events: none;
 }
+
+.amby-tiptap .ProseMirror > [data-note-page-hidden],
+[data-dossier-frame]:has([data-note-pages-active]) [data-dossier-sections] {
+  display: none;
+}
+
+/* An empty page of a note (its heading is on the tab): a quiet invitation to start writing. */
+.amby-tiptap .ProseMirror .amby-note-page-empty {
+  color: var(--editor-placeholder, hsl(var(--muted-foreground)));
+  cursor: text;
+  user-select: none;
+}

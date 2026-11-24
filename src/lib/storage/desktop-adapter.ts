@@ -1028,6 +1028,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.getNoteProperties(noteId))
   }
 
+  async setNotePagesFlag(_vaultPath: string, noteId: string, flag: boolean | null): Promise<void> {
+    await unwrapCommand(commands.setNotePagesFlag(noteId, flag))
+  }
+
   async upsertCustomProperty(
     _vaultPath: string,
     noteId: string,

@@ -107,24 +107,26 @@ export function DossierAside({
       className={cn("flex shrink-0 flex-col gap-5", sideBySide ? "sticky top-2 w-60" : "w-full")}
     >
       {toc.length > 1 && (
-        <Block title={t("creative.dossier.toc")}>
-          <nav className="flex flex-col">
-            {toc.map((entry) => (
-              <button
-                key={entry.index}
-                type="button"
-                className={cn(
-                  "truncate rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50",
-                  entry.level === 1 && "font-medium",
-                )}
-                style={{ paddingLeft: `${0.5 + (entry.level - 1) * 0.75}rem` }}
-                onClick={() => onJump(entry.index)}
-              >
-                {entry.title}
-              </button>
-            ))}
-          </nav>
-        </Block>
+        <div data-dossier-sections="">
+          <Block title={t("creative.dossier.toc")}>
+            <nav className="flex flex-col">
+              {toc.map((entry) => (
+                <button
+                  key={entry.index}
+                  type="button"
+                  className={cn(
+                    "truncate rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50",
+                    entry.level === 1 && "font-medium",
+                  )}
+                  style={{ paddingLeft: `${0.5 + (entry.level - 1) * 0.75}rem` }}
+                  onClick={() => onJump(entry.index)}
+                >
+                  {entry.title}
+                </button>
+              ))}
+            </nav>
+          </Block>
+        </div>
       )}
 
       {hasText && (

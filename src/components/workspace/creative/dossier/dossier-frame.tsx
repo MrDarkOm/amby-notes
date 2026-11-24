@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { localeResources } from "@/locales/resources"
+import { NotePagesDossierContext } from "../../editor/note-pages-context"
 import { HeadingHintsContext } from "../../editor/heading-hints-context"
 import { DossierAside } from "./dossier-aside"
 import { hasPlotSections } from "./dossier-model"
@@ -67,8 +68,8 @@ export function DossierFrame({
   const place = useNotePlace(noteId)
   const { folded, toggle } = usePlotFold(vaultPath)
   const dossier = place?.kind === "world" ? place.dossier : null
+  const role = dossier?.world.section.role
   const headingHints = React.useMemo(() => {
-    const role = dossier?.world.section.role
     if (role !== "characters" && role !== "locations") return null
     const words = {
       basic: t("creative.dossier.headingHints.basic"),
@@ -87,14 +88,14 @@ export function DossierFrame({
         keys.map((key) => [translation.creative.preset.headings[key], words[key]] as const),
       ),
     )
-  }, [dossier?.world.section.role, t])
+  }, [role, t])
   const textPlace =
     place?.kind === "text" && hasPlotSections(place.text.workshop) ? place.text : null
   const framed = dossier !== null || (textPlace !== null && !folded)
   const frameRef = React.useRef<HTMLDivElement>(null)
   const sideBySide = useWidth(frameRef) >= SIDE_BY_SIDE_MIN_WIDTH
   return (
-    <div ref={frameRef} className="min-w-0">
+    <div ref={frameRef} className="min-w-0" data-dossier-frame="">
       {dossier ? <DossierHeader dossier={dossier} locked={locked} /> : null}
       {textPlace && folded && (
         <Button type="button" size="sm" variant="ghost" onClick={toggle} aria-expanded={false}>
@@ -110,9 +111,11 @@ export function DossierFrame({
         )}
       >
         <div className={framed ? "min-w-0 flex-1" : "contents"}>
-          <HeadingHintsContext.Provider value={headingHints}>
-            {children}
-          </HeadingHintsContext.Provider>
+          <NotePagesDossierContext.Provider value={role === "characters" || role === "locations"}>
+            <HeadingHintsContext.Provider value={headingHints}>
+              {children}
+            </HeadingHintsContext.Provider>
+          </NotePagesDossierContext.Provider>
         </div>
         {dossier ? (
           <DossierAside

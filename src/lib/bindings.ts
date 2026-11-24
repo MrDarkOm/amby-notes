@@ -682,6 +682,17 @@ async setNotePropertyValue(noteId: string, name: string, value: string) : Promis
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Writes the app-owned `amby-pages` flag, or removes it for `null` (note pages view).
+ */
+async setNotePagesFlag(noteId: string, flag: boolean | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_pages_flag", { noteId, flag }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setNotePropertyList(noteId: string, name: string, items: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_note_property_list", { noteId, name, items }) };
