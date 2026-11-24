@@ -17,8 +17,9 @@ The fields and keys below are checked against `crates/amby-core/src/project/` (`
    chapter, arc, anchor, note) is a plain Markdown file with metadata in its frontmatter.
    Every section is a standard Amby database ([database-format.md](database-format.md)).
    Without the creative module, the vault remains fully readable and structured.
-2. **The workshop folder is the portable unit (W1).** All workshop data lives inside
-   a single workshop root folder with the `amby-workshop.json` marker. A vault has one
+2. **The workshop folder is the portable unit (W1).** Workshop-owned data lives inside
+   a single workshop root folder with the `amby-workshop.json` marker. Imported references may
+   point to notes elsewhere in the same vault (§13). A vault has one
    workshop: the one whose folder is named in the module setting (§2.1). Other markers found are
    diagnostics — their data is neither read nor changed; links between workshops are not supported.
 3. **Flat organization of databases and membership through links (W2, W5).** The workshop has no
@@ -730,7 +731,7 @@ event" («Новое событие»), "Add: …" («Добавить: …»)),
   `standalone:<workshop>`; the stories card — the story page, with "All stories" («Все истории») the page of the scope's universe or
   of standalone stories. The workshop page is opened by the button next to the panel title (beside the module settings).
 
-## 13. Proposed import of existing material (item 2, pending approval)
+## 13. Import of existing material (item 2)
 
 **Scope.** In one preview, select folders of Markdown notes and existing Amby databases in the same vault.
 Select the destination workshop section for each source and include or exclude individual notes. For example,
@@ -746,17 +747,25 @@ relations. Notes without an unambiguous durable ID are listed for review and exc
 Deduplicate by note ID and destination section. Unlinking an import removes the workshop entry while the original
 note stays in its source.
 
-**Storage and rollback.** This proposal changes the workshop's portability contract in §1. Imported references
-are local to the same vault and are resolved by note ID. Copying only the workshop folder would leave external
-references unresolved. Design a versioned reference file under the workshop root and expose missing sources
-without removing their entries. The preview is read-only and identifies selected notes, field mappings, any
-unresolved rows and the workshop files that would be written. Apply with one journaled operation, rechecking
-the vault generation, source IDs and revisions before writing. Replays cannot duplicate entries. On failure,
-recover the previous reference file; an explicit undo removes that batch's links and keeps later changes.
-The source data is outside the write set.
+**Storage and rollback.** The workshop root holds `amby-imports.json` (version 1). Its rows contain the
+destination section ID, source note ID, optional source database ID, field mappings, the last known title and the
+operation ID. It keeps receipts keyed by operation ID. Copying only the workshop folder leaves external references
+unresolved unless the destination vault also contains the originals. Missing sources are visible in the destination
+section and keep their entries.
+
+The `workshop_import` command lists, previews, applies, unlinks or undoes imports. Preview is read-only.
+Apply rechecks the vault generation, section and database revisions, source note identities and bytes, and the preview
+revision. The registry and operation receipt publish together in a single revision-checked atomic replacement. A
+failure before publication leaves the previous bytes in place. If the replacement reached disk, the same operation
+replays from its receipt without adding rows. Undo removes links owned by the requested operation, preserving links
+from later operations. Source files are outside the write set.
+
+The first version supports folders and databases in one dialog, up to 24 sources and 500 candidates per preview.
+Targets are existing reference and notes sections. Compatible scalar fields and supported database choices are
+projected in the workshop gallery. They stay editable on the original note. The workshop page opens the dialog
+from its menu and shows linked entries on each destination section's tab.
 
 **Acceptance.** In a disposable vault, preview a folder and a database together, revise a proposed mapping and
 apply both. Open the original notes from the workshop, verify that the source bytes are identical, and rename a
 source path while keeping the reference working. Confirm re-import is idempotent, a changed source makes the
-preview stale, and undo removes only the imported references. Approve the link-in-place approach and the
-portability change before implementing the storage or IPC.
+preview stale, and undo removes only the imported references.

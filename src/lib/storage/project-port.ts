@@ -24,6 +24,8 @@ import {
   type MovedTextPage,
   type NoteReference,
   type NotebookCatalog,
+  type WorkshopImportRequest,
+  type WorkshopImportResult,
   type ProjectCatalog,
   type ProjectError,
   type RemoveWorkshopSectionRequest,
@@ -105,6 +107,7 @@ export interface ProjectPort {
   listTextStats(databaseId: string): Promise<TextPageStat[]>
   /** The notebooks (folders) of one base, read from the disk; empty ones are listed too. */
   listNotebooks(databaseId: string): Promise<NotebookCatalog>
+  workshopImport(request: WorkshopImportRequest): Promise<WorkshopImportResult>
 }
 
 /** Convert typed domain errors while keeping transport failures untouched. */

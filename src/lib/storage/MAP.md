@@ -52,7 +52,9 @@ Workshop writes (`initWorkshop`, `completeWorkshop`, `createStory`, `createWorks
 `operationId` per user intent: repeating the same call returns the recorded answer (`replayed: true`) and
 never a second set, and the same ID with another payload is `operationIdReused`. Changes to a structure file
 carry the `expectedWorkshopRevision` (or story revision) the caller last read. Paths in results are
-vault-relative. The browser fallback lists nothing and refuses creation. All commands: format §10.
+vault-relative. The browser fallback lists nothing and refuses creation. `workshopImport` uses the same
+generation guard for preview, apply, list and undo. Its browser fallback returns an explicit unsupported error.
+All commands: [creative format](../../../docs/creative-format.md).
 See [project backend map](../../../crates/amby-core/src/project/MAP.md).
 
 Verification: [storage.test.ts](storage.test.ts), focused repository/port tests,

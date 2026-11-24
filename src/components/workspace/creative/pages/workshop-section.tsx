@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import type { WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
 import { useCreateInScope } from "../workshop/use-create-in-scope"
 import { storyLabels } from "../workshop/workshop-model"
+import { ImportedWorkshopNotes } from "./imported-workshop-notes"
 import { SectionGallery } from "./section-gallery"
 import { useWorkshopSectionData } from "./use-workshop-section-data"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
@@ -53,6 +54,12 @@ export function WorkshopSection({
         }
         onOpenStory={onOpenStory}
         createFor={createFor(section)}
+      />
+      <ImportedWorkshopNotes
+        key={workshop.workshopId}
+        workshop={workshop}
+        sectionId={section.id}
+        onOpenNote={onOpenNote}
       />
     </div>
   )

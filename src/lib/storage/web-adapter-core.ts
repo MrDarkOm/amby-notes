@@ -144,6 +144,8 @@ import type {
   MovedTextPage,
   NoteReference,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -678,6 +680,14 @@ export class WebAdapterCore implements StoragePort {
 
   async listTextStats(_databaseId: string): Promise<TextPageStat[]> {
     return []
+  }
+
+  async workshopImport(_request: WorkshopImportRequest): Promise<WorkshopImportResult> {
+    throw new ProjectOperationError("failed", "Workshop imports require the desktop runtime", {
+      kind: "failed",
+      code: "workshopImportDesktop",
+      message: "Desktop runtime required",
+    })
   }
 
   async listNotebooks(databaseId: string): Promise<NotebookCatalog> {

@@ -30,6 +30,8 @@ import type {
   MovedTextPage,
   NoteReference,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -628,6 +630,10 @@ export class DesktopAdapter implements StoragePort {
 
   async listTextStats(databaseId: string): Promise<TextPageStat[]> {
     return unwrapProjectCommand(await commands.listTextStats(databaseId))
+  }
+
+  async workshopImport(request: WorkshopImportRequest): Promise<WorkshopImportResult> {
+    return unwrapProjectCommand(await commands.workshopImport(request))
   }
 
   async listNotebooks(databaseId: string): Promise<NotebookCatalog> {

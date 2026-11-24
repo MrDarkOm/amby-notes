@@ -21,6 +21,7 @@ pub mod settings;
 pub mod text;
 mod text_schema;
 pub mod text_stats;
+pub mod workshop_import;
 
 #[cfg(test)]
 #[path = "contract_test.rs"]
@@ -75,3 +76,6 @@ pub(crate) fn require_completed_or_new(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod workshop_import_test;

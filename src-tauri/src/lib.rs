@@ -264,6 +264,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::list_note_references,
         commands::project::list_text_stats,
         commands::project::list_notebooks,
+        commands::project::workshop_import,
         commands::project::update_workshop,
         commands::project::remove_workshop_section,
         commands::project::reorder_workshop_sections,

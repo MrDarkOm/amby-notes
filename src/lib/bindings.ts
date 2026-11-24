@@ -1467,6 +1467,14 @@ async listNotebooks(databaseId: string) : Promise<Result<NotebookCatalog, Projec
     else return { status: "error", error: e  as any };
 }
 },
+async workshopImport(request: WorkshopImportRequest) : Promise<Result<WorkshopImportResult, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workshop_import", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateWorkshop(request: UpdateWorkshopRequest) : Promise<Result<UpdatedWorkshop, ProjectError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_workshop", { request }) };
@@ -3125,19 +3133,30 @@ export type IdMigrationRecovery = { journalPath: string; backupPath: string; sta
 export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
 export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
 export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
+export type ImportAction = { kind: "preview"; sources: ImportSource[] } | { kind: "apply"; sources: ImportSource[]; selection: ImportSelection[]; expectedPreview: string; operationId: string } | { kind: "list" } | { kind: "undo"; operationId: string } | { kind: "unlink"; sectionId: string; noteId: string }
+export type ImportCandidate = { noteId: string | null; path: string; title: string; alreadyLinked: boolean }
 export type ImportDatabaseAssetRequest = { expectedGeneration: number; databaseId: string; noteId: string; sourcePath: string }
+export type ImportField = { key: string; name: string; valueType: string; example: string | null }
 export type ImportFilesResult = { 
 /**
  * Absolute paths of the copies that were made (a folder counts once, as its own path).
  */
 imported: string[]; skipped: ImportSkipped[] }
+export type ImportMapping = { sourceKey: string; targetId: string }
+export type ImportPreview = { revision: string; writePath: string; sources: ImportSourcePreview[] }
+export type ImportSelection = { sourceIndex: number; noteIds: string[]; mappings: ImportMapping[] }
 export type ImportSkipped = { name: string; 
 /**
  * A machine code: `hidden`, `too_large`, `unreadable`, `link`, `into_itself`, `too_many`.
  */
 reason: string }
+export type ImportSource = { kind: ImportSourceKind; sourceId: string; sectionId: string }
+export type ImportSourceKind = "folder" | "database"
+export type ImportSourcePreview = { source: ImportSource; candidates: ImportCandidate[]; sourceFields: ImportField[]; targetFields: ImportField[]; suggested: ImportMapping[] }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
 export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetId: string; name: string; relativePath: string; mimeType: string; sizeBytes: number }
+export type ImportedField = { name: string; value: string }
+export type ImportedNote = { operationId: string; sectionId: string; noteId: string; title: string; available: boolean; fields: ImportedField[] }
 /**
  * Health of the rebuildable SQLite index. Markdown files remain authoritative
  * regardless of this state.
@@ -4440,6 +4459,8 @@ export type VersionDevice =
  * Made on another device.
  */
 "otherDevice"
+export type WorkshopImportRequest = { expectedGeneration: number; workshopId: string; action: ImportAction }
+export type WorkshopImportResult = { preview: ImportPreview | null; entries: ImportedNote[]; added: number }
 export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
 /**
  * The relative path recorded in the structure file (a hint).

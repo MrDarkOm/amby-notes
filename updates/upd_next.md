@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: link notes from folders and Amby databases in one import. Preview the notes and match their fields to a workshop section. The originals stay in place and you can undo the import.
+
 - Creative workshop: find characters, locations and storylines under Reference. Stories without a universe remain under Standalone stories. Add an Arc level when creating or editing any story.
 
 - Creative workshop: customize each story’s desk or apply a layout to every story. Cards use the space under shorter widgets and progress counts pages. The panel stays in place when you resume writing. Open the workshop folder in the file tree or Finder from its page. Empty notebook counts explain when the story filter hides notes, and anchor lists explain their order. Text page properties hide the unused format choice.

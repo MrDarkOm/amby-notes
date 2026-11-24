@@ -24,6 +24,10 @@ databases and the note index.
 | Logical path of a note of the workshop (note header)   | [note-trail.ts](../note-trail.ts) (pure), [use-note-trail.ts](../use-note-trail.ts), [note-trail-header.tsx](../note-trail-header.tsx)     |
 | Page in the tab history; its trail (breadcrumb)        | [creative-history.ts](../creative-history.ts), [page-crumbs.ts](../page-crumbs.ts), [use-story-universe.ts](../use-story-universe.ts)      |
 
+**Linked notes.** [imported-workshop-notes.tsx](imported-workshop-notes.tsx) shows linked originals and
+their mapped values on workshop section tabs. [workshop-import-dialog.tsx](../workshop-import-dialog.tsx)
+owns source selection, preview, apply and undo from the workshop page menu.
+
 **Workshop page.** Header: the numbers "Worlds · Stories · Words written" (worlds are the rows of the universes base).
 Body: the "Continue" band (the text page changed last), `StoryList` and `NotesBoard`. The section tabs stay as they were;
 a section tab is a `SectionGallery`; "Open as base" is a row of the page's "⋯" menu and opens the ordinary database tab.
