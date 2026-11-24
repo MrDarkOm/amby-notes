@@ -1,6 +1,5 @@
-import { Maximize2, PanelBottomClose, PanelBottomOpen } from "lucide-react"
+import { BookOpenText, Maximize2, PanelBottomClose, PanelBottomOpen } from "lucide-react"
 import type { TFunction } from "i18next"
-import { NotePagesIcon } from "@/themes/note-pages-icon"
 
 import type { ContentWidth, NotePagesPref } from "../app-config"
 import { notePagesFlagFor, notePagesRule } from "../tiptap/note-pages"
@@ -76,7 +75,7 @@ export function notePagesMenuItem(
     id: "note-pages",
     growLabel: true,
     label: t("docEditor.notePages.menu"),
-    icon: <NotePagesIcon className="size-3.5 text-muted-foreground" />,
+    icon: <BookOpenText className="size-3.5 text-muted-foreground" />,
     checked: enabled,
     disabled,
     onSelect: () => onChange(notePagesFlagFor(mode, !enabled, dossier)),

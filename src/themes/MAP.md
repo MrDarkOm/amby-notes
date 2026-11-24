@@ -28,7 +28,6 @@ vocabulary: [registry](../locales/emoji-search.ts),
 licenses and the text-rendering boundary: [emoji-icons.md](../../docs/emoji-icons.md).
 
 The module, file tree, and note chrome share the [composite note icon](composite-note-icon.ts).
-The note menu uses the [tabbed-page icon](note-pages-icon.ts) for its pages switch.
 The sync action uses [sync-icon.ts](sync-icon.ts): neutral outer triangular arrowheads, with
 state colour on the circular `.amby-sync-badge` fill inside the arcs in `app.css`.
 
