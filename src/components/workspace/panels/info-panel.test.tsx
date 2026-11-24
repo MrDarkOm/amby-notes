@@ -94,7 +94,7 @@ describe("InfoPanel frontmatter properties", () => {
     expect(container.textContent).not.toContain("◆")
   })
 
-  it("hides the app-owned pages flag, which the note menu switches", () => {
+  it("hides every app-owned amby- field of the header", () => {
     const doc: DocumentProperties = {
       ...mockDocumentWithFrontmatter,
       frontmatter: {
@@ -102,6 +102,8 @@ describe("InfoPanel frontmatter properties", () => {
         properties: [
           ...mockDocumentWithFrontmatter.frontmatter.properties,
           { key: "amby-pages", value: "true", valueKind: "checkbox" },
+          { key: "amby-title", value: "Story", valueKind: "text" },
+          { key: "Amby-Story-Id", value: "01JC0000000000000000000001", valueKind: "text" },
         ],
       },
     }
@@ -116,6 +118,8 @@ describe("InfoPanel frontmatter properties", () => {
       />,
     )
     expect(screen.queryByText("amby-pages")).toBeNull()
+    expect(screen.queryByText("amby-title")).toBeNull()
+    expect(screen.queryByText("Amby-Story-Id")).toBeNull()
     expect(screen.getByText("status")).not.toBeNull()
   })
 
