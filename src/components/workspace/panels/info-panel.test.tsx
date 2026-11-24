@@ -94,6 +94,31 @@ describe("InfoPanel frontmatter properties", () => {
     expect(container.textContent).not.toContain("◆")
   })
 
+  it("hides the app-owned pages flag, which the note menu switches", () => {
+    const doc: DocumentProperties = {
+      ...mockDocumentWithFrontmatter,
+      frontmatter: {
+        ...mockDocumentWithFrontmatter.frontmatter,
+        properties: [
+          ...mockDocumentWithFrontmatter.frontmatter.properties,
+          { key: "amby-pages", value: "true", valueKind: "checkbox" },
+        ],
+      },
+    }
+    render(
+      <InfoPanel
+        treeItems={[]}
+        selectedId="01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        vault="/test-vault"
+        onSelect={() => {}}
+        onOpenVault={() => {}}
+        properties={doc}
+      />,
+    )
+    expect(screen.queryByText("amby-pages")).toBeNull()
+    expect(screen.getByText("status")).not.toBeNull()
+  })
+
   it("renders frontmatter properties excluding amby-id and id", () => {
     const { container } = render(
       <InfoPanel
