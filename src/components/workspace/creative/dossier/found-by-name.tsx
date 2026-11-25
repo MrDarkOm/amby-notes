@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Link2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 import type { DatabaseRow, StorySummary } from "@/lib/storage"
 import { projectErrorText } from "@/lib/operation-errors"
 import { useCreativeNavStore } from "../creative-nav-store"
@@ -100,11 +101,7 @@ export function FoundByName({
               </button>
             )}
           </div>
-          {error?.noteId === mention.noteId && (
-            <p role="alert" className="px-2 text-[11px] text-destructive">
-              {error.text}
-            </p>
-          )}
+          {error?.noteId === mention.noteId && <NoticeLine text={error.text} role="status" />}
         </div>
       ))}
     </>
