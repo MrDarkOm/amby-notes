@@ -15,6 +15,8 @@ const storage = vi.hoisted(() => ({
   getDatabaseNoteContext: vi.fn(),
   listNoteReferences: vi.fn(),
   updateDatabaseRelationValue: vi.fn(),
+  searchNotes: vi.fn(),
+  queryDatabase: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -143,6 +145,8 @@ describe("DossierFrame", () => {
     await i18n.changeLanguage("ru")
     storage.getDatabaseNoteContext.mockReset()
     storage.listNoteReferences.mockReset().mockResolvedValue([])
+    storage.searchNotes.mockReset().mockResolvedValue([])
+    storage.queryDatabase.mockReset().mockResolvedValue({ rows: [], nextCursor: null })
     useProjectStore.getState().reset()
     useDatabaseStore.getState().reset(1)
   })
@@ -250,6 +254,76 @@ describe("DossierFrame", () => {
     await settle()
     expect(screen.getByText("Пока нигде в тексте не упоминается.")).toBeTruthy()
     expect(screen.getByText("Связей пока нет.")).toBeTruthy()
+  })
+
+  it("finds the character by name in the text of a story and writes nothing", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([reference({})])
+    const page = (noteId: string, title: string) => ({
+      ...context("db_text").row,
+      noteId,
+      title,
+      relativePath: `${title}.md`,
+    })
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_text"
+          ? [page("chapter-1", "Глава первая"), page("ch2", "Глава вторая")]
+          : [],
+      nextCursor: null,
+    }))
+    const hit = (id: string, snippet: string) => ({
+      note: { id, path: `/v/${id}.md`, title: id, modified: null, wordCount: 1 },
+      matchType: "content",
+      snippet,
+      score: 1,
+    })
+    storage.searchNotes.mockImplementation(async (query: string) =>
+      query === "Алиса"
+        ? [
+            hit("chapter-1", "Алиса вошла"),
+            hit("ch2", "и тогда Алиса ушла"),
+            hit("n1", "Алиса"),
+            hit("elsewhere", "Алиса в заметке"),
+          ]
+        : [],
+    )
+    const onOpenNote = vi.fn()
+    mount({ onOpenNote })
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    // The linked chapter is listed once; the chapter that only names her comes under its own caption.
+    expect(within(aside).getAllByText("Глава первая")).toHaveLength(1)
+    expect(within(aside).getByText("Найдено по имени")).toBeTruthy()
+    const found = within(aside).getByRole("button", { name: /Глава вторая/ })
+    expect(found.getAttribute("title")).toContain("и тогда Алиса ушла")
+    expect(within(aside).queryByText("Алиса в заметке")).toBeNull()
+    fireEvent.click(found)
+    expect(onOpenNote).toHaveBeenCalledWith("ch2")
+    expect(storage.updateDatabaseRelationValue).not.toHaveBeenCalled()
+  })
+
+  it("does not repeat the stories of the header among the connections", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([
+      reference({
+        direction: "out",
+        propertyId: "story",
+        propertyName: "Истории",
+        databaseId: "db_stories",
+        databaseName: "Истории",
+        noteId: "note_molehills_story",
+        title: "MoleHills",
+      }),
+    ])
+    mount()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    expect(within(aside).queryByText("Истории")).toBeNull()
+    expect(within(aside).getByText("Связей пока нет.")).toBeTruthy()
   })
 
   it("leaves out the table of contents where headings are not on screen", async () => {
