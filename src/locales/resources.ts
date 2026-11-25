@@ -3614,6 +3614,17 @@ const ru = {
         },
       },
     },
+    // Who, whose eyes, where and when of a page of a story's text.
+    scene: {
+      properties: {
+        characters: "Персонажи",
+        pov: "Точка зрения",
+        places: "Места",
+        storyTime: "Время действия",
+      },
+      unavailable:
+        "Здесь нельзя привязать: у истории нет текста или мастерская открыта только для чтения.",
+    },
     // Anchors and arcs bound to the pages of a story's text.
     plot: {
       unavailable:
@@ -3694,6 +3705,9 @@ const ru = {
       appearsIn: "Появляется в",
       appearsInEmpty: "Пока нигде в тексте не упоминается.",
       foundByName: "Найдено по имени",
+      bind: "Привязать",
+      bindCharacterHint: "Отметить, что персонаж есть на этой странице",
+      bindPlaceHint: "Отметить, что действие страницы происходит здесь",
       connections: "Связи",
       connectionsEmpty: "Связей пока нет.",
       incoming: "Входящая связь",
@@ -8280,6 +8294,16 @@ const en: LocaleShape<typeof ru> = {
         },
       },
     },
+    // Who, whose eyes, where and when of a page of a story's text.
+    scene: {
+      properties: {
+        characters: "Characters",
+        pov: "Point of view",
+        places: "Places",
+        storyTime: "Story time",
+      },
+      unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
+    },
     // Anchors and arcs bound to the pages of a story's text.
     plot: {
       unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
@@ -8358,6 +8382,9 @@ const en: LocaleShape<typeof ru> = {
       appearsIn: "Appears in",
       appearsInEmpty: "Not mentioned in the text yet.",
       foundByName: "Found by name",
+      bind: "Bind",
+      bindCharacterHint: "Mark that the character is on this page",
+      bindPlaceHint: "Mark that this page takes place here",
       connections: "Connections",
       connectionsEmpty: "No connections yet.",
       incoming: "Incoming relation",

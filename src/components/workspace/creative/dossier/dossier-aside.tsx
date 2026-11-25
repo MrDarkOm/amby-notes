@@ -8,6 +8,7 @@ import { characterArcs } from "../workshop/plot-views"
 import { extractToc, splitReferences } from "./dossier-model"
 import { ArcBlocks, CharacterArcsBlock } from "./plot-blocks"
 import type { NoteDossier } from "./use-note-dossier"
+import { FoundByName } from "./found-by-name"
 import { useTextMentions } from "./use-text-mentions"
 
 interface DossierAsideProps {
@@ -20,6 +21,8 @@ interface DossierAsideProps {
   onOpenNote?: (noteId: string) => void
   /** Beside the text (a fixed column) or under it (the full width). */
   sideBySide: boolean
+  /** The page cannot be edited: nothing is bound from here. */
+  locked?: boolean
 }
 
 function PageLink({
@@ -60,6 +63,7 @@ export function DossierAside({
   onJump,
   onOpenNote,
   sideBySide,
+  locked,
 }: DossierAsideProps) {
   const { t } = useTranslation()
   const toc = canJump ? extractToc(content).filter((entry) => entry.level <= 3) : []
@@ -108,7 +112,7 @@ export function DossierAside({
   const hasText = textDbIds.size > 0 && !isArc
   const linkedKey = split.appearsIn.map((reference) => reference.noteId).join("\n")
   const linked = React.useMemo(() => new Set(linkedKey ? linkedKey.split("\n") : []), [linkedKey])
-  const mentions = useTextMentions(dossier, hasText ? content : "", linked)
+  const { mentions, pageOf } = useTextMentions(dossier, hasText ? content : "", linked)
   const showsMentions = hasText && mentions.length > 0
   // With one story the story's name on every row says nothing.
   const texts = textDbIds.size
@@ -157,27 +161,14 @@ export function DossierAside({
                 />
               ))}
               {showsMentions && (
-                <>
-                  <span className="px-2 pt-1 text-[11px] text-muted-foreground">
-                    {t("creative.dossier.foundByName")}
-                  </span>
-                  {mentions.map((mention) => (
-                    <button
-                      key={mention.noteId}
-                      type="button"
-                      className="flex min-w-0 items-baseline gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50"
-                      title={`${mention.storyName} · …${mention.snippet}…`}
-                      onClick={() => onOpenNote?.(mention.noteId)}
-                    >
-                      <span className="truncate">{mention.title}</span>
-                      {texts > 1 && (
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {mention.storyName}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </>
+                <FoundByName
+                  dossier={dossier}
+                  mentions={mentions}
+                  pageOf={pageOf}
+                  showStory={texts > 1}
+                  locked={locked}
+                  onOpenNote={onOpenNote}
+                />
               )}
             </div>
           )}

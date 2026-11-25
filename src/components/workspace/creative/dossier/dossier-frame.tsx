@@ -122,6 +122,7 @@ export function DossierFrame({
             onJump={scrollToHeading}
             onOpenNote={onOpenNote}
             sideBySide={sideBySide}
+            locked={locked}
           />
         ) : textPlace && !folded ? (
           <TextPageAside

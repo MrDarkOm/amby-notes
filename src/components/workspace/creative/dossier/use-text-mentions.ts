@@ -1,5 +1,5 @@
 import * as React from "react"
-import { searchNotes, type SearchResult } from "@/lib/storage"
+import { searchNotes, type DatabaseRow, type SearchResult, type StorySummary } from "@/lib/storage"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { buildTextTree, textOrder } from "../workshop/text-tree-model"
 import { useDatabaseRows } from "../workshop/use-database-rows"
@@ -22,7 +22,11 @@ export function useTextMentions(
   content: string,
   /** Pages already listed as linked, so they are not repeated. */
   linked: ReadonlySet<string>,
-): TextMention[] {
+): {
+  mentions: TextMention[]
+  /** The row and story of a page of the text, for binding it. */
+  pageOf: (noteId: string) => { story: StorySummary; row: DatabaseRow } | null
+} {
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const texts = React.useMemo(
     () => dossier.world.workshop.stories.filter((story) => story.text?.databaseId),
@@ -31,18 +35,22 @@ export function useTextMentions(
   const databaseIds = React.useMemo(() => texts.map((story) => story.text!.databaseId!), [texts])
   const data = useDatabaseRows(databaseIds, dataNonce)
 
-  const { pages, rank } = React.useMemo(() => {
+  const { pages, rank, places } = React.useMemo(() => {
     const pages = new Map<string, TextPageInfo>()
     const rank = new Map<string, number>()
+    const places = new Map<string, { story: StorySummary; row: DatabaseRow }>()
     for (const story of texts) {
       const rows = data.rows[story.text!.databaseId!]
       if (!rows) continue
-      for (const row of rows) pages.set(row.noteId, { title: row.title, storyName: story.name })
+      for (const row of rows) {
+        pages.set(row.noteId, { title: row.title, storyName: story.name })
+        places.set(row.noteId, { story, row })
+      }
       for (const noteId of textOrder(buildTextTree(rows, story.text!.properties))) {
         if (!rank.has(noteId)) rank.set(noteId, rank.size)
       }
     }
-    return { pages, rank }
+    return { pages, rank, places }
   }, [data.rows, texts])
 
   // The text changes on every keystroke; the names only when the title or the aliases do.
@@ -74,10 +82,12 @@ export function useTextMentions(
     }
   }, [namesKey, pages])
 
-  return React.useMemo(() => {
+  const mentions = React.useMemo(() => {
     const exclude = new Set([...linked, dossier.context.row.noteId])
     const mentions = collectMentions({ searches, textPages: pages, exclude })
     const at = (noteId: string) => rank.get(noteId) ?? Number.MAX_SAFE_INTEGER
     return mentions.sort((left, right) => at(left.noteId) - at(right.noteId))
   }, [dossier.context.row.noteId, linked, pages, rank, searches])
+  const pageOf = React.useCallback((noteId: string) => places.get(noteId) ?? null, [places])
+  return { mentions, pageOf }
 }

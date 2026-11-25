@@ -19,6 +19,13 @@ export interface TextMention {
   snippet: string
 }
 
+/** The scene part a world page is bound to a page with: a person is in it, a place is where. */
+export function bindingPartOf(role: string | null | undefined): "characters" | "places" | null {
+  if (role === "characters") return "characters"
+  if (role === "locations") return "places"
+  return null
+}
+
 /** Shorter words of a title ("de", "Jo") would be found everywhere. */
 const MIN_WORD_LENGTH = 3
 /** A name with a case ending still names the same person: "Кей" in "Кея", "Evan" in "evan's". */

@@ -21,6 +21,7 @@ export type {
   CreateTextPageRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  TextLinkPart,
   InitWorkshopRequest,
   MoveTextPageRequest,
   MovedTextPage,
