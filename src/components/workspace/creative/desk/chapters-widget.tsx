@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { PageMarksView } from "../workshop/page-marks"
+import { StoryBoard } from "./story-board"
 import {
   PLOT_DRAG_TYPE,
   decodePlotDrag,
@@ -83,6 +84,11 @@ interface ChaptersWidgetProps {
   /** The failure of the last move or status change. */
   moveError: string | null
   loading: boolean
+  /** The board view of the same pages; without it only the list is shown. */
+  board?: {
+    hintsOf: (noteId: string) => string[]
+    loadSynopsis: (noteId: string) => Promise<string>
+  }
 }
 
 function wordsOf(node: TextNode, stats: Record<string, TextPageStat>): number {
@@ -118,8 +124,11 @@ export function ChaptersWidget({
   onCreateAnchor,
   moveError,
   loading,
+  board,
 }: ChaptersWidgetProps) {
   const { t } = useTranslation()
+  const view = useCreativeNavStore((state) => state.chaptersView)
+  const setView = useCreativeNavStore((state) => state.setChaptersView)
   const collapsed = useCreativeNavStore((state) => state.collapsed)
   const toggle = useCreativeNavStore((state) => state.toggleCollapsed)
   const [draft, setDraft] = React.useState<{ parentId: string | null } | null>(null)
@@ -304,25 +313,64 @@ export function ChaptersWidget({
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        {roots.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {loading ? "" : t("creative.workshop.noPages")}
-          </p>
-        )}
-        {renderRows(roots, 0)}
-        {draft?.parentId === null && draftRow(null, 0)}
-        {canWrite && firstLevelName && draft === null && (
-          <button
-            type="button"
-            onClick={() => setDraft({ parentId: null })}
-            className="mt-1 inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <Plus className="size-3.5" />
-            {t("creative.workshop.newPageAtLevel", { level: firstLevelName })}
-          </button>
-        )}
-      </div>
+      {board && roots.length > 0 && (
+        <div
+          role="radiogroup"
+          aria-label={t("creative.board.view")}
+          className="flex w-fit gap-0.5 rounded-lg bg-muted p-0.5 text-xs"
+        >
+          {(["list", "cards"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={view === mode}
+              onClick={() => setView(mode)}
+              className={cn(
+                "rounded-md px-2 py-0.5 outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                view === mode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t(`creative.board.${mode}`)}
+            </button>
+          ))}
+        </div>
+      )}
+      {board && view === "cards" && roots.length > 0 ? (
+        <StoryBoard
+          roots={roots}
+          levels={levels}
+          statusOptions={statusOptions}
+          stats={stats}
+          hintsOf={board.hintsOf}
+          loadSynopsis={board.loadSynopsis}
+          canWrite={canWrite}
+          onOpenNote={onOpenNote}
+          onMovePage={onMovePage}
+        />
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {roots.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {loading ? "" : t("creative.workshop.noPages")}
+            </p>
+          )}
+          {renderRows(roots, 0)}
+          {draft?.parentId === null && draftRow(null, 0)}
+          {canWrite && firstLevelName && draft === null && (
+            <button
+              type="button"
+              onClick={() => setDraft({ parentId: null })}
+              className="mt-1 inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <Plus className="size-3.5" />
+              {t("creative.workshop.newPageAtLevel", { level: firstLevelName })}
+            </button>
+          )}
+        </div>
+      )}
       {moveError && <NoticeLine role="alert" text={moveError} className="break-words" />}
       {hasAnchors && (
         <div className="flex flex-col gap-2 rounded-xl bg-accent/40 px-3 py-2.5">

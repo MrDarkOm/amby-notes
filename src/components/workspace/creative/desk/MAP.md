@@ -16,6 +16,7 @@ writes only through the calls the panel uses (`createTextPage`, `moveTextPage`, 
 | Per-story layout and apply to all                 | [use-desk-layout.ts](use-desk-layout.ts)                                                |
 | Continue, Progress (and the manuscript)           | [continue-widget.tsx](continue-widget.tsx), [progress-widget.tsx](progress-widget.tsx)  |
 | Chapters: outline, moves, new page, "Ahead" strip | [chapters-widget.tsx](chapters-widget.tsx)                                              |
+| Chapters as a board of cards (List / Board)       | [story-board.tsx](story-board.tsx), [board-model.ts](board-model.ts) (pure)             |
 | Notes of the story, the world of the story        | `NotesBoard` (`embedded`) and `SectionGallery` (`compact`) of [pages/](../pages/MAP.md) |
 
 **Description.** [StoryDescription](story-description.tsx) shows the story card's Markdown body and saves inline edits through the note port with the revision the draft started from. It sits above the customizable widgets.

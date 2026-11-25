@@ -3614,6 +3614,15 @@ const ru = {
         },
       },
     },
+    // The text of a story as cards on its desk.
+    board: {
+      loose: "Отдельные страницы",
+      inside: "внутри: {{count}}",
+      words: "{{count}} сл.",
+      view: "Вид",
+      list: "Список",
+      cards: "Доска",
+    },
     // Who, whose eyes, where and when of a page of a story's text.
     scene: {
       properties: {
@@ -8302,6 +8311,15 @@ const en: LocaleShape<typeof ru> = {
             'The notebook "{{name}}" was not deleted: it was not found on disk. Refresh the list.',
         },
       },
+    },
+    // The text of a story as cards on its desk.
+    board: {
+      loose: "Separate pages",
+      inside: "inside: {{count}}",
+      words: "{{count}} w.",
+      view: "View",
+      list: "List",
+      cards: "Board",
     },
     // Who, whose eyes, where and when of a page of a story's text.
     scene: {

@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils"
 import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { ChaptersWidget } from "./desk/chapters-widget"
+import { synopsisOf } from "./desk/board-model"
+import { readScene } from "./workshop/scene-model"
 import { DeskControls } from "./desk/desk-controls"
 import { ContinueWidget } from "./desk/continue-widget"
 import { DeskWidget } from "./desk/desk-widget"
@@ -350,6 +352,33 @@ export function ProjectDesk({
       .finally(bumpData)
   }
 
+  // The board of the chapters: a card's scene (point of view, story time) and first paragraph.
+  const charactersSection = sectionOf("characters")
+  const peopleRows = charactersSection ? data.rows[charactersSection.databaseId] : undefined
+  const loadSynopsis = React.useCallback(
+    async (noteId: string) =>
+      vaultPath ? synopsisOf((await readNote(vaultPath, noteId)).content) : "",
+    [vaultPath],
+  )
+  const board = React.useMemo(() => {
+    if (!text) return undefined
+    return {
+      loadSynopsis,
+      hintsOf: (noteId: string) => {
+        const row = rows?.find((candidate) => candidate.noteId === noteId)
+        if (!row) return []
+        const scene = readScene(row, text.properties)
+        const hints: string[] = []
+        const pov = scene.pov
+          ? peopleRows?.find((person) => person.noteId === scene.pov)?.title
+          : undefined
+        if (pov) hints.push(pov)
+        if (scene.storyTime) hints.push(scene.storyTime)
+        return hints
+      },
+    }
+  }, [loadSynopsis, peopleRows, rows, text])
+
   // Notes of this story, under their notebooks.
   const notesSection = sectionOf("notes")
   const noteRows = notesSection ? rowsOfSection.get(notesSection.id) : undefined
@@ -570,6 +599,7 @@ export function ProjectDesk({
               onCreateAnchor={canCreateAnchor ? createAnchor : null}
               moveError={moveError}
               loading={data.status === "loading" || data.status === "idle"}
+              board={board}
             />
           </DeskWidget>
         )
