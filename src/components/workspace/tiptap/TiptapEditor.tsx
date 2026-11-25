@@ -9,6 +9,8 @@ import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { HeadingHintsContext } from "../editor/heading-hints-context"
 import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
+import { EntityNamesContext } from "../editor/entity-names-context"
+import { entityNamesKey, entityNamesPlugin } from "./entity-names"
 import { NotePageControls, type NotePagesSource } from "./note-page-controls"
 import { revealNotePageAt } from "./note-pages"
 import { buildExtensions } from "./extensions"
@@ -375,6 +377,16 @@ export function TiptapEditor({
       if (!editor.isDestroyed) editor.unregisterPlugin(headingHintsKey)
     }
   }, [editor, headingHints])
+
+  const entityNames = React.useContext(EntityNamesContext)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !entityNames) return
+    editor.registerPlugin(entityNamesPlugin(entityNames))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(entityNamesKey)
+      entityNames.onHover(null, null)
+    }
+  }, [editor, entityNames])
 
   React.useEffect(() => {
     const onContextMenu = (event: Event) => {

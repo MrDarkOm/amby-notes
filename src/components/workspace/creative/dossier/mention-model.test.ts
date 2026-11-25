@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { SearchResult } from "@/lib/storage"
-import { collectMentions, mentionNames, mentionsName, searchQueries } from "./mention-model"
+import {
+  collectMentions,
+  findNameRanges,
+  mentionNames,
+  mentionsName,
+  searchQueries,
+} from "./mention-model"
 
 function result(id: string, snippet: string | null, title = id): SearchResult {
   return {
@@ -64,6 +70,36 @@ describe("mentionsName", () => {
   it("treats the name as text, not as a pattern", () => {
     expect(mentionsName("a.b", "a+b")).toBe(false)
     expect(mentionsName("x (a+b) y", "a+b")).toBe(true)
+  })
+})
+
+describe("findNameRanges", () => {
+  const entries = [
+    { name: "Кей", noteId: "kei" },
+    { name: "Evan Key", noteId: "evan" },
+    { name: "Evan", noteId: "evan" },
+    { name: "Дом у реки", noteId: "house" },
+  ]
+
+  it("finds each name in a line with its ending, the longest name first", () => {
+    const text = "Потом Кея увидел Evan Key у Дома у реки."
+    expect(findNameRanges(text, entries)).toEqual([
+      { from: 6, to: 9, noteId: "kei" },
+      { from: 17, to: 25, noteId: "evan" },
+      { from: 28, to: 39, noteId: "house" },
+    ])
+  })
+
+  it("skips longer words and parts of words, and never overlaps", () => {
+    expect(findNameRanges("Кейтлин и Bakey", entries)).toEqual([])
+    expect(findNameRanges("Evan, Evan", entries)).toEqual([
+      { from: 0, to: 4, noteId: "evan" },
+      { from: 6, to: 10, noteId: "evan" },
+    ])
+  })
+
+  it("finds nothing without names", () => {
+    expect(findNameRanges("Кей", [])).toEqual([])
   })
 })
 

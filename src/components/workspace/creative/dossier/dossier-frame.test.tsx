@@ -10,6 +10,8 @@ import { catalog, section, storySummary, workshopSummary } from "../project-fixt
 import { useProjectStore } from "../project-store"
 import { CreativeNoteProvider } from "./creative-note-provider"
 import { DossierFrame } from "./dossier-frame"
+import { EntityNamesContext } from "../../editor/entity-names-context"
+import type { EntityNames } from "../../tiptap/entity-names"
 
 const storage = vi.hoisted(() => ({
   getDatabaseNoteContext: vi.fn(),
@@ -434,6 +436,62 @@ describe("DossierFrame", () => {
     expect(within(aside).getByText("точка зрения")).toBeTruthy()
     // A chapter linked twice (in it and through its eyes) is listed once.
     expect(within(aside).getAllByText("Глава вторая")).toHaveLength(1)
+  })
+
+  it("gives a page of the text the names of the world and shows a card for a pointed name", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_text"))
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_characters"
+          ? [{ ...context("db_characters").row, noteId: "evan", title: "Evan Key" }]
+          : databaseId === "db_locations"
+            ? [{ ...context("db_locations").row, noteId: "house", title: "Дом" }]
+            : [],
+      nextCursor: null,
+    }))
+    let names: EntityNames | null = null
+    function Probe() {
+      names = useContext(EntityNamesContext)
+      return null
+    }
+    const onOpenNote = vi.fn()
+    render(
+      <CreativeNoteProvider noteId="n1">
+        <DossierFrame
+          noteId="n1"
+          content=""
+          canJump
+          scrollToHeading={vi.fn()}
+          onOpenNote={onOpenNote}
+        >
+          <Probe />
+        </DossierFrame>
+      </CreativeNoteProvider>,
+    )
+    await settle()
+    await settle()
+    expect(names).not.toBeNull()
+    const given = names as unknown as EntityNames
+    expect(given.entries).toEqual(
+      expect.arrayContaining([
+        { name: "Evan Key", noteId: "evan" },
+        { name: "Evan", noteId: "evan" },
+        { name: "Key", noteId: "evan" },
+        { name: "Дом", noteId: "house" },
+      ]),
+    )
+    const mark = document.createElement("span")
+    document.body.append(mark)
+    act(() => given.onHover("evan", mark))
+    const card = screen.getByRole("tooltip")
+    expect(within(card).getByText("Evan Key")).toBeTruthy()
+    expect(within(card).getByText("Персонажи")).toBeTruthy()
+    act(() => given.onHover(null, null))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+    act(() => given.onOpen("house"))
+    expect(onOpenNote).toHaveBeenCalledWith("house")
+    mark.remove()
   })
 
   it("does not repeat the stories of the header among the connections", async () => {

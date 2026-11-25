@@ -116,26 +116,64 @@ function escapePattern(text: string): string {
 }
 
 /**
- * Whether the text names `name` as a word of its own: any case, any spacing between its words, a
- * short ending allowed. A longer word that only starts the same ("Кейтлин" for "Кей") is not it.
+ * One word of a name with the endings it may take: a word long enough to tell apart may add a
+ * short ending ("Дом" → "Дома", "Evan" → "evan's"), and Russian declension may replace its final
+ * vowel, "й" or "ь" ("Кей" → "Кея", "Алиса" → "Алисы"). A short word ("у", "de") stays as it is.
+ */
+function wordPattern(word: string): string {
+  const exact = escapePattern(word)
+  if (word.length < MIN_WORD_LENGTH) return exact
+  const alternatives = [`${exact}(?:\\p{L}{0,${MAX_ENDING}}|['’]\\p{L}{0,2})`]
+  if (SOFT_ENDINGS.test(word)) {
+    alternatives.push(`${escapePattern(word.slice(0, -1))}\\p{L}{1,${MAX_ENDING}}`)
+  }
+  return `(?:${alternatives.join("|")})`
+}
+
+/** The pattern of a name as a word of its own, any case, any spacing between its words. */
+function namePattern(name: string, flags: string): RegExp | null {
+  const parts = name.trim().split(/\s+/u).filter(Boolean)
+  if (parts.length === 0) return null
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}_])${parts.map(wordPattern).join("\\s+")}(?![\\p{L}\\p{N}_])`,
+    flags,
+  )
+}
+
+/**
+ * Whether the text names `name` as a word of its own, its words possibly declined. A longer word
+ * that only starts the same ("Кейтлин" for "Кей") is not it.
  */
 export function mentionsName(text: string, name: string): boolean {
-  const parts = name.trim().split(/\s+/u).filter(Boolean)
-  if (parts.length === 0) return false
-  const body = parts.map(escapePattern).join("\\s+")
-  const ending = `(?:\\p{L}{0,${MAX_ENDING}}|['’]\\p{L}{0,2})`
-  const alternatives = [`${body}${ending}`]
-  // Russian declension replaces a final vowel, "й" or "ь": "Кей" → "Кея", "Алиса" → "Алисы".
-  const last = parts[parts.length - 1]
-  if (last.length >= MIN_WORD_LENGTH && SOFT_ENDINGS.test(last)) {
-    const stem = [...parts.slice(0, -1), last.slice(0, -1)].map(escapePattern).join("\\s+")
-    alternatives.push(`${stem}\\p{L}{1,${MAX_ENDING}}`)
+  return namePattern(name, "iu")?.test(text) ?? false
+}
+
+/**
+ * Where a line names any of the entries: each place once, the longer name winning where two
+ * overlap ("Evan Key" over "Evan"), in the order of the line. Offsets are UTF-16 indexes.
+ */
+export function findNameRanges(
+  text: string,
+  entries: readonly { name: string; noteId: string }[],
+): { from: number; to: number; noteId: string }[] {
+  const candidates: { from: number; to: number; noteId: string }[] = []
+  for (const { name, noteId } of entries) {
+    const pattern = namePattern(name, "giu")
+    if (!pattern) continue
+    for (const match of text.matchAll(pattern)) {
+      if (match[0].length === 0) continue
+      candidates.push({ from: match.index, to: match.index + match[0].length, noteId })
+    }
   }
-  const pattern = new RegExp(
-    `(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`,
-    "iu",
+  candidates.sort(
+    (left, right) => right.to - right.from - (left.to - left.from) || left.from - right.from,
   )
-  return pattern.test(text)
+  const chosen: typeof candidates = []
+  for (const candidate of candidates) {
+    if (chosen.some((taken) => candidate.from < taken.to && taken.from < candidate.to)) continue
+    chosen.push(candidate)
+  }
+  return chosen.sort((left, right) => left.from - right.from)
 }
 
 /**
