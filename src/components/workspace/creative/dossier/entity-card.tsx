@@ -2,7 +2,7 @@ import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { initialsOf } from "../workshop/workshop-model"
 
-const CARD_WIDTH = 224
+const CARD_WIDTH = 256
 const GAP = 6
 
 /**
@@ -44,7 +44,7 @@ export function EntityCard({
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-medium">{title}</span>
         <span className="truncate text-[11px] text-muted-foreground">{kind}</span>
-        <span className="truncate text-[11px] text-muted-foreground">
+        <span className="text-[11px] leading-snug text-muted-foreground">
           {t("creative.dossier.entityCardOpen")}
         </span>
       </span>
