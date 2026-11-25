@@ -752,7 +752,9 @@ pub struct EnsurePlotLinksRequest {
 }
 
 /// A link property of a story's text that `ensure_plot_links` can make.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, specta::Type)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, specta::Type,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum TextLinkPart {
     Anchors,

@@ -91,7 +91,7 @@ which Vitest feeds to the interface's model.
 presets add them when the target database already exists; otherwise `ensure_plot_links` (journaled, `plan_links` adopts
 a matching relation) makes what is missing in one database and one structure file (`story` or `anchors` target), and
 writes nothing when nothing is missing. `create_entity` also takes a `universe_id` (an anchor born as an event of a universe, in the same
-write as the note; refused before any write unless the property and the universe note exist). Tests: `plot_links_test.rs`.
+write as the note; refused before any write unless the property and the universe note exist). Tests: `plot_links_test.rs`, `scene_links_test.rs` (`parts`).
 
 **Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../../docs/creative-format.md));
 this module only reads: `list_notebooks_of` (bounded, no links followed) and `resolve_notebook_dir`, which checks the

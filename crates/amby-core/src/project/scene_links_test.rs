@@ -118,7 +118,10 @@ fn the_characters_of_the_text_are_made_alone_when_asked_for() {
     let property = property_with_id(&after, &characters_id);
     assert_eq!(property["name"], "Персонажи");
     assert_eq!(property["type"], "relation");
-    assert_eq!(property["config"]["targetDatabaseId"], characters_db.as_str());
+    assert_eq!(
+        property["config"]["targetDatabaseId"],
+        characters_db.as_str()
+    );
     assert!(property["config"]["maxItems"].is_null(), "any number");
     assert!(property["config"]["inversePropertyId"].is_null(), "one way");
 
@@ -131,7 +134,10 @@ fn the_characters_of_the_text_are_made_alone_when_asked_for() {
     assert_eq!(ensured.revision, raw_revision(&fixture.story_bytes(HOUSE)));
 
     let properties = catalog_properties(&fixture);
-    assert_eq!(properties.characters.as_deref(), Some(characters_id.as_str()));
+    assert_eq!(
+        properties.characters.as_deref(),
+        Some(characters_id.as_str())
+    );
     assert!(properties.anchors.is_none());
 }
 
@@ -174,7 +180,10 @@ fn point_of_view_places_and_story_time_have_their_own_shapes() {
     let file = story_file(&fixture);
     let recorded = &file["text"]["properties"];
     assert_eq!(recorded["pov"], ensured.pov_property_id.as_deref().unwrap());
-    assert_eq!(recorded["places"], ensured.places_property_id.as_deref().unwrap());
+    assert_eq!(
+        recorded["places"],
+        ensured.places_property_id.as_deref().unwrap()
+    );
     assert_eq!(
         recorded["storyTime"],
         ensured.story_time_property_id.as_deref().unwrap()
@@ -231,15 +240,26 @@ fn a_part_already_there_is_kept_and_the_rest_are_reported_as_they_are() {
     again.operation_id = op("scene-again");
     let repeated = ensure_plot_links(&fixture.env(), &again).unwrap();
     assert!(!repeated.changed);
-    assert_eq!(repeated.characters_property_id, first.characters_property_id);
+    assert_eq!(
+        repeated.characters_property_id,
+        first.characters_property_id
+    );
     assert_eq!(fixture.tree(), tree);
 
     // Asking for another part keeps the characters and reports them.
-    let mut pov = request(&created, &house, &first.revision, Some(vec![TextLinkPart::Pov]));
+    let mut pov = request(
+        &created,
+        &house,
+        &first.revision,
+        Some(vec![TextLinkPart::Pov]),
+    );
     pov.operation_id = op("scene-pov");
     let with_pov = ensure_plot_links(&fixture.env(), &pov).unwrap();
     assert!(with_pov.changed);
-    assert_eq!(with_pov.characters_property_id, first.characters_property_id);
+    assert_eq!(
+        with_pov.characters_property_id,
+        first.characters_property_id
+    );
     let recorded = &story_file(&fixture)["text"]["properties"];
     assert_eq!(
         recorded["characters"],

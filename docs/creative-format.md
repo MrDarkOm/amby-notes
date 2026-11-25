@@ -285,7 +285,8 @@ and files in the «Истории» (Stories) folder (names starting with a dot)
 
 The identifiers in the example are illustrative; real ones are ULIDs. Levels are created without `icon` (the icon is set
 in the story settings, `update_text_levels`). The `status` property is written when the story is created; stories
-created before it do not have it, and `add_text_status` adds it later. `anchors` and `arcs` are
+created before it do not have it, and `add_text_status` adds it later. `anchors`, `arcs` and the scene links
+(`characters`, `pov`, `places`, `storyTime`) are
 written only if the properties exist (§6). Unknown fields of the file are preserved on any rewrite; so are the BOM and
 line endings. A file larger than 1 MiB is considered corrupted.
 
@@ -448,6 +449,25 @@ so the missing properties are added where it is a single operation, and on deman
   the revision is not checked (`changed: false`). The commit point is the structure file; a failure or crash before
   it returns both files byte for byte. The UI calls the operation on the first link (before writing
   the value) if the page's property does not exist yet.
+
+**Scene links of a text page (revision 3, additive).** A story's text may also hold four properties, each made only
+when the author first uses it, never in advance and never for every story at once:
+
+| Key in `text.properties` | Name (default label)          | Shape                                               |
+| ------------------------ | ----------------------------- | --------------------------------------------------- |
+| `characters`             | «Персонажи» (Characters)      | Relation to `characters`, many, no reverse side     |
+| `pov`                    | «Точка зрения» (POV)          | Relation to `characters`, `maxItems: 1`, no reverse |
+| `places`                 | «Места» (Places)              | Relation to `locations`, many, no reverse side      |
+| `storyTime`              | «Время действия» (Story time) | Text: when the page happens in the story's own time |
+
+They are made by `ensure_plot_links` with `target: "story"` and `parts` (`"anchors"`, `"arcs"`, `"characters"`, `"pov"`,
+`"places"`, `"storyTime"`): only the named parts are planned, the others are reported as they are (an ID that is still
+a property, else none). Without `parts` the operation makes the anchors and arcs only, as before, and its request
+revision is unchanged. `parts` with `target: "anchors"` is refused before any write. A relation of the right shape is
+adopted as for the anchors; a text property is adopted by its name (case-insensitive). A part whose database is
+missing is skipped. Like the other links, the value is written with `update_database_relation_value` (or the text
+value) and the module finds the property only by its recorded ID. Labels: `property:characters`, `property:pov`,
+`property:places`, `property:storyTime`.
 
 **Membership and order of a story's anchors.** An anchor and an arc belong to a story the same way as a world entity
 (§6): by the «Истории» link or by a link to a page of this story's text. The order of anchors in a

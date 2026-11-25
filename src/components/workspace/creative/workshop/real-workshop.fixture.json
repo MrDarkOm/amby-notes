@@ -644,11 +644,15 @@
           "properties": {
             "anchors": "ID:prop:text:Дом:anchors",
             "arcs": "ID:prop:text:Дом:arcs",
+            "characters": null,
             "format": "ID:prop:text:Дом:format",
             "level": "ID:prop:text:Дом:level",
             "order": "ID:prop:text:Дом:order",
             "parent": "ID:prop:text:Дом:parent",
-            "status": "ID:prop:text:Дом:status"
+            "places": null,
+            "pov": null,
+            "status": "ID:prop:text:Дом:status",
+            "storyTime": null
           },
           "statusOptions": []
         },
@@ -729,11 +733,15 @@
           "properties": {
             "anchors": "ID:prop:text:Лес:anchors",
             "arcs": "ID:prop:text:Лес:arcs",
+            "characters": null,
             "format": "ID:prop:text:Лес:format",
             "level": "ID:prop:text:Лес:level",
             "order": "ID:prop:text:Лес:order",
             "parent": "ID:prop:text:Лес:parent",
-            "status": "ID:prop:text:Лес:status"
+            "places": null,
+            "pov": null,
+            "status": "ID:prop:text:Лес:status",
+            "storyTime": null
           },
           "statusOptions": []
         },
@@ -814,11 +822,15 @@
           "properties": {
             "anchors": "ID:prop:text:Одна:anchors",
             "arcs": "ID:prop:text:Одна:arcs",
+            "characters": null,
             "format": "ID:prop:text:Одна:format",
             "level": "ID:prop:text:Одна:level",
             "order": "ID:prop:text:Одна:order",
             "parent": "ID:prop:text:Одна:parent",
-            "status": "ID:prop:text:Одна:status"
+            "places": null,
+            "pov": null,
+            "status": "ID:prop:text:Одна:status",
+            "storyTime": null
           },
           "statusOptions": []
         },

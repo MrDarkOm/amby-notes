@@ -33,8 +33,9 @@ use super::journal::{
 };
 use super::model::{
     AddStoryLinksRequest, AddedStoryLinks, CreateWorkshopEntityRequest, CreatedWorkshopEntity,
-    EnsurePlotLinksRequest, EnsuredPlotLinks, PlotLinksTarget, ProjectError, ROLE_ANCHORS,
-    ROLE_ARCS, ROLE_NOTES, ROLE_STORIES, ROLE_UNIVERSES, WORKSHOP_FILE_NAME,
+    EnsurePlotLinksRequest, EnsuredPlotLinks, PlotLinksTarget, ProjectError, TextLinkPart,
+    ROLE_ANCHORS, ROLE_ARCS, ROLE_CHARACTERS, ROLE_LOCATIONS, ROLE_NOTES, ROLE_STORIES,
+    ROLE_UNIVERSES, WORKSHOP_FILE_NAME,
 };
 use super::notebooks::resolve_notebook_dir;
 use super::presets::{is_link_label, link_property_name, links_to_stories};
@@ -62,6 +63,14 @@ pub enum LinkKind {
     Anchors,
     /// A text page, or an anchor, to arcs: many.
     Arcs,
+    /// A text page to the characters in it: many.
+    Characters,
+    /// A text page to the character whose eyes it is told through: at most one.
+    Pov,
+    /// A text page to the locations where it happens: many.
+    Places,
+    /// When a text page happens in the story's own time: a text property, not a relation.
+    StoryTime,
 }
 
 impl LinkKind {
@@ -72,12 +81,16 @@ impl LinkKind {
             Self::Universe => "universe",
             Self::Anchors => "anchors",
             Self::Arcs => "arcs",
+            Self::Characters => "characters",
+            Self::Pov => "pov",
+            Self::Places => "places",
+            Self::StoryTime => "storyTime",
         }
     }
 
     fn limit(self) -> Option<u8> {
         match self {
-            Self::Universe => Some(1),
+            Self::Universe | Self::Pov => Some(1),
             _ => None,
         }
     }
@@ -198,28 +211,44 @@ pub fn plan_links(
                 continue;
             }
         }
+        let name = link_property_name(labels, wish.kind.name())?;
         if adopt {
-            let existing = parsed
-                .value
-                .properties
-                .iter()
-                .find_map(|property| match property {
-                    PropertyDefinition::Relation(fields)
-                        if fields.config.target_database_id == wish.target_database_id
-                            && fields.config.max_items == wish.kind.limit()
-                            && fields.config.inverse_property_id.is_none() =>
-                    {
-                        Some(fields.id.clone())
-                    }
-                    _ => None,
-                });
+            let existing = if wish.kind == LinkKind::StoryTime {
+                // A text property has no target to recognise it by: its name is what says it.
+                parsed
+                    .value
+                    .properties
+                    .iter()
+                    .find_map(|property| match property {
+                        PropertyDefinition::Text(fields)
+                            if fields.name.trim().to_lowercase() == name.trim().to_lowercase() =>
+                        {
+                            Some(fields.id.clone())
+                        }
+                        _ => None,
+                    })
+            } else {
+                parsed
+                    .value
+                    .properties
+                    .iter()
+                    .find_map(|property| match property {
+                        PropertyDefinition::Relation(fields)
+                            if fields.config.target_database_id == wish.target_database_id
+                                && fields.config.max_items == wish.kind.limit()
+                                && fields.config.inverse_property_id.is_none() =>
+                        {
+                            Some(fields.id.clone())
+                        }
+                        _ => None,
+                    })
+            };
             if let Some(property_id) = existing {
                 outcomes.push(LinkOutcome::Adopted(property_id));
                 continue;
             }
         }
 
-        let name = link_property_name(labels, wish.kind.name())?;
         let taken = |existing: Option<&str>| {
             existing.is_some_and(|existing| existing.trim().eq_ignore_ascii_case(&name))
         };
@@ -235,13 +264,17 @@ pub fn plan_links(
                 reason: "a property with this name already exists".to_owned(),
             });
         }
-        let (definition, ids) = builder.add("relation", &name, &[], &|spec| {
-            spec.relation_target_database_id = Some(wish.target_database_id.to_owned());
-            spec.relation_two_way = Some(false);
-            if wish.kind.limit() == Some(1) {
-                spec.relation_max_items = Some(1);
-            }
-        })?;
+        let (definition, ids) = if wish.kind == LinkKind::StoryTime {
+            builder.add("text", &name, &[], &|_| {})?
+        } else {
+            builder.add("relation", &name, &[], &|spec| {
+                spec.relation_target_database_id = Some(wish.target_database_id.to_owned());
+                spec.relation_two_way = Some(false);
+                if wish.kind.limit() == Some(1) {
+                    spec.relation_max_items = Some(1);
+                }
+            })?
+        };
         let property: PropertyDefinition =
             serde_json::from_value(definition).map_err(|error| io_failure("deserialize", error))?;
         added.push(property);
@@ -544,6 +577,55 @@ struct PlotPlan {
     result: EnsuredPlotLinks,
 }
 
+/// One link property of a story's text: the part a request names, the kind of property, its key
+/// in `text.properties` of `amby-story.json`, and the role of the database it points at (none for
+/// the story time, a text property).
+struct TextLink {
+    part: TextLinkPart,
+    kind: LinkKind,
+    key: &'static str,
+    role: Option<&'static str>,
+}
+
+const TEXT_LINKS: [TextLink; 6] = [
+    TextLink {
+        part: TextLinkPart::Anchors,
+        kind: LinkKind::Anchors,
+        key: "anchors",
+        role: Some(ROLE_ANCHORS),
+    },
+    TextLink {
+        part: TextLinkPart::Arcs,
+        kind: LinkKind::Arcs,
+        key: "arcs",
+        role: Some(ROLE_ARCS),
+    },
+    TextLink {
+        part: TextLinkPart::Characters,
+        kind: LinkKind::Characters,
+        key: "characters",
+        role: Some(ROLE_CHARACTERS),
+    },
+    TextLink {
+        part: TextLinkPart::Pov,
+        kind: LinkKind::Pov,
+        key: "pov",
+        role: Some(ROLE_CHARACTERS),
+    },
+    TextLink {
+        part: TextLinkPart::Places,
+        kind: LinkKind::Places,
+        key: "places",
+        role: Some(ROLE_LOCATIONS),
+    },
+    TextLink {
+        part: TextLinkPart::StoryTime,
+        kind: LinkKind::StoryTime,
+        key: "storyTime",
+        role: None,
+    },
+];
+
 /// The database of a section role that the workshop has and that is on disk.
 fn existing_database(env: &Env, sections: &[WorkshopSectionDoc], role: &str) -> Option<String> {
     let section = sections.iter().find(|section| section.role == role)?;
@@ -572,13 +654,28 @@ pub fn ensure_plot_links(
             });
         }
     }
-    let revision = request_revision(&json!({
+    if request.parts.is_some() && request.target != PlotLinksTarget::Story {
+        return Err(ProjectError::InvalidName {
+            field: "parts".to_owned(),
+            reason: "parts are for the text of a story".to_owned(),
+        });
+    }
+    let mut revised = json!({
         "workshopId": request.workshop_id,
         "target": request.target,
         "storyId": request.story_id,
         "expectedRevision": request.expected_revision,
         "labels": request.labels,
-    }))?;
+    });
+    // A request without parts keeps the revision it had before parts existed, so a journal of
+    // an earlier version is still recognised as the same request.
+    if let Some(parts) = &request.parts {
+        let mut parts = parts.clone();
+        parts.sort();
+        parts.dedup();
+        revised["parts"] = json!(parts);
+    }
+    let revision = request_revision(&revised)?;
 
     let resumed = match replay(env, &request.operation_id, OP_ENSURE_PLOT_LINKS, &revision)? {
         Replay::Fresh => None,
@@ -756,27 +853,36 @@ fn plan_story_links(
             .map(str::to_owned)
     };
     let sections = &workshop.doc.sections;
-    let anchors = existing_database(env, sections, ROLE_ANCHORS);
-    let arcs = existing_database(env, sections, ROLE_ARCS);
-    let (recorded_anchors, recorded_arcs) = (recorded("anchors"), recorded("arcs"));
-
+    let wanted: &[TextLinkPart] = request
+        .parts
+        .as_deref()
+        .unwrap_or(&[TextLinkPart::Anchors, TextLinkPart::Arcs]);
+    // Per part: its recorded ID and, when it is asked for and can be made, its target database.
+    let slots: Vec<(TextLinkPart, Option<String>, Option<String>)> = TEXT_LINKS
+        .iter()
+        .map(|link| {
+            let target = if !wanted.contains(&link.part) {
+                None
+            } else if let Some(role) = link.role {
+                existing_database(env, sections, role)
+            } else {
+                Some(String::new())
+            };
+            (link.part, recorded(link.key), target)
+        })
+        .collect();
     let mut wishes = Vec::new();
-    let anchors_at = anchors.as_ref().map(|database_id| {
-        wishes.push(LinkWish {
-            kind: LinkKind::Anchors,
-            target_database_id: database_id,
-            recorded: recorded_anchors.as_deref(),
-        });
-        wishes.len() - 1
-    });
-    let arcs_at = arcs.as_ref().map(|database_id| {
-        wishes.push(LinkWish {
-            kind: LinkKind::Arcs,
-            target_database_id: database_id,
-            recorded: recorded_arcs.as_deref(),
-        });
-        wishes.len() - 1
-    });
+    let mut wish_at: Vec<Option<usize>> = Vec::with_capacity(slots.len());
+    for ((_, recorded_id, target), link) in slots.iter().zip(TEXT_LINKS.iter()) {
+        wish_at.push(target.as_ref().map(|database_id| {
+            wishes.push(LinkWish {
+                kind: link.kind,
+                target_database_id: database_id,
+                recorded: recorded_id.as_deref(),
+            });
+            wishes.len() - 1
+        }));
+    }
 
     // A resume writes what the journal planned.
     if let Some(journal) = resumed {
@@ -792,17 +898,19 @@ fn plan_story_links(
         }
     }
 
-    let (anchors_id, arcs_id, changed, write) = if wishes.is_empty() {
-        let live = |id: Option<String>| {
-            id.filter(|id| {
-                found
-                    .manifest
-                    .properties
-                    .iter()
-                    .any(|property| property.id() == Some(id.as_str()))
-            })
-        };
-        (live(recorded_anchors), live(recorded_arcs), false, None)
+    // A part not asked for (or that cannot be made yet) is reported as it is, if it is still there.
+    let live = |id: &Option<String>| {
+        id.clone().filter(|id| {
+            found
+                .manifest
+                .properties
+                .iter()
+                .any(|property| property.id() == Some(id.as_str()))
+        })
+    };
+    let (ids, changed, write) = if wishes.is_empty() {
+        let ids: Vec<Option<String>> = slots.iter().map(|(_, id, _)| live(id)).collect();
+        (ids, false, None)
     } else {
         let planned_links = plan_links(
             env.vault,
@@ -812,12 +920,25 @@ fn plan_story_links(
             &request.labels,
             true,
         )?;
+        let ids = slots
+            .iter()
+            .zip(&wish_at)
+            .map(|((_, id, _), at)| match at {
+                Some(_) => outcome_id(&planned_links.outcomes, *at),
+                None => live(id),
+            })
+            .collect();
         (
-            outcome_id(&planned_links.outcomes, anchors_at),
-            outcome_id(&planned_links.outcomes, arcs_at),
+            ids,
             planned_links.outcomes.iter().any(LinkOutcome::is_change),
             planned_links.write,
         )
+    };
+    let id_of = |part: TextLinkPart| {
+        slots
+            .iter()
+            .position(|(slot, _, _)| *slot == part)
+            .and_then(|index| ids[index].clone())
     };
 
     let result = EnsuredPlotLinks {
@@ -825,13 +946,13 @@ fn plan_story_links(
         workshop_id: request.workshop_id.clone(),
         target: PlotLinksTarget::Story,
         story_id,
-        anchors_property_id: anchors_id,
-        arcs_property_id: arcs_id,
+        anchors_property_id: id_of(TextLinkPart::Anchors),
+        arcs_property_id: id_of(TextLinkPart::Arcs),
         universe_property_id: None,
-        characters_property_id: None,
-        pov_property_id: None,
-        places_property_id: None,
-        story_time_property_id: None,
+        characters_property_id: id_of(TextLinkPart::Characters),
+        pov_property_id: id_of(TextLinkPart::Pov),
+        places_property_id: id_of(TextLinkPart::Places),
+        story_time_property_id: id_of(TextLinkPart::StoryTime),
         revision: found.story_doc.revision.clone(),
         changed,
         replayed: false,
@@ -863,8 +984,14 @@ fn story_plan(
 ) -> Option<PlotPlan> {
     let document = with_text_plot_properties(
         &found.story_doc.raw,
-        result.anchors_property_id.as_deref(),
-        result.arcs_property_id.as_deref(),
+        &[
+            ("anchors", result.anchors_property_id.as_deref()),
+            ("arcs", result.arcs_property_id.as_deref()),
+            ("characters", result.characters_property_id.as_deref()),
+            ("pov", result.pov_property_id.as_deref()),
+            ("places", result.places_property_id.as_deref()),
+            ("storyTime", result.story_time_property_id.as_deref()),
+        ],
     )
     .ok()?;
     let bytes = document_bytes(&document, found.story_doc.has_bom).ok()?;

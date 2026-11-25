@@ -117,6 +117,10 @@ function text(withProperties: boolean) {
       status: null,
       anchors: withProperties ? "tanc" : null,
       arcs: withProperties ? "tarc" : null,
+      characters: null,
+      pov: null,
+      places: null,
+      storyTime: null,
     },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
