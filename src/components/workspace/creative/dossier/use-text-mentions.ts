@@ -26,6 +26,8 @@ export function useTextMentions(
   mentions: TextMention[]
   /** The row and story of a page of the text, for binding it. */
   pageOf: (noteId: string) => { story: StorySummary; row: DatabaseRow } | null
+  /** Where a page stands in the reading order of the texts (unknown pages last). */
+  rankOf: (noteId: string) => number
 } {
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const texts = React.useMemo(
@@ -89,5 +91,9 @@ export function useTextMentions(
     return mentions.sort((left, right) => at(left.noteId) - at(right.noteId))
   }, [dossier.context.row.noteId, linked, pages, rank, searches])
   const pageOf = React.useCallback((noteId: string) => places.get(noteId) ?? null, [places])
-  return { mentions, pageOf }
+  const rankOf = React.useCallback(
+    (noteId: string) => rank.get(noteId) ?? Number.MAX_SAFE_INTEGER,
+    [rank],
+  )
+  return { mentions, pageOf, rankOf }
 }

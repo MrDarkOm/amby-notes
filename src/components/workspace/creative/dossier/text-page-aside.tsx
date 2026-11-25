@@ -28,6 +28,7 @@ import {
   storySection,
 } from "../workshop/workshop-model"
 import { Block } from "./block"
+import { SceneBlock } from "./scene-block"
 
 interface TextPageAsideProps {
   workshop: WorkshopSummary
@@ -304,6 +305,7 @@ export function TextPageAside({
         </>
       )}
       {binding.error?.rowId === noteId && <NoticeLine text={binding.error.text} role="status" />}
+      <SceneBlock workshop={workshop} story={story} noteId={noteId} locked={locked} />
     </aside>
   )
 }

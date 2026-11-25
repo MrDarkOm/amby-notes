@@ -135,7 +135,7 @@ export function entityTabs(
 /** The workshop section for notes or anchors. */
 export function storySection(
   workshop: WorkshopSummary | null,
-  role: "notes" | "anchors",
+  role: "notes" | "anchors" | "characters" | "locations",
 ): WorkshopSectionSummary | null {
   return workshop?.sections.find((s) => s.role === role && s.state !== "missing") ?? null
 }
