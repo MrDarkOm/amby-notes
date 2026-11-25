@@ -7,7 +7,7 @@ import { useCoverResolver } from "../../database/layouts/use-cover-resolver"
 import { DanglingStoryLink } from "../workshop/dangling-story-link"
 import { PortraitDot } from "../workshop/portrait-dot"
 import { initialsOf } from "../workshop/workshop-model"
-import { characterFieldPriority, dossierStories } from "./dossier-model"
+import { characterFieldPriority, dossierStories, sectionFill } from "./dossier-model"
 import type { NoteDossier } from "./use-note-dossier"
 
 /**
@@ -15,7 +15,16 @@ import type { NoteDossier } from "./use-note-dossier"
  * The name is the page's own title above it. Values are read from the note's frontmatter
  * through the database; nothing here is stored.
  */
-export function DossierHeader({ dossier, locked }: { dossier: NoteDossier; locked?: boolean }) {
+export function DossierHeader({
+  dossier,
+  locked,
+  content,
+}: {
+  dossier: NoteDossier
+  locked?: boolean
+  /** The page's Markdown, to say how many of its sections are written. */
+  content: string
+}) {
   const { t, i18n } = useTranslation()
   const { context, world } = dossier
   const isCharacter = world.section.role === "characters"
@@ -31,6 +40,23 @@ export function DossierHeader({ dossier, locked }: { dossier: NoteDossier; locke
   const hidden = context.properties
     .filter((property) => property.propertyType === "files" || property.propertyType === "relation")
     .map((property) => property.propertyId)
+  const shown = cardProperties(context.row.valuesJson, properties, {
+    exclude: hidden,
+    limit: 8,
+    locale: i18n.language,
+  })
+  // A character's role and importance are what a reader looks for first: when empty they are
+  // still named, quietly, so the author sees what is missing.
+  const shownIds = new Set(shown.map((property) => property.propertyId))
+  const missing = isCharacter
+    ? properties.filter(
+        (property) =>
+          characterFieldPriority(property.name) < 2 &&
+          !shownIds.has(property.propertyId) &&
+          !hidden.includes(property.propertyId),
+      )
+    : []
+  const fill = sectionFill(content)
 
   return (
     <header className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -66,11 +92,7 @@ export function DossierHeader({ dossier, locked }: { dossier: NoteDossier; locke
           locked={locked || context.locked}
         />
         <dl className="flex flex-col gap-1">
-          {cardProperties(context.row.valuesJson, properties, {
-            exclude: hidden,
-            limit: 8,
-            locale: i18n.language,
-          }).map((property) => (
+          {shown.map((property) => (
             <div
               key={property.propertyId}
               className="grid grid-cols-[minmax(5rem,30%)_minmax(0,1fr)] items-start gap-2"
@@ -83,7 +105,25 @@ export function DossierHeader({ dossier, locked }: { dossier: NoteDossier; locke
               </dd>
             </div>
           ))}
+          {missing.map((property) => (
+            <div
+              key={property.propertyId}
+              className="grid grid-cols-[minmax(5rem,30%)_minmax(0,1fr)] items-start gap-2"
+            >
+              <dt className="truncate pt-0.5 text-xs text-muted-foreground" title={property.name}>
+                {property.name}
+              </dt>
+              <dd className="pt-0.5 text-xs text-muted-foreground/70">
+                {t("creative.dossier.notSet")}
+              </dd>
+            </div>
+          ))}
         </dl>
+        {fill.total > 1 && (
+          <p className="text-xs text-muted-foreground">
+            {t("creative.dossier.filled", { filled: fill.filled, count: fill.total })}
+          </p>
+        )}
       </div>
     </header>
   )

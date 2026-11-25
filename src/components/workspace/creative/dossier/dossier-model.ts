@@ -127,6 +127,53 @@ export function extractToc(markdown: string): TocEntry[] {
   return entries
 }
 
+/**
+ * How much of a dossier is written: its sections are the headings of the highest level on the
+ * page (as its tabs are), and a section is filled when text stands under it (under a deeper
+ * heading too; the deeper heading alone does not count). Fenced code and the frontmatter are not
+ * headings.
+ */
+export function sectionFill(markdown: string): { filled: number; total: number } {
+  const lines = withoutBom(markdown).split(/\r?\n/u)
+  let start = 0
+  if (lines[0]?.trim() === "---") {
+    const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
+    if (end > 0) start = end + 1
+  }
+  const blocks: { level: number | null; text: string }[] = []
+  let fence: string | null = null
+  for (const line of lines.slice(start)) {
+    const marker = /^\s{0,3}(`{3,}|~{3,})/u.exec(line)?.[1]
+    if (marker) {
+      if (fence === null) fence = marker[0]
+      else if (marker[0] === fence) fence = null
+      blocks.push({ level: null, text: line })
+      continue
+    }
+    const heading = fence === null ? /^\s{0,3}(#{1,6})\s+\S/u.exec(line) : null
+    blocks.push({ level: heading ? heading[1].length : null, text: line })
+  }
+  const levels = blocks.flatMap((block) => (block.level === null ? [] : [block.level]))
+  if (levels.length === 0) return { filled: 0, total: 0 }
+  const top = Math.min(...levels)
+  let total = 0
+  let filled = 0
+  let current = false
+  for (const block of blocks) {
+    if (block.level === top) {
+      total += 1
+      current = false
+      continue
+    }
+    // A deeper heading alone is not content: an empty template stays empty.
+    if (total > 0 && !current && block.level === null && block.text.trim() !== "") {
+      current = true
+      filled += 1
+    }
+  }
+  return { filled, total }
+}
+
 export interface ReferenceGroup {
   key: string
   /** The relation property's name, e.g. "Участники". */

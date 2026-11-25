@@ -230,6 +230,34 @@ describe("DossierFrame", () => {
     expect(within(aside).getByText("Боб")).toBeTruthy()
   })
 
+  it("shows how much of the dossier is filled and asks for the key fields left empty", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    const entry = context("db_characters")
+    entry.row.valuesJson = JSON.stringify({
+      story: { type: "relation", targetNoteIds: ["note_molehills_story"] },
+    })
+    storage.getDatabaseNoteContext.mockResolvedValue(entry)
+    render(
+      <CreativeNoteProvider noteId="n1">
+        <DossierFrame
+          noteId="n1"
+          content={"## Основное\n\nПилот.\n\n## Характеристика\n\n## Биография\n"}
+          canJump
+          scrollToHeading={vi.fn()}
+        >
+          <div />
+        </DossierFrame>
+      </CreativeNoteProvider>,
+    )
+    await settle()
+    const header = screen.getByRole("banner")
+    expect(within(header).getByText("Заполнено 1 из 3 разделов")).toBeTruthy()
+    // The role and the importance are empty: they are named, with a quiet "not set".
+    expect(within(header).getByText("Роль")).toBeTruthy()
+    expect(within(header).getByText("Значимость")).toBeTruthy()
+    expect(within(header).getAllByText("не указано")).toHaveLength(2)
+  })
+
   it("never remounts the editor when the answer arrives", async () => {
     act(() => useProjectStore.getState().setCatalog(catalog([story])))
     storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))

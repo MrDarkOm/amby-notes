@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { NoteReference } from "@/lib/storage"
 import { catalog, project, section, universeCatalog } from "../project-fixtures.test-support"
-import { extractToc, splitReferences, worldSectionOf } from "./dossier-model"
+import { extractToc, sectionFill, splitReferences, worldSectionOf } from "./dossier-model"
 
 describe("worldSectionOf", () => {
   it("finds the section of a world database and the project it is in", () => {
@@ -22,6 +22,34 @@ describe("worldSectionOf", () => {
       project("p", { sections: [section("c", { role: "characters", state: "missing" })] }),
     ])
     expect(worldSectionOf(broken, "db_c")).toBeNull()
+  })
+})
+
+describe("sectionFill", () => {
+  it("counts the sections of the page that have anything under their heading", () => {
+    const markdown = [
+      "---",
+      "role: hero",
+      "---",
+      "## Основное",
+      "Пилот, 27 лет.",
+      "## Характеристика",
+      "",
+      "## Внешность",
+      "### Приметы",
+      "Шрам на щеке.",
+      "## Биография",
+      "   ",
+    ].join("\n")
+    expect(sectionFill(markdown)).toEqual({ filled: 2, total: 4 })
+  })
+
+  it("uses the highest heading level and ignores headings inside code", () => {
+    expect(sectionFill("# Имя\n\n## A\nтекст\n## B\n```\n## C\n```\n")).toEqual({
+      filled: 1,
+      total: 1,
+    })
+    expect(sectionFill("Просто текст без разделов.")).toEqual({ filled: 0, total: 0 })
   })
 })
 
