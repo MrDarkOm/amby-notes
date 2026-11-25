@@ -8,6 +8,7 @@ import { characterArcs } from "../workshop/plot-views"
 import { extractToc, splitReferences } from "./dossier-model"
 import { ArcBlocks, CharacterArcsBlock } from "./plot-blocks"
 import type { NoteDossier } from "./use-note-dossier"
+import { useTextMentions } from "./use-text-mentions"
 
 interface DossierAsideProps {
   dossier: NoteDossier
@@ -86,20 +87,31 @@ export function DossierAside({
     role === "characters"
       ? characterArcs(dossier.references, arcsSection?.charactersPropertyId ?? null)
       : []
+  // A character's header shows its stories, so the "Stories" relation is not repeated here.
+  const storiesProperty = role === "characters" ? dossier.world.section.storiesPropertyId : null
   const split = splitReferences(
     dossier.references,
     textDbIds,
     (reference) =>
-      reference.direction === "in" &&
-      ((role === "characters" &&
-        arcsSection?.charactersPropertyId != null &&
-        reference.propertyId === arcsSection.charactersPropertyId) ||
-        (isArc &&
-          anchorsSection?.arcsPropertyId != null &&
-          reference.propertyId === anchorsSection.arcsPropertyId)),
+      (reference.direction === "out" &&
+        storiesProperty != null &&
+        reference.propertyId === storiesProperty) ||
+      (reference.direction === "in" &&
+        ((role === "characters" &&
+          arcsSection?.charactersPropertyId != null &&
+          reference.propertyId === arcsSection.charactersPropertyId) ||
+          (isArc &&
+            anchorsSection?.arcsPropertyId != null &&
+            reference.propertyId === anchorsSection.arcsPropertyId))),
   )
   // An arc's chapters are the pages of the text that point at it, so they replace "Appears in".
   const hasText = textDbIds.size > 0 && !isArc
+  const linkedKey = split.appearsIn.map((reference) => reference.noteId).join("\n")
+  const linked = React.useMemo(() => new Set(linkedKey ? linkedKey.split("\n") : []), [linkedKey])
+  const mentions = useTextMentions(dossier, hasText ? content : "", linked)
+  const showsMentions = hasText && mentions.length > 0
+  // With one story the story's name on every row says nothing.
+  const texts = textDbIds.size
 
   return (
     <aside
@@ -131,7 +143,7 @@ export function DossierAside({
 
       {hasText && (
         <Block title={t("creative.dossier.appearsIn")}>
-          {split.appearsIn.length === 0 ? (
+          {split.appearsIn.length === 0 && !showsMentions ? (
             <p className="px-2 text-xs text-muted-foreground">
               {t("creative.dossier.appearsInEmpty")}
             </p>
@@ -144,6 +156,29 @@ export function DossierAside({
                   onOpenNote={onOpenNote}
                 />
               ))}
+              {showsMentions && (
+                <>
+                  <span className="px-2 pt-1 text-[11px] text-muted-foreground">
+                    {t("creative.dossier.foundByName")}
+                  </span>
+                  {mentions.map((mention) => (
+                    <button
+                      key={mention.noteId}
+                      type="button"
+                      className="flex min-w-0 items-baseline gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50"
+                      title={`${mention.storyName} · …${mention.snippet}…`}
+                      onClick={() => onOpenNote?.(mention.noteId)}
+                    >
+                      <span className="truncate">{mention.title}</span>
+                      {texts > 1 && (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {mention.storyName}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </Block>

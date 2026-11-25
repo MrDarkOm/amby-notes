@@ -124,6 +124,12 @@ export function notePageContains(state: NotePagesState | undefined, offset: numb
   return !page || (offset >= page.from && offset < page.to)
 }
 
+/** The heading at `offset` starts the open page, and that page has nothing under it. */
+export function isEmptyOpenPageHeading(state: NotePagesState | undefined, offset: number): boolean {
+  const page = currentPage(state)
+  return Boolean(page && page.heading === offset && page.body >= page.to)
+}
+
 export function setNotePages(editor: Editor, enabled: boolean, index?: number) {
   const state = notePagesKey.getState(editor.state)
   if (!state || (state.enabled === enabled && (index === undefined || state.active === index))) {
@@ -259,8 +265,16 @@ function editorOf(view: EditorView): Editor | undefined {
   return (view.dom as HTMLElement & { editor?: Editor }).editor
 }
 
-/** @param emptyLabel The invitation shown on a page that has nothing under its heading. */
-export function notePagesPlugin(level: NotePagesLevel = "top", emptyLabel = "") {
+/**
+ * @param emptyLabel The invitation shown on a page that has nothing under its heading.
+ * @param hints What to write under a heading of a known name; an empty page of such a heading
+ *   shows its hint instead of the generic invitation, so there is one line, not two.
+ */
+export function notePagesPlugin(
+  level: NotePagesLevel = "top",
+  emptyLabel = "",
+  hints?: ReadonlyMap<string, string> | null,
+) {
   return new Plugin<NotePagesState>({
     key: notePagesKey,
     state: {
@@ -350,6 +364,7 @@ export function notePagesPlugin(level: NotePagesLevel = "top", emptyLabel = "") 
           }
         })
         if (page.body >= page.to) {
+          const label = (page.title !== null && hints?.get(page.title.trim())) || emptyLabel
           decorations.push(
             Decoration.widget(
               page.to,
@@ -357,7 +372,7 @@ export function notePagesPlugin(level: NotePagesLevel = "top", emptyLabel = "") 
                 const line = document.createElement("p")
                 line.setAttribute("data-note-page-empty", "")
                 line.className = "amby-note-page-empty"
-                line.textContent = emptyLabel
+                line.textContent = label
                 line.contentEditable = "false"
                 line.addEventListener("mousedown", (event) => {
                   event.preventDefault()
@@ -367,7 +382,7 @@ export function notePagesPlugin(level: NotePagesLevel = "top", emptyLabel = "") 
                 })
                 return line
               },
-              { side: -1, key: `empty-${page.to}-${emptyLabel}` },
+              { side: -1, key: `empty-${page.to}-${label}` },
             ),
           )
         }

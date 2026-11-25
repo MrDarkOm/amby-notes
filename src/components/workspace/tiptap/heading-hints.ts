@@ -1,5 +1,5 @@
 import { Plugin, PluginKey } from "@tiptap/pm/state"
-import { notePageContains, notePagesKey } from "./note-pages"
+import { isEmptyOpenPageHeading, notePageContains, notePagesKey } from "./note-pages"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 
 export const headingHintsKey = new PluginKey("headingHints")
@@ -34,8 +34,9 @@ export function headingHintsPlugin(hints: ReadonlyMap<string, string>) {
           if (node.type.name === "heading") {
             finish()
             const text = hints.get(node.textContent.trim())
+            // An empty open page already shows this hint as its only line (see note-pages).
             empty =
-              text && notePageContains(pages, offset)
+              text && notePageContains(pages, offset) && !isEmptyOpenPageHeading(pages, offset)
                 ? { position: offset + node.nodeSize, text }
                 : undefined
           } else if (node.type.name !== "paragraph" || node.content.size > 0) {

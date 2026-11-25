@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { SearchResult } from "@/lib/storage"
-import { collectMentions, mentionNames, mentionsName } from "./mention-model"
+import { collectMentions, mentionNames, mentionsName, searchQueries } from "./mention-model"
 
 function result(id: string, snippet: string | null, title = id): SearchResult {
   return {
-    note: { id, path: `/vault/${id}.md`, title, modified: null, wordCount: 0 },
+    note: { id, path: `/vault/${id}.md`, title, wordCount: 0 },
     matchType: "content",
-    snippet,
+    snippet: snippet ?? undefined,
     score: 0,
   }
 }
@@ -33,6 +33,17 @@ describe("mentionNames", () => {
 
   it("does not read aliases outside the frontmatter", () => {
     expect(mentionNames("Evan", "# Evan\n\naliases: [Кей]\n")).toEqual(["Evan"])
+  })
+})
+
+describe("searchQueries", () => {
+  it("also asks for the stem of a declinable name when the stem is long enough", () => {
+    expect(searchQueries(["Алиса", "Кей", "Evan"])).toEqual([
+      { name: "Алиса", query: "Алиса" },
+      { name: "Алиса", query: "Алис" },
+      { name: "Кей", query: "Кей" },
+      { name: "Evan", query: "Evan" },
+    ])
   })
 })
 

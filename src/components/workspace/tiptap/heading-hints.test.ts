@@ -37,7 +37,8 @@ it("shows one invitation on an empty note page: the section's hint instead of th
   const editor = new Editor({
     extensions: [StarterKit],
     element: document.createElement("div"),
-    content: "<h2>Details</h2><p>Age 27</p><h2>History</h2><h2>Other</h2>",
+    // The last page is not empty: the editor keeps a paragraph after a closing heading.
+    content: "<h2>Details</h2><p>Age 27</p><h2>History</h2><h2>Other</h2><h2>End</h2><p>x</p>",
   })
   try {
     editor.registerPlugin(notePagesPlugin("top", "Start writing", hints))

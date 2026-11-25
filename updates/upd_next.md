@@ -1,5 +1,7 @@
 # Amby — Next version
 
+- Creative workshop: a dossier's “Appears in” also lists the story pages that mention the character or place by name, under “Found by name”: the full name, each part of a multi-word name, and the `aliases` of the note header, with common Russian endings (“Кея”, “Алисы”). Hover a page to see the matching passage. Nothing is linked or written. A character's stories show only in the header now, not again under Connections. An empty dossier page shows only that section's hint, without the general “Start writing” line.
+
 - Supernotes are now called Bundles in English (Мультизаметки in Russian) and have a dedicated icon in Settings and in the workspace.
 
 - Creative workshop: all reference dossiers can open their sections as tabs, including arcs, anchors, and custom sections. Use “Whole note” to see the full dossier, or turn off “Pages in this note” in its menu to keep it in one view.
