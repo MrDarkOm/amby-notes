@@ -381,6 +381,61 @@ describe("DossierFrame", () => {
     )
   })
 
+  it("shows the story time and the point of view of the chapters a character is in", async () => {
+    const timed = {
+      ...story,
+      stories: story.stories.map((entry) => ({
+        ...entry,
+        text: entry.text && {
+          ...entry.text,
+          properties: {
+            ...entry.text.properties,
+            characters: "who",
+            pov: "eyes",
+            storyTime: "when",
+          },
+        },
+      })),
+    }
+    act(() => useProjectStore.getState().setCatalog(catalog([timed])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([
+      reference({ propertyId: "who", noteId: "chapter-1", title: "Глава первая" }),
+      reference({ propertyId: "eyes", noteId: "chapter-2", title: "Глава вторая" }),
+      reference({ propertyId: "who", noteId: "chapter-2", title: "Глава вторая" }),
+    ])
+    const page = (noteId: string, title: string, values: Record<string, unknown>) => ({
+      ...context("db_text").row,
+      noteId,
+      title,
+      valuesJson: JSON.stringify(values),
+    })
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_text"
+          ? [
+              page("chapter-1", "Глава первая", {
+                who: { type: "relation", targetNoteIds: ["n1"] },
+                when: { type: "text", value: "День 1" },
+              }),
+              page("chapter-2", "Глава вторая", {
+                who: { type: "relation", targetNoteIds: ["n1"] },
+                eyes: { type: "relation", targetNoteIds: ["n1"] },
+              }),
+            ]
+          : [],
+      nextCursor: null,
+    }))
+    mount()
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    expect(within(aside).getByText("День 1")).toBeTruthy()
+    expect(within(aside).getByText("точка зрения")).toBeTruthy()
+    // A chapter linked twice (in it and through its eyes) is listed once.
+    expect(within(aside).getAllByText("Глава вторая")).toHaveLength(1)
+  })
+
   it("does not repeat the stories of the header among the connections", async () => {
     act(() => useProjectStore.getState().setCatalog(catalog([story])))
     storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
