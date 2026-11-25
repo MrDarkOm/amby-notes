@@ -17,6 +17,7 @@ const storage = vi.hoisted(() => ({
   updateDatabaseRelationValue: vi.fn(),
   searchNotes: vi.fn(),
   queryDatabase: vi.fn(),
+  ensurePlotLinks: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -307,6 +308,77 @@ describe("DossierFrame", () => {
     fireEvent.click(found)
     expect(onOpenNote).toHaveBeenCalledWith("ch2")
     expect(storage.updateDatabaseRelationValue).not.toHaveBeenCalled()
+  })
+
+  it("binds a found chapter to the character, making the text's Characters on first use", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    const chapter = {
+      ...context("db_text").row,
+      noteId: "ch2",
+      title: "Глава вторая",
+      relativePath: "Глава вторая.md",
+      valuesJson: JSON.stringify({ who: { type: "relation", targetNoteIds: ["bob"] } }),
+      rowRevision: "rev-ch2",
+    }
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows: databaseId === "db_text" ? [chapter] : [],
+      nextCursor: null,
+    }))
+    storage.searchNotes.mockImplementation(async (query: string) =>
+      query === "Алиса"
+        ? [
+            {
+              note: { id: "ch2", path: "/v/ch2.md", title: "ch2", wordCount: 1 },
+              matchType: "content",
+              snippet: "и тогда Алиса ушла",
+              score: 1,
+            },
+          ]
+        : [],
+    )
+    storage.ensurePlotLinks.mockReset().mockResolvedValue({
+      operationId: "op",
+      workshopId: "molehills",
+      target: "story",
+      storyId: "molehills_story",
+      anchorsPropertyId: null,
+      arcsPropertyId: null,
+      universePropertyId: null,
+      charactersPropertyId: "who",
+      povPropertyId: null,
+      placesPropertyId: null,
+      storyTimePropertyId: null,
+      revision: "story-rev-2",
+      changed: true,
+      replayed: false,
+      warnings: [],
+    })
+    storage.updateDatabaseRelationValue.mockReset().mockResolvedValue({ warnings: [] })
+    mount()
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    fireEvent.click(within(aside).getByRole("button", { name: "Привязать" }))
+    await settle()
+    // The story's text had no "Characters": it is made first, alone.
+    expect(storage.ensurePlotLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "story",
+        storyId: "molehills_story",
+        parts: ["characters"],
+      }),
+    )
+    // Then the chapter's list gets the character, keeping who was there.
+    expect(storage.updateDatabaseRelationValue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_text",
+        noteId: "ch2",
+        propertyId: "who",
+        targetNoteIds: ["bob", "n1"],
+        expectedRevision: "rev-ch2",
+      }),
+    )
   })
 
   it("does not repeat the stories of the header among the connections", async () => {
