@@ -3614,6 +3614,18 @@ const ru = {
         },
       },
     },
+    // The daily word goal of a story, kept on this device.
+    goal: {
+      label: "Цель на день",
+      set: "Поставить цель на день",
+      perDay: "Слов в день",
+      today: "Сегодня {{written}} из {{goal}} слов",
+      streak: "Серия: {{count}} дн.",
+      streak_one: "Серия: {{count}} дн.",
+      streak_few: "Серия: {{count}} дн.",
+      streak_many: "Серия: {{count}} дн.",
+      remove: "Убрать цель",
+    },
     // The text of a story as cards on its desk.
     board: {
       loose: "Отдельные страницы",
@@ -8316,6 +8328,18 @@ const en: LocaleShape<typeof ru> = {
             'The notebook "{{name}}" was not deleted: it was not found on disk. Refresh the list.',
         },
       },
+    },
+    // The daily word goal of a story, kept on this device.
+    goal: {
+      label: "Daily goal",
+      set: "Set a daily goal",
+      perDay: "Words a day",
+      today: "Today {{written}} of {{goal}} words",
+      streak: "Streak: {{count}} days",
+      streak_one: "Streak: {{count}} day",
+      streak_few: "Streak: {{count}} days",
+      streak_many: "Streak: {{count}} days",
+      remove: "Remove goal",
     },
     // The text of a story as cards on its desk.
     board: {

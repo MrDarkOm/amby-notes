@@ -41,6 +41,11 @@ export interface WorkshopPrefs {
   deskLayoutsByStory?: Record<string, DeskItem[]>
   /** Fold the page plot throughout this vault. */
   plotFolded?: boolean
+  /** The daily word goal of each story and the counts seen by day (`word-goal-model.ts`). */
+  wordGoals?: Record<
+    string,
+    { goal?: number; log?: Record<string, { start: number; last: number }> }
+  >
   /** The choices on the page of a universe and on that of the standalone stories. */
   scopes?: Partial<Record<ScopePrefsKind, ScopePrefs>>
 }

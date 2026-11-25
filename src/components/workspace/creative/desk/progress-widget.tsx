@@ -1,3 +1,4 @@
+import type * as React from "react"
 import { NotebookPen } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -17,13 +18,22 @@ interface ProgressWidgetProps {
   /** Offered only with a vault to read the pages from. */
   onCompile: (() => void) | null
   compile: CompileState
+  /** The daily word goal under the words, when the desk keeps one. */
+  goal?: React.ReactNode
 }
 
 /**
  * How far the story is: pages done of all, a bar in two parts (done, in progress), the words, and
  * "Compile manuscript", which only reads the pages and writes one new file.
  */
-export function ProgressWidget({ pages, words, groups, onCompile, compile }: ProgressWidgetProps) {
+export function ProgressWidget({
+  pages,
+  words,
+  groups,
+  onCompile,
+  compile,
+  goal,
+}: ProgressWidgetProps) {
   const { t } = useTranslation()
   const percent = (count: number) => (pages > 0 ? Math.round((count / pages) * 100) : 0)
   return (
@@ -63,6 +73,7 @@ export function ProgressWidget({ pages, words, groups, onCompile, compile }: Pro
           <b className="font-semibold text-foreground">{words.toLocaleString()}</b>
         </span>
       </p>
+      {goal}
       {onCompile && (
         <Button
           variant="outline"

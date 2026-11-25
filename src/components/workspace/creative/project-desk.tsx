@@ -20,6 +20,8 @@ import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { ChaptersWidget } from "./desk/chapters-widget"
 import { synopsisOf } from "./desk/board-model"
+import { useWordGoal } from "./desk/use-word-goal"
+import { WordGoal } from "./desk/word-goal"
 import { readScene } from "./workshop/scene-model"
 import { DeskControls } from "./desk/desk-controls"
 import { ContinueWidget } from "./desk/continue-widget"
@@ -231,6 +233,10 @@ export function ProjectDesk({
     () => all.reduce((sum, node) => sum + (stats[node.noteId]?.wordCount ?? 0), 0),
     [all, stats],
   )
+  // The daily goal counts only once every page has its words: a half-read count would set the
+  // start of the day too low and credit the author with words already there.
+  const counted = all.length > 0 && all.every((node) => stats[node.noteId] !== undefined)
+  const wordGoal = useWordGoal(vaultPath, resolvedStory?.storyId ?? null, totalWords, counted)
   const groups = React.useMemo(() => {
     if (statusOptions.length === 0) return null
     const of = (group: string) =>
@@ -567,6 +573,17 @@ export function ProjectDesk({
               groups={groups}
               onCompile={vaultPath ? () => void assemble() : null}
               compile={compile}
+              goal={
+                wordGoal.setGoal ? (
+                  <WordGoal
+                    goal={wordGoal.goal}
+                    written={wordGoal.written}
+                    streak={wordGoal.streak}
+                    canEdit={!locked}
+                    onSetGoal={wordGoal.setGoal}
+                  />
+                ) : null
+              }
             />
           </DeskWidget>
         )
