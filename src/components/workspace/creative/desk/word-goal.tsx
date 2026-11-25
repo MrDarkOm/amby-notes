@@ -110,7 +110,7 @@ export function WordGoal({
         className="h-1.5 w-full overflow-hidden rounded-full bg-accent"
       >
         <span
-          className={percent >= 100 ? "block h-full bg-teal-500" : "block h-full bg-primary/60"}
+          className={percent >= 100 ? "block h-full bg-primary" : "block h-full bg-primary/50"}
           style={{ width: `${percent}%` }}
         />
       </div>

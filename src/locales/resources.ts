@@ -8337,8 +8337,6 @@ const en: LocaleShape<typeof ru> = {
       today: "Today {{written}} of {{goal}} words",
       streak: "Streak: {{count}} days",
       streak_one: "Streak: {{count}} day",
-      streak_few: "Streak: {{count}} days",
-      streak_many: "Streak: {{count}} days",
       remove: "Remove goal",
     },
     // The text of a story as cards on its desk.
@@ -8453,8 +8451,6 @@ const en: LocaleShape<typeof ru> = {
       notSet: "not set",
       filled: "{{filled}} of {{count}} sections filled",
       filled_one: "{{filled}} of {{count}} section filled",
-      filled_few: "{{filled}} of {{count}} sections filled",
-      filled_many: "{{filled}} of {{count}} sections filled",
       connections: "Connections",
       connectionsEmpty: "No connections yet.",
       incoming: "Incoming relation",
