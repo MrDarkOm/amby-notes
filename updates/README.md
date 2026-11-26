@@ -29,7 +29,7 @@ Everything here is written in English (owner's decision, 2026-11-17). Notes rele
 ## Version history
 
 - [Next version (in development)](upd_next.md)
-- [0.1.9, beta 8 — 2026-11-19](upd_0.1.9.md)
+- [0.1.9 — 2026-11-26](upd_0.1.9.md)
 - [0.1.8 — 2026-10-16](upd_0.1.8.md)
 - [0.1.7 — 2026-10-11](upd_0.1.7.md)
 - [0.1.6 — 2026-10-02](upd_0.1.6.md)
