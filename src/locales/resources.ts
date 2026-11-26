@@ -3623,6 +3623,32 @@ const ru = {
         },
       },
     },
+    // The editor of a section's dossier template: sections, hints, fields.
+    template: {
+      open: "Шаблон раздела",
+      title: "Шаблон досье",
+      description:
+        "Разделы станут вкладками новых страниц. Подсказка видна, пока раздел пуст. Поля показываются карточкой во вкладке. Уже созданные страницы не меняются.",
+      firstSection: "Основное",
+      section: "Раздел {{number}}",
+      sectionTitle: "Название раздела",
+      hint: "Подсказка",
+      hintPlaceholder: "Что писать в этом разделе…",
+      up: "Выше",
+      down: "Ниже",
+      removeSection: "Удалить раздел «{{name}}»",
+      fields: "Поля:",
+      addField: "Добавить поле",
+      newField: "Новое поле",
+      newFieldHint: "Новое поле — Enter",
+      addSection: "Добавить раздел",
+      save: "Сохранить шаблон",
+      problem: {
+        empty: "В шаблоне нужен хотя бы один раздел.",
+        title: "У каждого раздела нужно название в одну строку, без «#» в начале.",
+        duplicate: "Два раздела называются одинаково.",
+      },
+    },
     // The daily word goal of a story, kept on this device.
     goal: {
       label: "Цель на день",
@@ -8357,6 +8383,32 @@ const en: LocaleShape<typeof ru> = {
           unknown:
             'The notebook "{{name}}" was not deleted: it was not found on disk. Refresh the list.',
         },
+      },
+    },
+    // The editor of a section's dossier template: sections, hints, fields.
+    template: {
+      open: "Section template",
+      title: "Dossier template",
+      description:
+        "Sections become the tabs of new pages. A hint shows while a section is empty. Fields show as a card in their tab. Pages already written do not change.",
+      firstSection: "Basics",
+      section: "Section {{number}}",
+      sectionTitle: "Section name",
+      hint: "Hint",
+      hintPlaceholder: "What to write in this section…",
+      up: "Up",
+      down: "Down",
+      removeSection: "Delete section “{{name}}”",
+      fields: "Fields:",
+      addField: "Add field",
+      newField: "New field",
+      newFieldHint: "New field, then Enter",
+      addSection: "Add section",
+      save: "Save template",
+      problem: {
+        empty: "A template needs at least one section.",
+        title: "Every section needs a one-line name that does not start with “#”.",
+        duplicate: "Two sections have the same name.",
       },
     },
     // The daily word goal of a story, kept on this device.
