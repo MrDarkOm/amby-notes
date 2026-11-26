@@ -384,8 +384,11 @@ function editorOf(view: EditorView): Editor | undefined {
 export function notePagesPlugin(
   level: NotePagesLevel = "top",
   emptyLabel = "",
-  hints?: ReadonlyMap<string, string> | null,
+  /** A function lets the hints change (a template read later) without registering the plugin
+   *  again, which would close the open page. */
+  hints?: ReadonlyMap<string, string> | (() => ReadonlyMap<string, string> | null) | null,
 ) {
+  const hintsOf = () => (typeof hints === "function" ? hints() : hints)
   return new Plugin<NotePagesState>({
     key: notePagesKey,
     state: {
@@ -479,7 +482,7 @@ export function notePagesPlugin(
           }
         })
         if (page.body >= page.to) {
-          const label = (page.title !== null && hints?.get(page.title.trim())) || emptyLabel
+          const label = (page.title !== null && hintsOf()?.get(page.title.trim())) || emptyLabel
           decorations.push(
             Decoration.widget(
               page.to,

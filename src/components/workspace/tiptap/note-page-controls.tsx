@@ -222,17 +222,25 @@ export function NotePageControls({
   const selection = React.useSyncExternalStore(subscribe, () => editor?.state.selection)
   const restoredFor = React.useRef<{ editor: Editor; key: string | null } | null>(null)
 
+  // The hints are read through a ref: a template that arrives later redraws the empty page's line
+  // instead of registering the pages again, which would close the open page.
+  const hintsRef = React.useRef(headingHints)
+  hintsRef.current = headingHints
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return
-    editor.registerPlugin(notePagesPlugin(level, emptyLabel, headingHints), (plugin, plugins) => [
-      plugin,
-      ...plugins,
-    ])
+    editor.registerPlugin(
+      notePagesPlugin(level, emptyLabel, () => hintsRef.current),
+      (plugin, plugins) => [plugin, ...plugins],
+    )
     editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false))
     return () => {
       if (!editor.isDestroyed) editor.unregisterPlugin(notePagesKey)
     }
-  }, [editor, level, emptyLabel, headingHints])
+  }, [editor, level, emptyLabel])
+  React.useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || level === null) return
+    editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false))
+  }, [editor, headingHints, level])
 
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return

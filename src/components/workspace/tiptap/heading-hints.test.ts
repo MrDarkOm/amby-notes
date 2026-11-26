@@ -3,7 +3,7 @@ import { Editor } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
 import { expect, it } from "vitest"
 import { headingHintsPlugin } from "./heading-hints"
-import { notePagesPlugin, setNotePages } from "./note-pages"
+import { notePagesKey, notePagesPlugin, setNotePages } from "./note-pages"
 
 it("decorates only empty sections and keeps the hint out of the document", () => {
   const editor = new Editor({
@@ -58,6 +58,29 @@ it("shows one invitation on an empty note page: the section's hint instead of th
     setNotePages(editor, false)
     expect((editor.view.dom.textContent ?? "").split("The past")).toHaveLength(2)
     expect(editor.getHTML()).not.toContain("The past")
+  } finally {
+    editor.destroy()
+  }
+})
+
+it("follows new hints without registering the pages again, so the open page stays open", () => {
+  let hints: ReadonlyMap<string, string> = new Map([["History", "The past"]])
+  const editor = new Editor({
+    extensions: [StarterKit],
+    element: document.createElement("div"),
+    content: "<h2>Details</h2><p>Age 27</p><h2>History</h2><h2>End</h2><p>x</p>",
+  })
+  try {
+    editor.registerPlugin(notePagesPlugin("top", "Start writing", () => hints))
+    setNotePages(editor, true, 1)
+    expect(editor.view.dom.querySelector("[data-note-page-empty]")?.textContent).toBe("The past")
+    // The template's hints arrive later: a redraw shows them, the pages stay as they were.
+    hints = new Map([["History", "What happened before"]])
+    editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false))
+    expect(editor.view.dom.querySelector("[data-note-page-empty]")?.textContent).toBe(
+      "What happened before",
+    )
+    expect(notePagesKey.getState(editor.state)).toMatchObject({ enabled: true, active: 1 })
   } finally {
     editor.destroy()
   }
