@@ -11,6 +11,9 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
   InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
@@ -591,6 +594,16 @@ export class DesktopAdapter implements StoragePort {
         labels: request.labels ?? {},
       }),
     )
+  }
+
+  async getDossierTemplate(databaseId: string): Promise<DossierTemplate> {
+    return unwrapProjectCommand(await commands.getDossierTemplate(databaseId))
+  }
+
+  async updateDossierTemplate(
+    request: UpdateDossierTemplateRequest,
+  ): Promise<UpdatedDossierTemplate> {
+    return unwrapProjectCommand(await commands.updateDossierTemplate(request))
   }
 
   async ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {

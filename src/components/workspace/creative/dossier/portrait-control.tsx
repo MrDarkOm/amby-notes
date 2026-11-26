@@ -121,7 +121,7 @@ export function PortraitControl({
   const badge = (
     <span
       aria-hidden="true"
-      className="absolute bottom-0 right-0 flex size-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+      className="absolute bottom-0 right-0 flex size-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm group-hover:opacity-100 group-focus-visible:opacity-100"
     >
       <Camera className="size-3.5" />
     </span>

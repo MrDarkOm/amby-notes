@@ -10,6 +10,8 @@
 - Creative workshop: the desk's Chapters widget switches between **List** and **Board**. On the board each part is a column and each page a card with its first paragraph, point of view and story time. Drag a card to move the page; a move the text levels do not allow is refused with the reason.
 - Creative workshop: a dossier header says how many of its sections are written (“2 of 4 sections filled”) and names a character's empty role and importance as “not set”.
 - Creative workshop: set a daily word goal under a story's progress on its desk. It shows today's words against the goal and the days in a row you reached it. The goal is kept on this device only.
+- Creative workshop: set, change or remove a character's portrait (or a place's image) right in its dossier header. The header shows the page's key fields as cards you edit in place, and the story is no longer repeated under the name.
+- For developers: a section's page template can hold a dossier layout (`ambyDossier`: sections, hints, fields), read and written by `get_dossier_template` and `update_dossier_template`. Format: [creative-format.md](../docs/creative-format.md) §14.
 - For developers: a plan for dossier templates (sections, hints, fields) and the visual polish of the creative workshop (`docs/road/creative-visual.md`).
 - For developers: `ensure_plot_links` takes optional `parts` for a story's text (`characters`, `pov`, `places`, `storyTime`, next to `anchors` and `arcs`). Without `parts` it behaves as before. Format: [creative-format.md](../docs/creative-format.md) §6.
 

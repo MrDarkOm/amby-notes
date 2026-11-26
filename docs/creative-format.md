@@ -792,3 +792,35 @@ from its menu and shows linked entries on each destination section's tab.
 apply both. Open the original notes from the workshop, verify that the source bytes are identical, and rename a
 source path while keeping the reference working. Confirm re-import is idempotent, a changed source makes the
 preview stale, and undo removes only the imported references.
+
+## 14. Dossier layout of a section's template
+
+A world section's page template (an inline template of its database manifest, version 2) may hold
+one additive field, `ambyDossier`, that turns its pages into dossiers: the tabs (headings of the
+page), a hint shown under an empty one, and the properties shown in it as a card. Other apps and
+older Amby keep it as an unknown field of the template.
+
+```json
+"ambyDossier": {
+  "version": 1,
+  "sections": [
+    { "id": "look", "title": "Внешность", "hint": "Рост, глаза, приметы…", "fields": ["<propertyId>"] }
+  ]
+}
+```
+
+- `id` is stable within the layout; `title` is the heading (`## <title>`) a page uses; `hint` is one
+  line, never written to a page; `fields` are property IDs of the same database (a deleted one is
+  skipped when shown).
+- 1 to 30 sections, unique IDs and titles (case-insensitive), one-line titles without `#`, at most 30
+  fields each; anything else is `invalidName` before a write.
+- `get_dossier_template(databaseId)` reads the default template (`defaultTemplateId`, else the first)
+  from the manifest on disk. `update_dossier_template` writes the layout over
+  `expectedManifestRevision` (else `revisionConflict`), with a history snapshot and an atomic write,
+  and rewrites the template's `body` from the sections: each heading with the text the old body had
+  under it (by the section's old title through its ID, or by its own title); text under a heading
+  that is gone stays, at the end. Nothing else of the manifest changes. A locked or read-only
+  database is refused (`databaseLocked`); a template kept in a separate file (manifest version 1) is
+  not found (`templateNotFound`).
+- Pages already written are never changed by it (owner decision, 2026-11-26): a dossier lacking
+  sections of its template offers to add them, which writes that one note.

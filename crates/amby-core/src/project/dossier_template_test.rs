@@ -108,7 +108,12 @@ fn a_layout_is_written_into_the_template_and_its_headings_into_the_body() {
             &template.template_id,
             &template.manifest_revision,
             vec![
-                section("basic", "Основное", "Возраст, занятие", &[role.clone()]),
+                section(
+                    "basic",
+                    "Основное",
+                    "Возраст, занятие",
+                    std::slice::from_ref(&role),
+                ),
                 section("look", "Внешность", "Как выглядит", &[]),
                 section("voice", "Голос", "", &[]),
             ],
