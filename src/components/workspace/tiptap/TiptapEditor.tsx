@@ -51,6 +51,7 @@ import { dismissInlineSuggest } from "./inline-suggest"
 import { FindBar } from "./FindBar"
 import { TableControls } from "./TableControls"
 import { OPEN_FIND_EVENT } from "./find-in-note"
+import { REVEAL_ANCHOR_EVENT } from "../anchor-navigation"
 import {
   SLASH_TRIGGER_EVENT,
   dismissSlashMenu,
@@ -495,6 +496,18 @@ export function TiptapEditor({
   // is what the bar starts with.
   const [find, setFind] = React.useState<{ request: number; query: string } | null>(null)
   const wrapperRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const dom = editor.view.dom
+    const revealAnchor = (event: Event) => {
+      const target = event.target
+      if (target instanceof HTMLElement && target !== dom) {
+        revealNotePageAt(editor, editor.view.posAtDOM(target, 0))
+      }
+    }
+    dom.addEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+    return () => dom.removeEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+  }, [editor])
   const openFind = React.useCallback(() => {
     if (!editor || editor.isDestroyed) return
     const { from, to } = editor.state.selection
@@ -945,8 +958,8 @@ export function TiptapEditor({
           editor={editor}
           source={notePages}
           noteId={noteId}
+          notePath={notePath}
           vaultPath={vaultPath}
-          paused={find !== null}
         >
           <EditorContent editor={editor} />
         </NotePageControls>

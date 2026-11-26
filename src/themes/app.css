@@ -6865,6 +6865,29 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   display: none;
 }
 
+[data-note-page-reorder] [data-slot="tabs-trigger"],
+[data-note-page-reorder] [data-slot="dropdown-menu-item"] {
+  cursor: default;
+}
+
+[data-note-page-lifted="true"] {
+  opacity: 0;
+}
+
+.amby-note-page-drag-preview {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 6px 18px hsl(var(--foreground) / 0.13);
+  pointer-events: none;
+  user-select: none;
+}
+
 /* An empty page of a note (its heading is on the tab): a quiet invitation to start writing. */
 .amby-tiptap .ProseMirror .amby-note-page-empty {
   color: var(--editor-placeholder, hsl(var(--muted-foreground)));

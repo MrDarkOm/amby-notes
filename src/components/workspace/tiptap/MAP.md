@@ -29,10 +29,10 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Source ↔ rich selection                      | [markdown-selection.ts](markdown-selection.ts), pointer gaps: [use-gap-selection.ts](use-gap-selection.ts), [nearest-line.ts](nearest-line.ts)                                                                                                                                                                          |
 
 [Note pages](note-pages.ts) decorate first-level heading ranges (dossiers: the top heading level)
-without changing the document or undo history. The open page always hides its own heading (the tab names it);
-an empty page shows a widget line, and typing there starts its text; tabs that do not fit fold into one menu of the open page. `addNotePage` / `renameNotePage` are
-the only edits allowed outside the open page (marked with a plugin meta).
-Edits stay in the visible range. Find shows the full note.
+without editing the document. The [tab controls](note-page-controls.tsx) remember the selected tab per vault
+and note. Explicit page edits use plugin metadata, including reorder and extraction, which move complete blocks.
+[Pointer reorder](use-note-page-drag.ts) previews changes in the tab row and compact list, then commits on drop.
+Find searches the whole note and reveals the match's page. Heading links use [anchor navigation](../anchor-navigation.ts).
 
 Block-link IDs: [block-anchors.ts](block-anchors.ts).
 

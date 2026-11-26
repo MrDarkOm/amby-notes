@@ -12,6 +12,8 @@ import { TiptapEditor } from "./TiptapEditor"
 import { markEditorUserIntent } from "./editor-user-intent"
 import { flushEditorSerializations } from "./editor-serialization-lifecycle"
 import type { EditorHandle } from "./constants"
+import { REVEAL_ANCHOR_EVENT } from "../anchor-navigation"
+import { OPEN_FIND_EVENT } from "./find-in-note"
 
 vi.mock("./BlockHandles", () => ({ BlockHandles: () => null }))
 vi.mock("./BubbleToolbar", () => ({ BubbleToolbar: () => null }))
@@ -330,6 +332,7 @@ it("switches H1 pages without saving, preserves other source bytes, and remember
     await vi.advanceTimersByTimeAsync(20)
   })
   expect(screen.getByRole("tab", { name: "Details" })).toBeTruthy()
+  expect(screen.getByRole("tab", { name: "Media" }).getAttribute("aria-selected")).toBe("true")
   fireEvent.click(screen.getByRole("button", { name: "Вся заметка" }))
   expect(screen.queryByRole("tab", { name: "Details" })).toBeNull()
   second.unmount()
@@ -341,6 +344,91 @@ it("switches H1 pages without saving, preserves other source bytes, and remember
   expect(screen.queryByRole("tab", { name: "Details" })).toBeNull()
   expect(screen.getByRole("button", { name: "Показать страницы" })).toBeTruthy()
   localStorage.removeItem('amby:note-pages:v1:["/pages-test","pages-test"]')
+  localStorage.removeItem('amby:note-pages:v1:["/pages-test","pages-test"]:active')
+})
+
+it("opens a heading's page and keeps paging while stepping through Find matches", async () => {
+  vi.useFakeTimers()
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne match\n\n# Second\n\nAnother match"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  act(() => {
+    editable
+      .querySelectorAll("h1")[1]
+      .dispatchEvent(new CustomEvent(REVEAL_ANCHOR_EVENT, { bubbles: true }))
+    editable.dispatchEvent(new CustomEvent(OPEN_FIND_EVENT))
+  })
+  expect(screen.getByRole("tab", { name: "Second" }).getAttribute("aria-selected")).toBe("true")
+  const field = screen.getByRole("search").querySelector("input")!
+  fireEvent.change(field, { target: { value: "match" } })
+  expect(editable.querySelector(".amby-find-current")?.closest("p")?.textContent).toBe(
+    "Another match",
+  )
+  fireEvent.keyDown(field, { key: "Enter" })
+  expect(screen.getByRole("tab", { name: "First" }).getAttribute("aria-selected")).toBe("true")
+  expect(editable.querySelector(".amby-find-current")?.closest("p")?.textContent).toBe("One match")
+  expect(screen.getByRole("button", { name: "Совпадения по страницам" })).toBeTruthy()
+})
+
+it("copies a vault-relative heading link and keeps the quick picker out of the full tab row", async () => {
+  vi.useFakeTimers()
+  const copied = vi.fn().mockResolvedValue(undefined)
+  vi.spyOn(navigator.clipboard, "writeText").mockImplementation(copied)
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne\n\n# Second\n\nTwo"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+      notePath="/vault/Folder/Note.md"
+      vaultPath="/vault"
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Second" }))
+  expect(screen.queryByRole("menuitem", { name: "Перейти к странице" })).toBeNull()
+  fireEvent.click(screen.getByRole("menuitem", { name: "Копировать ссылку на страницу" }))
+  expect(copied).toHaveBeenCalledWith("[[Folder/Note#Second]]")
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  fireEvent.keyDown(editable, { key: "g", code: "KeyG", ctrlKey: true, altKey: true })
+  expect(screen.queryByPlaceholderText("Найти страницу по названию…")).toBeNull()
+})
+
+it("offers the quick picker and its shortcut when the tabs collapse into a list", async () => {
+  vi.useFakeTimers()
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.hasAttribute("data-note-page-measure") ? 500 : 0
+  })
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne\n\n# Second\n\nTwo"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Страницы заметки: First" }), {
+    button: 0,
+    ctrlKey: false,
+  })
+  expect(screen.getByRole("menuitem", { name: "Перейти к странице" })).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  fireEvent.keyDown(editable, { key: "g", code: "KeyG", ctrlKey: true, altKey: true })
+  expect(screen.getByPlaceholderText("Найти страницу по названию…")).toBeTruthy()
 })
 
 it("offers no pages when the setting or the note does not ask for them", async () => {

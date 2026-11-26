@@ -1,5 +1,9 @@
 # Amby — Next version
 
+- Notes with pages reopen on the last tab. Copy a page link from its menu or move selected blocks to a new page from the add menu. Drag a tab or a row in the compact list to preview the new order before dropping it. The introduction stays on its own page when moved. Find lists matches by page and opens the matching tab. When the tabs fold into a list, press Cmd+Option+G on Mac or Ctrl+Alt+G on Windows and Linux to jump to a page by name.
+
+- For developers: the standalone Note Pages roadmap tracks page navigation, editing, and starter pages from templates.
+
 - Supernotes are now called Bundles in English (Мультизаметки in Russian) and have a dedicated icon in Settings and in the workspace.
 
 - Creative workshop: all reference dossiers can open their sections as tabs, including arcs, anchors, and custom sections. Use “Whole note” to see the full dossier, or turn off “Pages in this note” in its menu to keep it in one view.

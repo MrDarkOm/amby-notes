@@ -1,13 +1,14 @@
 import type { Editor } from "@tiptap/core"
-import { isHistoryTransaction } from "@tiptap/pm/history"
-import type { Node } from "@tiptap/pm/model"
-import { Plugin, PluginKey, Selection, TextSelection } from "@tiptap/pm/state"
+import { closeHistory, isHistoryTransaction } from "@tiptap/pm/history"
+import { Fragment, type Node } from "@tiptap/pm/model"
+import { Plugin, PluginKey, Selection, TextSelection, type EditorState } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
 import { isEnterKey } from "@/lib/keyboard"
 import { markEditorUserIntent } from "./editor-user-intent"
+import { readFind } from "./find-in-note"
 import type { NotePagesPref } from "../app-config"
 
-interface NotePage {
+export interface NotePage {
   from: number
   to: number
   /** Where the visible part starts: after the page's heading, which the tab already shows. A page
@@ -31,7 +32,7 @@ interface NotePageChange {
 
 export const notePagesKey = new PluginKey<NotePagesState>("notePages")
 
-/** Marks an edit the page controls make outside the open page (adding or renaming a page). */
+/** Marks an edit the page controls make outside the open page. */
 const PAGE_EDIT = "notePagesEdit"
 
 /**
@@ -115,6 +116,26 @@ function pageAt(pages: NotePage[], position: number): number {
   return index < 0 ? pages.length - 1 : index
 }
 
+export function notePageAtPosition(state: EditorState, position: number): number {
+  return pageAt(notePagesKey.getState(state)?.pages ?? [], position)
+}
+
+/** Use the title and its occurrence, keeping the introduction distinct from any heading. */
+export function notePageIdentity(pages: NotePage[], index: number): string {
+  const { title } = pages[index]
+  return JSON.stringify([
+    title,
+    pages.slice(0, index).filter((page) => page.title === title).length,
+  ])
+}
+
+export function restoreNotePageIndex(pages: NotePage[], identity: string): number {
+  return Math.max(
+    0,
+    pages.findIndex((_, index) => notePageIdentity(pages, index) === identity),
+  )
+}
+
 function currentPage(state?: NotePagesState): NotePage | undefined {
   return state && state.active !== null ? state.pages[state.active] : undefined
 }
@@ -134,6 +155,96 @@ export function setNotePages(editor: Editor, enabled: boolean, index?: number) {
       .setMeta(notePagesKey, { enabled, index } satisfies NotePageChange)
       .setMeta("addToHistory", false),
   )
+}
+
+/** Move a section to another tab's index, preserving its complete blocks and source metadata. */
+export function moveNotePage(
+  editor: Editor,
+  fromIndex: number,
+  toIndex: number,
+  introductionTitle: string,
+): boolean {
+  const state = notePagesKey.getState(editor.state)
+  const from = state?.pages[fromIndex]
+  const to = state?.pages[toIndex]
+  if (!editor.isEditable || !state || !from || !to || fromIndex === toIndex) return false
+  const { doc, schema } = editor.state
+  const fromStart = from.heading ?? from.from
+  let content = doc.slice(fromStart, from.to).content
+  if (from.heading === null || to.heading === null) {
+    // A preamble only forms a page at the start. Give it a heading when it would
+    // otherwise become part of the section that now precedes it.
+    const otherHeading = from.heading ?? to.heading
+    if (otherHeading === null) return false
+    const level = doc.nodeAt(otherHeading)?.attrs.level
+    const heading = Fragment.from(
+      schema.nodes.heading.create({ level }, schema.text(introductionTitle)),
+    )
+    content = from.heading === null ? heading.append(content) : content.append(heading)
+  }
+  const tr = closeHistory(editor.state.tr).delete(fromStart, from.to)
+  const target = fromIndex < toIndex ? to.to : (to.heading ?? to.from)
+  tr.insert(tr.mapping.map(target), content).setMeta(PAGE_EDIT, true)
+  markEditorUserIntent(editor)
+  tr.setMeta(notePagesKey, { enabled: state.enabled, index: toIndex } satisfies NotePageChange)
+  editor.view.dispatch(tr)
+  editor.view.dispatch(closeHistory(editor.state.tr))
+  return true
+}
+
+/** The command moves whole top-level blocks so it can keep their original Markdown. */
+export function notePageExtraction(editor: Editor) {
+  const { doc, selection } = editor.state
+  const state = notePagesKey.getState(editor.state)
+  if (!editor.isEditable || !state || selection.empty) return null
+  const blocks: { start: number; end: number }[] = []
+  doc.forEach((node, start) => {
+    const end = start + node.nodeSize
+    if (
+      (selection.from <= start && selection.to >= end) ||
+      (selection.from < end - 1 && selection.to > start + 1)
+    )
+      blocks.push({ start, end })
+  })
+  const first = blocks[0]
+  const last = blocks[blocks.length - 1]
+  if (!first || !last) return null
+  if (
+    state.pages.some(
+      (page) => page.heading !== null && page.heading >= first.start && page.heading < last.end,
+    )
+  ) {
+    return null
+  }
+  return { doc, from: first.start, to: last.end }
+}
+
+export function extractNotePage(
+  editor: Editor,
+  range: NonNullable<ReturnType<typeof notePageExtraction>>,
+  title: string,
+): boolean {
+  const state = notePagesKey.getState(editor.state)
+  const { doc, schema } = editor.state
+  const name = title.trim()
+  if (!editor.isEditable || !state || range.doc !== doc || !name) return false
+  const firstHeading = state.pages.find((page) => page.heading !== null)?.heading
+  const level = firstHeading == null ? 1 : Number(doc.nodeAt(firstHeading)?.attrs.level ?? 1)
+  const moved = doc.slice(range.from, range.to).content
+  const titleNode = schema.nodes.heading.create({ level }, schema.text(name))
+  const tr = closeHistory(editor.state.tr).delete(range.from, range.to)
+  const at = tr.doc.content.size
+  tr.insert(at, titleNode).insert(at + titleNode.nodeSize, moved)
+  tr.setSelection(Selection.near(tr.doc.resolve(at + titleNode.nodeSize), 1))
+  tr.setMeta(PAGE_EDIT, true)
+  tr.setMeta(notePagesKey, {
+    enabled: true,
+    index: Number.MAX_SAFE_INTEGER,
+  } satisfies NotePageChange)
+  markEditorUserIntent(editor)
+  editor.view.dispatch(tr)
+  editor.view.dispatch(closeHistory(editor.state.tr))
+  return true
 }
 
 /**
@@ -238,7 +349,7 @@ export function deleteNotePage(editor: Editor, index: number, keep: boolean): bo
 /** Source-to-Live cursor restores can reveal the page that holds the cursor. */
 export function revealNotePageAt(editor: Editor, position: number) {
   const state = notePagesKey.getState(editor.state)
-  if (state?.enabled) setNotePages(editor, true, pageAt(state.pages, position))
+  if (state?.enabled) setNotePages(editor, true, notePageAtPosition(editor.state, position))
 }
 
 /** The editable document remains intact, including its history and lossless Markdown metadata. */
@@ -341,8 +452,12 @@ export function notePagesPlugin(level: NotePagesLevel = "top", emptyLabel = "") 
       decorations: (state) => {
         const page = currentPage(notePagesKey.getState(state))
         if (!page) return null
+        const find = readFind(state)
+        const match = find.matches[find.current]
         const decorations: Decoration[] = []
         state.doc.forEach((node, offset) => {
+          if (offset === page.heading && match && match.from > offset && match.from < page.body)
+            return
           if (offset < page.body || offset >= page.to) {
             decorations.push(
               Decoration.node(offset, offset + node.nodeSize, { "data-note-page-hidden": "" }),

@@ -20,7 +20,10 @@ export interface FindState {
 }
 
 type FindAction =
-  { type: "query"; query: string } | { type: "step"; by: 1 | -1 } | { type: "clear" }
+  | { type: "query"; query: string }
+  | { type: "step"; by: 1 | -1 }
+  | { type: "select"; index: number }
+  | { type: "clear" }
 
 export const findKey = new PluginKey<FindState>("ambyFindInNote")
 
@@ -76,6 +79,10 @@ export function stepFind(view: EditorView, by: 1 | -1) {
   view.dispatch(view.state.tr.setMeta(findKey, { type: "step", by } satisfies FindAction))
 }
 
+export function selectFind(view: EditorView, index: number) {
+  view.dispatch(view.state.tr.setMeta(findKey, { type: "select", index } satisfies FindAction))
+}
+
 /** Ends the search; the cursor is put at the match the user was on. */
 export function clearFind(view: EditorView) {
   const { matches, current } = readFind(view.state)
@@ -110,6 +117,9 @@ export const FindInNote = Extension.create({
               const count = value.matches.length
               const current = (value.current + action.by + count) % count
               return withDecorations(newState.doc, { ...value, current })
+            }
+            if (action?.type === "select" && value.matches[action.index]) {
+              return withDecorations(newState.doc, { ...value, current: action.index })
             }
             if (tr.docChanged && value.query) {
               const matches = findMatches(newState.doc, value.query)

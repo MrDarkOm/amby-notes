@@ -6,6 +6,12 @@ import { expect, it } from "vitest"
 import {
   addNotePage,
   deleteNotePage,
+  extractNotePage,
+  moveNotePage,
+  notePageExtraction,
+  notePageAtPosition,
+  notePageIdentity,
+  restoreNotePageIndex,
   notePagesKey,
   notePagesPlugin,
   notePagesFlagFor,
@@ -25,6 +31,77 @@ function makeEditor(content: string, level?: NotePagesLevel) {
   editor.registerPlugin(notePagesPlugin(level))
   return editor
 }
+
+it("restores by heading identity rather than tab index and falls back if it was removed", () => {
+  const editor = makeEditor("<h1>A</h1><p>One</p><h1>B</h1><p>Two</p>")
+  try {
+    const pages = notePagesKey.getState(editor.state)!.pages
+    const saved = notePageIdentity(pages, 1)
+    expect(restoreNotePageIndex([pages[1], pages[0]], saved)).toBe(0)
+    expect(restoreNotePageIndex([pages[0]], saved)).toBe(0)
+    expect(notePageAtPosition(editor.state, pages[1].body)).toBe(1)
+  } finally {
+    editor.destroy()
+  }
+})
+
+it("moves a complete section with one undo", () => {
+  const editor = makeEditor("<p>Intro</p><h1>A</h1><h2>Nested</h2><p>One</p><h1>B</h1><p>Two</p>")
+  try {
+    const original = editor.getHTML()
+    setNotePages(editor, true, 1)
+    expect(moveNotePage(editor, 1, 2, "Introduction")).toBe(true)
+    expect(editor.getHTML()).toBe(
+      "<p>Intro</p><h1>B</h1><p>Two</p><h1>A</h1><h2>Nested</h2><p>One</p>",
+    )
+    expect(notePagesKey.getState(editor.state)?.active).toBe(2)
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.getHTML()).toBe(original)
+  } finally {
+    editor.destroy()
+  }
+})
+
+it.each([
+  [0, 2, "<h2>A</h2><p>One</p><h2>B</h2><p>Two</p><h2>Введение</h2><p>Intro</p>"],
+  [2, 0, "<h2>B</h2><p>Two</p><h2>Введение</h2><p>Intro</p><h2>A</h2><p>One</p>"],
+] as const)(
+  "keeps an untitled introduction separate when moving from %i to %i",
+  (from, to, expected) => {
+    const original = "<p>Intro</p><h2>A</h2><p>One</p><h2>B</h2><p>Two</p>"
+    const editor = makeEditor(original)
+    try {
+      setNotePages(editor, true, from)
+      expect(moveNotePage(editor, from, to, "Введение")).toBe(true)
+      expect(editor.getHTML()).toBe(expected)
+      expect(notePagesKey.getState(editor.state)?.active).toBe(to)
+      expect(editor.commands.undo()).toBe(true)
+      expect(editor.getHTML()).toBe(original)
+    } finally {
+      editor.destroy()
+    }
+  },
+)
+
+it("extracts full selected blocks with marks and undoes the move as one step", () => {
+  const editor = makeEditor(
+    "<h1>A</h1><p>Stay</p><p><strong>Move</strong></p><p>Too</p><h1>B</h1><p>Other</p>",
+  )
+  try {
+    const original = editor.getHTML()
+    setNotePages(editor, true, 0)
+    editor.commands.setTextSelection({ from: 12, to: 19 })
+    const selection = notePageExtraction(editor)!
+    expect(extractNotePage(editor, selection, "New")).toBe(true)
+    expect(editor.getHTML()).toBe(
+      "<h1>A</h1><p>Stay</p><h1>B</h1><p>Other</p><h1>New</h1><p><strong>Move</strong></p><p>Too</p>",
+    )
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.getHTML()).toBe(original)
+  } finally {
+    editor.destroy()
+  }
+})
 
 it("uses top-level headings of the highest level, including a preamble, and leaves the document untouched", () => {
   const editor = makeEditor(
