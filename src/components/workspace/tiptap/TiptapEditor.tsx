@@ -12,7 +12,7 @@ import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
 import { EntityNamesContext } from "../editor/entity-names-context"
 import { entityNamesKey, entityNamesPlugin } from "./entity-names"
 import { NotePageControls, type NotePagesSource } from "./note-page-controls"
-import { revealNotePageAt } from "./note-pages"
+import { appendMissingHeadings, revealNotePageAt } from "./note-pages"
 import { buildExtensions } from "./extensions"
 import { markdownToDoc } from "./markdown"
 import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
@@ -659,7 +659,8 @@ export function TiptapEditor({
   // Expose undo/redo to the parent's floating widget.
   React.useEffect(() => {
     if (!editorRef || !editor) return
-    ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
+    const handle: EditorHandle = {
+      appendMissingHeadings: (titles) => appendMissingHeadings(editor, titles),
       undo: () => {
         serialization.markUserIntent()
         editor.chain().focus().undo().run()
@@ -686,6 +687,10 @@ export function TiptapEditor({
         }
         editor.chain().focus("start").run()
       },
+    }
+    editorRef.current = handle
+    return () => {
+      if (editorRef.current === handle) editorRef.current = null as never
     }
   }, [editor, editorRef, serialization, focusAtPoint])
 

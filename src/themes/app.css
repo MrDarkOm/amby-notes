@@ -761,6 +761,13 @@
   padding-inline-start: var(--amby-editor-inline-pad);
 }
 
+/* Give the tab row breathing room when it follows the title directly. */
+.amby-page-title:has(~ * [data-note-pages-active]):not(
+    :has(~ .amby-nested-notes-top, ~ [data-dossier-frame] header)
+  ) {
+  margin-bottom: 2.25rem;
+}
+
 .amby-tiptap .ProseMirror {
   min-height: 320px;
   padding: 0.5rem var(--amby-editor-inline-pad) 5rem;
@@ -5220,6 +5227,91 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 
 /* A barely visible backing in the surface colour keeps nodes from showing through the graph's buttons. */
+.amby-creative-gallery-card {
+  padding: 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  background-color: hsl(var(--card));
+}
+
+button.amby-creative-gallery-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background-color: hsl(var(--accent) / 0.3);
+}
+
+button.amby-creative-gallery-card:focus-visible {
+  outline: 1px solid hsl(var(--ring));
+}
+
+.amby-creative-gallery-create-card {
+  border-style: dashed;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+button.amby-creative-gallery-create-card:hover {
+  color: hsl(var(--foreground));
+}
+
+.amby-nested-notes-top {
+  margin-bottom: 0.75rem;
+}
+
+.amby-nested-notes-top:has(~ [data-note-pages-active], ~ * [data-note-pages-active]) {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+}
+
+.amby-nested-note-button {
+  min-height: 1.75rem;
+  padding: 0.125rem 0.4375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background-color: hsl(var(--accent) / 0.45);
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.amby-nested-note-button:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background-color: hsl(var(--accent));
+}
+
+.amby-layer-switch-button {
+  position: relative;
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.amby-layer-switch-button:hover,
+.amby-layer-switch-button[aria-pressed="true"],
+.amby-layer-switch-button[aria-expanded="true"] {
+  color: hsl(var(--foreground));
+}
+
+.amby-layer-switch-button[aria-pressed="true"]::after {
+  position: absolute;
+  inset-inline: 0.5rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
+  content: "";
+}
+
+.amby-layer-switch-button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
 .amby-graph-toolbar {
   background: color-mix(in srgb, var(--note-surface) 88%, transparent);
   backdrop-filter: blur(6px);

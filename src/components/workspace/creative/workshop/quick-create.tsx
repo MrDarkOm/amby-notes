@@ -7,7 +7,7 @@ import { NoticeLine } from "@/components/workspace/notices/notice-line"
 interface QuickCreateProps {
   /** The button that opens the field. */
   label: string
-  tile?: boolean
+  card?: boolean
   placeholder: string
   /** Shown under the field when `onCreate` rejects; gets the message. */
   failed: (message: string) => string
@@ -23,7 +23,7 @@ interface QuickCreateProps {
  */
 export function QuickCreate({
   label,
-  tile = false,
+  card = false,
   placeholder,
   failed,
   onCreate,
@@ -56,20 +56,31 @@ export function QuickCreate({
       <button
         type="button"
         onClick={() => setNaming(true)}
-        className={cn(
-          "flex items-center gap-1.5 text-muted-foreground hover:bg-accent hover:text-foreground",
-          tile
-            ? "min-h-24 w-full max-w-sm justify-center rounded-xl border border-dashed border-border px-4 py-3 text-sm"
-            : "w-fit rounded-md px-2 py-1 text-xs",
-        )}
+        className={
+          card
+            ? "amby-creative-gallery-card amby-creative-gallery-create-card flex h-full w-full items-center justify-center gap-2 text-sm"
+            : "flex w-fit items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        }
       >
-        <Plus className="size-3.5" />
-        {label}
+        <Plus aria-hidden="true" className={cn("shrink-0", card ? "size-4" : "size-3.5")} />
+        <span
+          className={
+            card ? "flex min-h-10 min-w-0 items-center break-words leading-snug" : undefined
+          }
+        >
+          {label}
+        </span>
       </button>
     )
   }
   return (
-    <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-1">
+    <form
+      onSubmit={(event) => void submit(event)}
+      className={cn(
+        "flex flex-col gap-1",
+        card && "amby-creative-gallery-card h-full justify-center",
+      )}
+    >
       <Input
         autoFocus
         value={title}
@@ -84,7 +95,7 @@ export function QuickCreate({
             setError(null)
           }
         }}
-        className="h-7 max-w-xs text-xs"
+        className={card ? "h-10 text-sm" : "h-7 max-w-xs text-xs"}
       />
       {error && <NoticeLine role="alert" text={failed(error)} />}
     </form>

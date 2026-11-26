@@ -40,33 +40,25 @@ export function LayerButton({
   onDelete?: (layer: LayerKind) => void
 }) {
   const { t } = useTranslation()
+  const button = (
+    <motion.button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onActivate}
+      className="amby-layer-switch-button"
+      whileTap={{ scale: 0.92 }}
+      transition={motionTransitions.fast}
+    >
+      {icon}
+    </motion.button>
+  )
+
+  if (layer === "note") return button
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <motion.button
-          type="button"
-          title={title}
-          onClick={onActivate}
-          className={cn(
-            "relative flex size-7 items-center justify-center rounded-md text-sm select-none cursor-pointer",
-            active
-              ? "text-foreground font-medium"
-              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-          )}
-          whileHover={active ? undefined : { scale: 1.05 }}
-          whileTap={{ scale: 0.92 }}
-          transition={motionTransitions.fast}
-        >
-          {active && (
-            <motion.div
-              layoutId="activeDocumentLayerPill"
-              className="absolute inset-0 rounded-md bg-[var(--note-surface)] shadow-xs border border-border/80"
-              transition={{ type: "spring", stiffness: 500, damping: 38 }}
-            />
-          )}
-          <span className="relative z-10 flex items-center justify-center">{icon}</span>
-        </motion.button>
-      </ContextMenuTrigger>
+      <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={() => onUnlink?.(layer)}>
           {t("docEditor.detach")}

@@ -10,14 +10,15 @@ import {
   Download,
   EyeOff,
   FolderSync,
-  LayoutGrid,
   LayoutTemplate,
+  PanelsTopLeft,
   Pin,
   Plus,
   RotateCcw,
   Save,
   Settings2,
   Upload,
+  Zap,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion, useReducedMotion } from "motion/react"
@@ -307,10 +308,11 @@ export function ActivityBar({
       if (!onSetButtonHidden) return null
       const items = zoneToggleItems(zone)
       if (items.length === 0) return null
+      const Icon = zone === "view" ? PanelsTopLeft : Zap
       return (
         <ContextMenuSub>
           <ContextMenuSubTrigger data-dock-zone-buttons={zone} className="gap-2 text-[13px]">
-            <LayoutGrid className="size-4 text-muted-foreground" />
+            <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
             {t(zone === "view" ? "activityBar.zoneSections" : "activityBar.zoneActions")}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="min-w-56 border-border bg-popover p-1 text-foreground">

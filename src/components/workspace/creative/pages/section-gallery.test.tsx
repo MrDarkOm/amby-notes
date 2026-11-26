@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type { DatabaseRow, DatabaseSummary } from "@/lib/storage"
@@ -77,10 +77,17 @@ describe("SectionGallery", () => {
         section={section}
         rows={[row("a", "Зоя", "side"), row("b", "Анна", "main"), row("c", "Глеб")]}
         onOpenNote={onOpenNote}
+        createFor={vi.fn()}
       />,
     )
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
     expect(headings).toEqual(["Главные1", "Второстепенные1", "Без категории1"])
+    const lists = screen.getAllByRole("list")
+    const lastGroup = within(lists[lists.length - 1])
+    expect(lastGroup.getAllByRole("button")).toEqual([
+      lastGroup.getByRole("button", { name: "Глеб" }),
+      lastGroup.getByRole("button", { name: "Персонаж" }),
+    ])
     fireEvent.click(screen.getByRole("button", { name: /Анна/ }))
     expect(onOpenNote).toHaveBeenCalledWith("b")
   })
@@ -108,7 +115,7 @@ describe("SectionGallery", () => {
     expect(within(card).getByText("+3")).toBeTruthy()
   })
 
-  it("shows a prominent creation card and purpose while the gallery has fewer than three entries", () => {
+  it("keeps creation after the cards when the gallery grows", async () => {
     const onCreate = vi.fn(async () => undefined)
     const { rerender } = render(
       <SectionGallery
@@ -119,8 +126,18 @@ describe("SectionGallery", () => {
       />,
     )
     expect(screen.getByText("Здесь живут персонажи ваших историй.")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Персонаж" }))
-    expect(screen.getByRole("textbox", { name: "Название — Персонажи" })).toBeTruthy()
+    const cards = within(screen.getByRole("list")).getAllByRole("button")
+    expect(cards).toEqual([
+      screen.getByRole("button", { name: "Анна" }),
+      screen.getByRole("button", { name: "Персонаж" }),
+    ])
+    fireEvent.click(cards[1])
+    const input = screen.getByRole("textbox", { name: "Название — Персонажи" })
+    expect(input.closest("li")).toBe(cards[0].closest("li")?.nextElementSibling)
+    fireEvent.change(input, { target: { value: "Боб" } })
+    fireEvent.submit(input.closest("form")!)
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull())
+    expect(onCreate).toHaveBeenCalledWith("Боб")
     rerender(
       <SectionGallery
         section={section}
@@ -130,6 +147,20 @@ describe("SectionGallery", () => {
       />,
     )
     expect(screen.queryByText("Здесь живут персонажи ваших историй.")).toBeNull()
+    expect(within(screen.getByRole("list")).getAllByRole("button")).toEqual(
+      ["Анна", "Боб", "Вера", "Персонаж"].map((name) => screen.getByRole("button", { name })),
+    )
+  })
+
+  it("starts an empty location gallery with its creation card", () => {
+    const locations = workshopSection("locations", {
+      role: "locations",
+      databaseName: "Локации",
+    })
+    render(
+      <SectionGallery section={locations} rows={[]} onOpenNote={vi.fn()} createFor={vi.fn()} />,
+    )
+    expect(within(screen.getByRole("list")).getByRole("button", { name: "Локация" })).toBeTruthy()
   })
 
   it("offers the whole base only when asked to, with the words it is given", () => {

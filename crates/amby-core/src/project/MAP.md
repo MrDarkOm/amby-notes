@@ -117,8 +117,8 @@ through `apply_value_batch` after a loop check on the projection's parent edges.
 checked by `text_schema::normalize_text_levels` before any write and joins the request revision. **Page rules.** A parent
 must sit on a shallower level than its page; a loop is refused first; a stale page is `RevisionConflict`.
 
-**Page numbers.** `list_text_stats(databaseId)` joins `db_members` to `notes` and returns, per page, `word_count`,
-`mtime` and `created_at` as the note index keeps them (read-only; no file is read).
+**Page numbers.** `list_text_stats` reads words and times per page from the note index (read-only).
+**Dossier layout** (`ambyDossier` of a template, format §14): [dossier_template.rs](dossier_template.rs).
 
 **Presets.** `presets.rs` plans icons, properties, views and templates through `props.rs`.
 New templates are embedded in layout-v2 manifests. Journaled plans reproduce the same bytes;

@@ -19,6 +19,9 @@ import {
   type CreateTextPageRequest,
   type EnsurePlotLinksRequest,
   type EnsuredPlotLinks,
+  type DossierTemplate,
+  type UpdateDossierTemplateRequest,
+  type UpdatedDossierTemplate,
   type InitWorkshopRequest,
   type MoveTextPageRequest,
   type MovedTextPage,
@@ -92,6 +95,8 @@ export interface ProjectPort {
    * written (`changed: false`).
    */
   ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks>
+  getDossierTemplate(databaseId: string): Promise<DossierTemplate>
+  updateDossierTemplate(request: UpdateDossierTemplateRequest): Promise<UpdatedDossierTemplate>
   /**
    * A page of a world section, born linked to a story's card when `storyId` is given and, for
    * the notes base, into the notebook (a folder of the base) named by `notebook`.

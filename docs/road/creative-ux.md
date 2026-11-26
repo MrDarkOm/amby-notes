@@ -178,8 +178,8 @@ plural section name.
 
 **20. 👁 Path shown twice.** Remove "Мастерская · Персонажи" under the title; the breadcrumb has it.
 
-**21. 👁 Empty or near-empty gallery.** One small card on a wide empty page. Show a large "+ Персонаж"
-card and one line on what the section is for while it has fewer than three rows.
+**21. 👁 Empty or near-empty gallery.** Use a standard gallery card for the create action, placed after
+the entries. A gallery with fewer than three rows can explain what the section is for.
 
 ### H. Import
 

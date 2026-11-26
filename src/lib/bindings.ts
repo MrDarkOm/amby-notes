@@ -1543,6 +1543,28 @@ async ensurePlotLinks(request: EnsurePlotLinksRequest) : Promise<Result<EnsuredP
 }
 },
 /**
+ * The page template of a section with its dossier layout, read from its manifest. Read-only.
+ */
+async getDossierTemplate(databaseId: string) : Promise<Result<DossierTemplate, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_dossier_template", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes the dossier layout (sections, hints, fields) of a section's template and its body.
+ */
+async updateDossierTemplate(request: UpdateDossierTemplateRequest) : Promise<Result<UpdatedDossierTemplate, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_dossier_template", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * A page of a world section, linked to a story in the same write when one is chosen.
  */
 async createWorkshopEntity(request: CreateWorkshopEntityRequest) : Promise<Result<CreatedWorkshopEntity, ProjectError>> {
@@ -2923,6 +2945,32 @@ export type DictationError =
  * A record without a key: grey, «нет в шапке» (З3).
  */
 export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
+/**
+ * The dossier layout of a section's page template (`ambyDossier` of the template object in the
+ * database manifest): the tabs of a dossier, a hint for each, and the properties shown in it.
+ */
+export type DossierLayout = { version: number; sections: DossierSection[] }
+export type DossierSection = { 
+/**
+ * Stable within the layout: a renamed section keeps its text by it.
+ */
+id: string; 
+/**
+ * The heading of the section in a page.
+ */
+title: string; 
+/**
+ * Shown under the heading while the section is empty; never written to a page.
+ */
+hint?: string; 
+/**
+ * Property IDs of the same database shown in this tab; a deleted one is skipped.
+ */
+fields?: string[] }
+/**
+ * The page template a section's new pages start from, with its dossier layout if it has one.
+ */
+export type DossierTemplate = { databaseId: string; templateId: string; name: string; body: string; dossier: DossierLayout | null; manifestRevision: string }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -4372,6 +4420,7 @@ options: DatabaseOptionInput[] }
 export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
+export type UpdateDossierTemplateRequest = { expectedGeneration: number; databaseId: string; templateId: string; expectedManifestRevision: string; dossier: DossierLayout }
 export type UpdateTextLevelsRequest = { expectedGeneration: number; operationId: string; storyId: string; expectedStoryRevision: string; levels: TextLevelUpdateInput[] }
 export type UpdateWorkshopRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; name?: string | null; icon?: string | null; tags?: string[] | null }
 export type UpdatedDatabasePropertyConfig = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
@@ -4380,6 +4429,7 @@ export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: s
  * The saved list in order, with IDs assigned to the new options.
  */
 options: DatabaseOptionResult[]; warnings: string[] }
+export type UpdatedDossierTemplate = { template: DossierTemplate; warnings: string[] }
 export type UpdatedTextLevels = { operationId: string; storyId: string; storyRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
 export type UpdatedWorkshop = { operationId: string; workshopId: string; name: string; icon: string | null; tags: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
 /**

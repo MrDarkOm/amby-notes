@@ -2613,6 +2613,7 @@ const ru = {
     sketchLayer: "Набросок",
     layers: "Слои",
     moreActions: "Другие действия",
+    nestedNotes: "Вложения",
     nestedNotesDisplay: "Отображение вложений",
     notePages: {
       label: "Страницы заметки",
@@ -3623,6 +3624,32 @@ const ru = {
         },
       },
     },
+    // The editor of a section's dossier template: sections, hints, fields.
+    template: {
+      open: "Шаблон раздела",
+      title: "Шаблон досье",
+      description:
+        "Разделы станут вкладками новых страниц. Подсказка видна, пока раздел пуст. Поля показываются карточкой во вкладке. Уже созданные страницы не меняются.",
+      firstSection: "Основное",
+      section: "Раздел {{number}}",
+      sectionTitle: "Название раздела",
+      hint: "Подсказка",
+      hintPlaceholder: "Что писать в этом разделе…",
+      up: "Выше",
+      down: "Ниже",
+      removeSection: "Удалить раздел «{{name}}»",
+      fields: "Поля:",
+      addField: "Добавить поле",
+      newField: "Новое поле",
+      newFieldHint: "Новое поле — Enter",
+      addSection: "Добавить раздел",
+      save: "Сохранить шаблон",
+      problem: {
+        empty: "В шаблоне нужен хотя бы один раздел.",
+        title: "У каждого раздела нужно название в одну строку, без «#» в начале.",
+        duplicate: "Два раздела называются одинаково.",
+      },
+    },
     // The daily word goal of a story, kept on this device.
     goal: {
       label: "Цель на день",
@@ -3731,6 +3758,9 @@ const ru = {
     },
     dossier: {
       aside: "Досье",
+      addMissingSections: "Добавить недостающие разделы",
+      addMissingSectionsBlocked:
+        "Не удалось добавить разделы. Проверьте конец заметки в режиме исходного текста.",
       headingHints: {
         basic: "Возраст, занятие, роль в истории…",
         traits: "Черты, привычки, желания…",
@@ -3748,6 +3778,18 @@ const ru = {
       bindPlaceHint: "Отметить, что действие страницы происходит здесь",
       entityCardOpen: "⌘-клик или Ctrl-клик — открыть",
       notSet: "не указано",
+      portrait: {
+        label: "Портрет",
+        add: "Добавить портрет",
+        change: "Сменить портрет",
+        remove: "Убрать портрет",
+      },
+      image: {
+        label: "Изображение",
+        add: "Добавить изображение",
+        change: "Сменить изображение",
+        remove: "Убрать изображение",
+      },
       filled: "Заполнено {{filled}} из {{count}} разделов",
       filled_one: "Заполнено {{filled}} из {{count}} раздела",
       filled_few: "Заполнено {{filled}} из {{count}} разделов",
@@ -7345,6 +7387,7 @@ const en: LocaleShape<typeof ru> = {
     sketchLayer: "Sketch",
     layers: "Layers",
     moreActions: "More actions",
+    nestedNotes: "Attachments",
     nestedNotesDisplay: "Nested notes display",
     notePages: {
       label: "Note pages",
@@ -8347,6 +8390,32 @@ const en: LocaleShape<typeof ru> = {
         },
       },
     },
+    // The editor of a section's dossier template: sections, hints, fields.
+    template: {
+      open: "Section template",
+      title: "Dossier template",
+      description:
+        "Sections become the tabs of new pages. A hint shows while a section is empty. Fields show as a card in their tab. Pages already written do not change.",
+      firstSection: "Basics",
+      section: "Section {{number}}",
+      sectionTitle: "Section name",
+      hint: "Hint",
+      hintPlaceholder: "What to write in this section…",
+      up: "Up",
+      down: "Down",
+      removeSection: "Delete section “{{name}}”",
+      fields: "Fields:",
+      addField: "Add field",
+      newField: "New field",
+      newFieldHint: "New field, then Enter",
+      addSection: "Add section",
+      save: "Save template",
+      problem: {
+        empty: "A template needs at least one section.",
+        title: "Every section needs a one-line name that does not start with “#”.",
+        duplicate: "Two sections have the same name.",
+      },
+    },
     // The daily word goal of a story, kept on this device.
     goal: {
       label: "Daily goal",
@@ -8450,6 +8519,9 @@ const en: LocaleShape<typeof ru> = {
     },
     dossier: {
       aside: "Dossier",
+      addMissingSections: "Add missing sections",
+      addMissingSectionsBlocked:
+        "Could not add sections. Check the end of the note in Source mode.",
       headingHints: {
         basic: "Age, occupation, role in the story…",
         traits: "Traits, habits, desires…",
@@ -8467,6 +8539,18 @@ const en: LocaleShape<typeof ru> = {
       bindPlaceHint: "Mark that this page takes place here",
       entityCardOpen: "⌘-click or Ctrl-click to open",
       notSet: "not set",
+      portrait: {
+        label: "Portrait",
+        add: "Add a portrait",
+        change: "Change portrait",
+        remove: "Remove portrait",
+      },
+      image: {
+        label: "Image",
+        add: "Add an image",
+        change: "Change image",
+        remove: "Remove image",
+      },
       filled: "{{filled}} of {{count}} sections filled",
       filled_one: "{{filled}} of {{count}} section filled",
       connections: "Connections",

@@ -913,3 +913,56 @@ pub struct ProjectChangedPayload {
     pub path: String,
     pub generation: u64,
 }
+
+/// The dossier layout of a section's page template (`ambyDossier` of the template object in the
+/// database manifest): the tabs of a dossier, a hint for each, and the properties shown in it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DossierLayout {
+    pub version: u32,
+    pub sections: Vec<DossierSection>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DossierSection {
+    /// Stable within the layout: a renamed section keeps its text by it.
+    pub id: String,
+    /// The heading of the section in a page.
+    pub title: String,
+    /// Shown under the heading while the section is empty; never written to a page.
+    #[serde(default)]
+    pub hint: String,
+    /// Property IDs of the same database shown in this tab; a deleted one is skipped.
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+/// The page template a section's new pages start from, with its dossier layout if it has one.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DossierTemplate {
+    pub database_id: String,
+    pub template_id: String,
+    pub name: String,
+    pub body: String,
+    pub dossier: Option<DossierLayout>,
+    pub manifest_revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDossierTemplateRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub template_id: String,
+    pub expected_manifest_revision: String,
+    pub dossier: DossierLayout,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedDossierTemplate {
+    pub template: DossierTemplate,
+    pub warnings: Vec<String>,
+}

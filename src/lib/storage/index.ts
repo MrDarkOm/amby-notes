@@ -49,6 +49,7 @@ import type {
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
+  UpdateDossierTemplateRequest,
   AddTextStatusRequest,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
@@ -616,6 +617,15 @@ export const ensurePlotLinks = (request: EnsurePlotLinksRequest) => {
     operationId: request.operationId,
   })
   return getAdapter().ensurePlotLinks(request)
+}
+export const getDossierTemplate = (databaseId: string) =>
+  getAdapter().getDossierTemplate(databaseId)
+export const updateDossierTemplate = (request: UpdateDossierTemplateRequest) => {
+  logger.info("storage.update_dossier_template", {
+    databaseId: request.databaseId,
+    sections: request.dossier.sections.length,
+  })
+  return getAdapter().updateDossierTemplate(request)
 }
 export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {

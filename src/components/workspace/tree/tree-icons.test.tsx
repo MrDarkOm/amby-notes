@@ -77,6 +77,33 @@ describe("TreeItemIcon", () => {
     expect(container.querySelector("svg")).toBeNull()
   })
 
+  it.each([{ members: [] }, { members: [{ ...databaseItem, type: "canvas" as const }] }])(
+    "uses the bundle icon for a main note without child notes",
+    ({ members }) => {
+      const item = { ...note, icon: "file", bundleMembers: members }
+      const { container } = render(
+        <>
+          <TreeItemIcon item={item} />
+          <TreeItemStatusIcon item={item} isFavorite={false} />
+          <TreeItemStatusIcon item={item} isFavorite />
+        </>,
+      )
+      expect(container.querySelectorAll(".lucide-composite-note")).toHaveLength(3)
+    },
+  )
+
+  it("keeps a custom icon on the bundle and a file icon on its separately shown note layer", () => {
+    const { container } = render(
+      <>
+        <TreeItemIcon item={{ ...note, bundleMembers: [] }} />
+        <TreeItemIcon item={{ ...note, icon: "file", bundleMembers: [], bundleMember: true }} />
+      </>,
+    )
+    expect(container.querySelector("img")).not.toBeNull()
+    expect(container.querySelector(".lucide-file-text")).not.toBeNull()
+    expect(container.querySelector(".lucide-composite-note")).toBeNull()
+  })
+
   it("renders a file icon with a star for a favorite note", () => {
     const { container } = render(<TreeItemStatusIcon item={note} isFavorite />)
 

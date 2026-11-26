@@ -5,6 +5,7 @@
 pub mod complete;
 pub mod create;
 pub mod discovery;
+pub mod dossier_template;
 pub mod events;
 pub mod format;
 pub mod index;
@@ -35,6 +36,9 @@ mod create_test_support;
 #[cfg(test)]
 #[path = "discovery_test.rs"]
 mod discovery_test;
+#[cfg(test)]
+#[path = "dossier_template_test.rs"]
+mod dossier_template_test;
 #[cfg(test)]
 #[path = "init_test.rs"]
 mod init_test;

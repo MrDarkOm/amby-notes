@@ -125,6 +125,9 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
   InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
@@ -655,6 +658,16 @@ export class WebAdapterCore implements StoragePort {
 
   async addStoryLinks(_request: AddStoryLinksRequest): Promise<AddedStoryLinks> {
     throw new ProjectOperationError("failed", "Linking a section requires the desktop runtime")
+  }
+
+  async getDossierTemplate(_databaseId: string): Promise<DossierTemplate> {
+    throw new ProjectOperationError("failed", "Dossier templates require the desktop runtime")
+  }
+
+  async updateDossierTemplate(
+    _request: UpdateDossierTemplateRequest,
+  ): Promise<UpdatedDossierTemplate> {
+    throw new ProjectOperationError("failed", "Dossier templates require the desktop runtime")
   }
 
   async ensurePlotLinks(_request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {

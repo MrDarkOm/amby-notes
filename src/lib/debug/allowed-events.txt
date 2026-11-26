@@ -291,6 +291,7 @@ storage.undo_mutation
 storage.update_database_property_config
 storage.update_database_property_options
 storage.update_database_relation_value
+storage.update_dossier_template
 storage.update_text_levels
 storage.update_workshop
 storage.upsert_custom_property

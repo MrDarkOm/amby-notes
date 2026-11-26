@@ -45,7 +45,11 @@ import { cn } from "@/lib/utils"
 import type { NotePagesPref } from "../app-config"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
 import { HeadingHintsContext } from "../editor/heading-hints-context"
-import { NotePagesDossierContext, NotePagesSlotContext } from "../editor/note-pages-context"
+import {
+  NotePageAboveContext,
+  NotePagesDossierContext,
+  NotePagesSlotContext,
+} from "../editor/note-pages-context"
 import { DatabaseViewPicker } from "../database/database-view-picker"
 import type { DatabaseViewChoice } from "../database/database-view-picker-model"
 import { useDatabaseStore } from "../database/database-store"
@@ -218,17 +222,25 @@ export function NotePageControls({
   const selection = React.useSyncExternalStore(subscribe, () => editor?.state.selection)
   const restoredFor = React.useRef<{ editor: Editor; key: string | null } | null>(null)
 
+  // The hints are read through a ref: a template that arrives later redraws the empty page's line
+  // instead of registering the pages again, which would close the open page.
+  const hintsRef = React.useRef(headingHints)
+  hintsRef.current = headingHints
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return
-    editor.registerPlugin(notePagesPlugin(level, emptyLabel, headingHints), (plugin, plugins) => [
-      plugin,
-      ...plugins,
-    ])
+    editor.registerPlugin(
+      notePagesPlugin(level, emptyLabel, () => hintsRef.current),
+      (plugin, plugins) => [plugin, ...plugins],
+    )
     editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false))
     return () => {
       if (!editor.isDestroyed) editor.unregisterPlugin(notePagesKey)
     }
-  }, [editor, level, emptyLabel, headingHints])
+  }, [editor, level, emptyLabel])
+  React.useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || level === null) return
+    editor.view.dispatch(editor.state.tr.setMeta("addToHistory", false))
+  }, [editor, headingHints, level])
 
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return
@@ -273,6 +285,7 @@ export function NotePageControls({
 
   const panelId = React.useId()
   const slot = React.useContext(NotePagesSlotContext)
+  const above = React.useContext(NotePageAboveContext)
   const stripRef = React.useRef<HTMLDivElement>(null)
   const measureRef = React.useRef<HTMLDivElement>(null)
   const shown = pages.length > 1
@@ -747,6 +760,7 @@ export function NotePageControls({
         aria-labelledby={active === null ? undefined : `${panelId}-${active}`}
         className="min-w-0"
       >
+        {above?.(active === null ? null : (pages[active]?.title ?? null))}
         {children}
       </div>
     </div>
