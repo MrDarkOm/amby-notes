@@ -2934,7 +2934,12 @@ title: string }
  * the result: `amby-story.json` for `Story` (`story_id` is required), `amby-workshop.json` for
  * `Anchors`.
  */
-export type EnsurePlotLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; target: PlotLinksTarget; storyId?: string | null; expectedRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type EnsurePlotLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; target: PlotLinksTarget; storyId?: string | null; expectedRevision: string; labels?: Partial<{ [key in string]: string }>; 
+/**
+ * `Story` only: which link properties of the text to make. `None` makes the anchors and the
+ * arcs, as before; the scene parts are made only when named here (on the author's first use).
+ */
+parts?: TextLinkPart[] | null }
 export type EnsuredPlotLinks = { operationId: string; workshopId: string; target: PlotLinksTarget; storyId: string | null; 
 /**
  * `Story`: the "Anchors" property of the text; `Anchors`: always `None`.
@@ -2948,6 +2953,10 @@ arcsPropertyId: string | null;
  * `Anchors`: the "Universe" property of the anchors; `Story`: always `None`.
  */
 universePropertyId: string | null; 
+/**
+ * `Story`: the scene links of the text as they are after the call; `Anchors`: `None`.
+ */
+charactersPropertyId?: string | null; povPropertyId?: string | null; placesPropertyId?: string | null; storyTimePropertyId?: string | null; 
 /**
  * The revision of the file that records the result, after the operation.
  */
@@ -4185,6 +4194,10 @@ export type TextLevelSummary = {
  */
 id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
 export type TextLevelUpdateInput = { id?: string | null; name: string; icon?: string | null }
+/**
+ * A link property of a story's text that `ensure_plot_links` can make.
+ */
+export type TextLinkPart = "anchors" | "arcs" | "characters" | "pov" | "places" | "storyTime"
 export type TextPageStat = { noteId: string; 
 /**
  * Words of the note's body as the index counted them when it last read the file.
@@ -4201,7 +4214,23 @@ created: number | null }
 /**
  * The system properties of the text database; each is present only if it exists there.
  */
-export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null; anchors: string | null; arcs: string | null }
+export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null; anchors: string | null; arcs: string | null; 
+/**
+ * The characters of a page (relation to the characters, many); made on first use.
+ */
+characters: string | null; 
+/**
+ * The point of view of a page (relation to the characters, one); made on first use.
+ */
+pov: string | null; 
+/**
+ * The places of a page (relation to the locations, many); made on first use.
+ */
+places: string | null; 
+/**
+ * When the page happens in the story's own time (text); made on first use.
+ */
+storyTime: string | null }
 /**
  * An option of the optional `status` property of the text database.
  */
