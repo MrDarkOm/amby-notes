@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { useContext } from "react"
+import { useContext, type ReactNode } from "react"
 import i18n from "@/lib/i18n"
 import type { DatabaseNoteContext, DatabasePropertySummary, NoteReference } from "@/lib/storage"
 import { useDatabaseStore } from "../../database/database-store"
-import { NotePagesDossierContext } from "../../editor/note-pages-context"
+import { HeadingHintsContext } from "../../editor/heading-hints-context"
+import { NotePageAboveContext, NotePagesDossierContext } from "../../editor/note-pages-context"
 import { catalog, section, storySummary, workshopSummary } from "../project-fixtures.test-support"
 import { useProjectStore } from "../project-store"
 import { CreativeNoteProvider } from "./creative-note-provider"
@@ -24,6 +25,7 @@ const storage = vi.hoisted(() => ({
   importDatabaseAsset: vi.fn(),
   applyDatabaseValueBatch: vi.fn(),
   resolveDatabaseAssetPaths: vi.fn(),
+  getDossierTemplate: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -158,6 +160,8 @@ describe("DossierFrame", () => {
     storage.listNoteReferences.mockReset().mockResolvedValue([])
     storage.searchNotes.mockReset().mockResolvedValue([])
     storage.resolveDatabaseAssetPaths.mockReset().mockResolvedValue({ paths: [] })
+    // By default a section's template cannot be read: the dossier works as it did before.
+    storage.getDossierTemplate.mockReset().mockRejectedValue(new Error("no template"))
     storage.pickAssetFile.mockReset()
     storage.importDatabaseAsset.mockReset()
     storage.applyDatabaseValueBatch.mockReset().mockResolvedValue({ revisions: [], warnings: [] })
@@ -407,6 +411,103 @@ describe("DossierFrame", () => {
     const header = screen.getByRole("banner")
     expect(within(header).queryByRole("textbox")).toBeNull()
     expect(within(header).getAllByText("не указано")).toHaveLength(2)
+  })
+
+  describe("with a dossier template", () => {
+    const layoutTemplate = {
+      databaseId: "db_characters",
+      templateId: "tpl",
+      name: "Досье",
+      body: "## Основное\n\n## Биография\n\n",
+      dossier: {
+        version: 1,
+        sections: [
+          { id: "basic", title: "Основное", hint: "Кто он, чем живёт", fields: ["role"] },
+          { id: "bio", title: "Биография", hint: "", fields: [] },
+        ],
+      },
+      manifestRevision: "m",
+    }
+
+    function mountWithProbe(probe: () => ReactNode) {
+      function Probe() {
+        return <>{probe()}</>
+      }
+      render(
+        <CreativeNoteProvider noteId="n1">
+          <DossierFrame noteId="n1" content={CONTENT} canJump scrollToHeading={vi.fn()}>
+            <Probe />
+          </DossierFrame>
+        </CreativeNoteProvider>,
+      )
+    }
+
+    it("shows the open tab's fields under the tabs and keeps them out of the header", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([story])))
+      storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+      storage.getDossierTemplate.mockResolvedValue(layoutTemplate)
+      let above: ((title: string | null) => ReactNode) | null = null
+      function Grab() {
+        above = useContext(NotePageAboveContext)
+        return null
+      }
+      mountWithProbe(() => <Grab />)
+      await settle()
+      await settle()
+      expect(storage.getDossierTemplate).toHaveBeenCalledWith("db_characters")
+      const header = screen.getByRole("banner")
+      expect(within(header).queryByRole("group", { name: "Роль" })).toBeNull()
+      expect(within(header).getByRole("group", { name: "Значимость" })).toBeTruthy()
+
+      expect(above).not.toBeNull()
+      const render_ = above as unknown as (title: string | null) => ReactNode
+      const { container } = render(<>{render_("Основное")}</>)
+      const role = within(container).getByRole("group", { name: "Роль" })
+      expect(within(role).getByDisplayValue("Разведчик")).toBeTruthy()
+      // A tab without fields and the whole note show nothing.
+      expect(render(<>{render_("Биография")}</>).container.textContent).toBe("")
+      expect(render(<>{render_(null)}</>).container.textContent).toBe("")
+    })
+
+    it("takes the hints of the empty sections from the template", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([story])))
+      storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+      storage.getDossierTemplate.mockResolvedValue(layoutTemplate)
+      let hints: ReadonlyMap<string, string> | null = null
+      function Grab() {
+        hints = useContext(HeadingHintsContext)
+        return null
+      }
+      mountWithProbe(() => <Grab />)
+      await settle()
+      await settle()
+      expect((hints as unknown as ReadonlyMap<string, string>).get("Основное")).toBe(
+        "Кто он, чем живёт",
+      )
+    })
+
+    it("opens the template editor from the header of a page that can be edited", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([story])))
+      storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+      storage.getDossierTemplate.mockResolvedValue(layoutTemplate)
+      mount()
+      await settle()
+      await settle()
+      fireEvent.click(screen.getByRole("button", { name: "Шаблон раздела" }))
+      expect(await screen.findByRole("dialog", { name: "Шаблон досье" })).toBeTruthy()
+    })
+
+    it("offers no template editor on a page that cannot be edited", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([story])))
+      storage.getDatabaseNoteContext.mockResolvedValue({
+        ...context("db_characters"),
+        locked: true,
+      })
+      storage.getDossierTemplate.mockResolvedValue(layoutTemplate)
+      mount()
+      await settle()
+      expect(screen.queryByRole("button", { name: "Шаблон раздела" })).toBeNull()
+    })
   })
 
   it("never remounts the editor when the answer arrives", async () => {
