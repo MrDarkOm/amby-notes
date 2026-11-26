@@ -139,7 +139,6 @@ export function DossierTemplateDialog({
         expectedManifestRevision: revision,
         name,
         propertyType: "text",
-        beforePropertyId: null,
       })
       setRevision(made.manifestRevision)
       setCreated((previous) => [
@@ -190,7 +189,8 @@ export function DossierTemplateDialog({
           <div className="flex flex-col gap-3">
             {draft.sections.map((section, index) => {
               const free = all.filter(
-                (property) => fieldable(property) && !section.fields.includes(property.propertyId),
+                (property) =>
+                  fieldable(property) && !(section.fields ?? []).includes(property.propertyId),
               )
               return (
                 <div
@@ -245,7 +245,7 @@ export function DossierTemplateDialog({
                   </div>
                   <input
                     type="text"
-                    value={section.hint}
+                    value={section.hint ?? ""}
                     aria-label={t("creative.template.hint")}
                     placeholder={t("creative.template.hintPlaceholder")}
                     className="h-7 min-w-0 rounded-md border border-transparent bg-muted/40 px-2 text-xs outline-none focus:border-ring"
@@ -257,7 +257,7 @@ export function DossierTemplateDialog({
                     <span className="text-[11px] text-muted-foreground">
                       {t("creative.template.fields")}
                     </span>
-                    {section.fields.map((field) => (
+                    {(section.fields ?? []).map((field) => (
                       <span
                         key={field}
                         className="inline-flex items-center gap-0.5 rounded-full bg-accent px-2 py-0.5 text-xs"

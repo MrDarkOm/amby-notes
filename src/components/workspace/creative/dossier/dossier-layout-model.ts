@@ -85,7 +85,7 @@ export function addField(layout: DossierLayout, id: string, field: string): Doss
   return {
     ...layout,
     sections: layout.sections.map((section) => {
-      const rest = section.fields.filter((candidate) => candidate !== field)
+      const rest = (section.fields ?? []).filter((candidate) => candidate !== field)
       return section.id === id
         ? { ...section, fields: [...rest, field] }
         : { ...section, fields: rest }
@@ -98,7 +98,7 @@ export function removeField(layout: DossierLayout, id: string, field: string): D
     ...layout,
     sections: layout.sections.map((section) =>
       section.id === id
-        ? { ...section, fields: section.fields.filter((candidate) => candidate !== field) }
+        ? { ...section, fields: (section.fields ?? []).filter((candidate) => candidate !== field) }
         : section,
     ),
   }
@@ -108,8 +108,8 @@ export function removeField(layout: DossierLayout, id: string, field: string): D
 export function layoutHints(layout: DossierLayout): Map<string, string> {
   return new Map(
     layout.sections
-      .filter((section) => section.hint.trim() !== "")
-      .map((section) => [section.title.trim(), section.hint.trim()]),
+      .filter((section) => (section.hint ?? "").trim() !== "")
+      .map((section) => [section.title.trim(), (section.hint ?? "").trim()]),
   )
 }
 
@@ -125,7 +125,7 @@ export function fieldsOutsideSections(
   fields: readonly string[],
 ): string[] {
   if (!layout) return [...fields]
-  const placed = new Set(layout.sections.flatMap((section) => section.fields))
+  const placed = new Set(layout.sections.flatMap((section) => section.fields ?? []))
   return fields.filter((field) => !placed.has(field))
 }
 

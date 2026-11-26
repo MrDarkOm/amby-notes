@@ -45,7 +45,11 @@ import { cn } from "@/lib/utils"
 import type { NotePagesPref } from "../app-config"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
 import { HeadingHintsContext } from "../editor/heading-hints-context"
-import { NotePagesDossierContext, NotePagesSlotContext } from "../editor/note-pages-context"
+import {
+  NotePageAboveContext,
+  NotePagesDossierContext,
+  NotePagesSlotContext,
+} from "../editor/note-pages-context"
 import { DatabaseViewPicker } from "../database/database-view-picker"
 import type { DatabaseViewChoice } from "../database/database-view-picker-model"
 import { useDatabaseStore } from "../database/database-store"
@@ -273,6 +277,7 @@ export function NotePageControls({
 
   const panelId = React.useId()
   const slot = React.useContext(NotePagesSlotContext)
+  const above = React.useContext(NotePageAboveContext)
   const stripRef = React.useRef<HTMLDivElement>(null)
   const measureRef = React.useRef<HTMLDivElement>(null)
   const shown = pages.length > 1
@@ -747,6 +752,7 @@ export function NotePageControls({
         aria-labelledby={active === null ? undefined : `${panelId}-${active}`}
         className="min-w-0"
       >
+        {above?.(active === null ? null : (pages[active]?.title ?? null))}
         {children}
       </div>
     </div>
