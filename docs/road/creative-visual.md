@@ -1,0 +1,96 @@
+# Creative workshop: dossier templates and visual polish
+
+Status as of 2026-11-26: **planned**. Owner's request: remove duplicates and clutter, make the workshop look
+good, give a character a portrait that can be set and changed and a proper appearance section, and turn
+plain text pages into dossiers built from a template (sections, hints, fields) the author can configure.
+
+## 1. Owner decisions (2026-11-26)
+
+1. **A template has sections, hints and fields.** A section is a tab of the dossier (a heading of the
+   page), with a hint shown while it is empty and optional fields (ordinary database properties of the
+   section, e.g. Height, Eyes, Hair under Appearance), shown as a card in that tab.
+2. **Existing dossiers change only on a click.** Changing the template never rewrites notes; a dossier
+   that lacks sections of the template offers "Add the missing sections", which writes that one note.
+3. **Duplicates.** The story chip under a character's name goes (the breadcrumb names the story). The
+   owner sends the rest of the list after going through the workshop (section 4, item G).
+4. **Process.** This plan, then batches in a separate worktree from `dev`, each checked on screen; merged
+   on the owner's word.
+
+## 2. Rules for whoever implements this
+
+Read [AGENTS.md](../../AGENTS.md), the [creative map](../../src/components/workspace/creative/MAP.md),
+[creative-format.md](../creative-format.md), [vault-format.md](../vault-format.md) (templates live in the
+database manifest) and [markdown-compatibility.md](../markdown-compatibility.md). Tests first for
+behaviour; visible text in `resources.ts` in every language; notices per [notices.md](../notices.md); no
+raw palette classes (theme tokens). IPC changes through the `amby-ipc-change` skill.
+
+## 3. Format (needs the owner's go-ahead before batch C is merged)
+
+A database template object in the manifest keeps unknown fields (`extra`). The dossier layout is one
+additive field of the template, so other apps and older Amby keep the template as it is:
+
+```json
+{
+  "format": "amby-database-template",
+  "templateId": "…",
+  "name": "Досье",
+  "body": "## Основное\n\n## Внешность\n\n",
+  "values": {},
+  "ambyDossier": {
+    "version": 1,
+    "sections": [
+      {
+        "id": "basic",
+        "title": "Основное",
+        "hint": "Возраст, занятие, роль в истории…",
+        "fields": []
+      },
+      {
+        "id": "appearance",
+        "title": "Внешность",
+        "hint": "Как выглядит…",
+        "fields": ["<propertyId>", "…"]
+      }
+    ]
+  }
+}
+```
+
+- `title` is the heading the note uses; `body` is rewritten from the sections when the template changes,
+  so a new page still starts with the headings.
+- `fields` name properties of the same database by ID; a deleted property is skipped with no error.
+- A template without `ambyDossier` behaves as today (built-in hints matched by heading name).
+- Writing: a new command `update_database_template` (manifest revision check, history snapshot, atomic
+  write); reading: the template's body and layout join `DatabaseTemplateSummary`.
+
+## 4. Batches
+
+| Batch | What                                                                                |
+| ----- | ----------------------------------------------------------------------------------- |
+| A     | Portrait: set, change, remove from the dossier header; shown large; story chip gone |
+| B     | Dossier header and tabs redesigned; key fields (Role, Importance) edited in place   |
+| C     | Template layout in the manifest (format §3): read and write commands, tests         |
+| D     | Template editor: sections (order, title, hint), fields per section (pick or create) |
+| E     | Fields in the dossier tab as a card, edited in place; Appearance preset with fields |
+| F     | "Add the missing sections" for a dossier made before the template changed           |
+| G     | Duplicates and clutter from the owner's list                                        |
+
+**A.** Click the portrait (or "Add a portrait") → pick an image → `import_database_asset` copies it next to
+the note, the "Portrait" files value is written with the row revision. Menu: change, remove (removes the
+value only; the file goes to the trash only after a confirmation). Locations: the same for "Image" as a
+cover. The gallery already shows the first picture. Done when a portrait is set, changed and removed from
+the header without opening the database.
+
+**B.** A header with a 96 px portrait, the name, the role and importance as quiet editable chips, the
+filled count; tabs as pills with a mark on empty ones. Done when a character page looks like a card, not
+like a note with a table above it.
+
+**C–F.** As in section 3. The built-in presets get layouts for new workshops (characters: Basics with
+Role, Age, Occupation; Appearance with Height, Build, Eyes, Hair, Features; Character; Biography);
+existing workshops get them only through the template editor.
+
+**G.** From the owner's list.
+
+## 5. Not in this plan
+
+Pictures generated by AI, several templates per section with a chooser, a template marketplace.
