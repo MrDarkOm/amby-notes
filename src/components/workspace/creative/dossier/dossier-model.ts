@@ -1,6 +1,4 @@
 import { localeResources } from "@/locales/resources"
-import { relationTargetsOf } from "../workshop/workshop-model"
-import type { NoteDossier } from "./use-note-dossier"
 import type {
   NoteReference,
   ProjectCatalog,
@@ -67,21 +65,6 @@ export function characterFieldPriority(name: string): number {
   if (properties.some((names) => names.role.toLowerCase() === normalized)) return 0
   if (properties.some((names) => names.importance.toLowerCase() === normalized)) return 1
   return 2
-}
-
-export function dossierStories({ context, world, references }: NoteDossier): StorySummary[] {
-  const property = world.section.storiesPropertyId
-  const direct = new Set(property ? relationTargetsOf(context.row.valuesJson, property) : [])
-  const textDatabases = new Set(
-    references
-      .filter((reference) => reference.direction === "in")
-      .map((reference) => reference.databaseId),
-  )
-  return world.workshop.stories.filter(
-    (story) =>
-      (story.cardNoteId !== null && direct.has(story.cardNoteId)) ||
-      Boolean(story.text?.databaseId && textDatabases.has(story.text.databaseId)),
-  )
 }
 
 export interface TocEntry {
