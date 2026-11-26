@@ -46,6 +46,9 @@ interface CreativeNavState {
   /** The one search above the tabs: it looks through every list at once. Not remembered. */
   search: string
   setSearch: (search: string) => void
+  /** The story desk's chapters as a list or as a board of cards (session state). */
+  chaptersView: "list" | "cards"
+  setChaptersView: (view: "list" | "cards") => void
   /** Bumped after a write so the lists read the databases again. */
   dataNonce: number
   bumpData: () => void
@@ -78,6 +81,8 @@ export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   setShownStoryId: (shownStoryId) => set({ shownStoryId }),
   search: "",
   setSearch: (search) => set({ search }),
+  chaptersView: "list",
+  setChaptersView: (chaptersView) => set({ chaptersView }),
   dataNonce: 0,
   bumpData: () => set((state) => ({ dataNonce: state.dataNonce + 1 })),
   pageRequest: null,

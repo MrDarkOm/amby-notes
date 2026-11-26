@@ -4,6 +4,14 @@
 
 - For developers: the standalone Note Pages roadmap tracks page navigation, editing, and starter pages from templates.
 
+- Creative workshop: a dossier's “Appears in” also lists the story pages that mention the character or place by name, under “Found by name”: the full name, each part of a multi-word name, and the `aliases` of the note header, with common Russian endings (“Кея”, “Алисы”, “Дома у реки”). Hover a page to see the matching passage. **Bind** next to a found page links it to the character or location in one click. A character's stories show only in the header now, not again under Connections. An empty dossier page shows only that section's hint, without the general “Start writing” line.
+- Creative workshop: a page of a story's text has a **Scene** block with its point of view, characters, places and story time. Each one becomes a property of that story's text only the first time you use it, never in advance. A character's “Appears in” lists each chapter once, in reading order, with its story time and a “point of view” mark.
+- Creative workshop: names of characters and locations are underlined with a quiet dotted line on a page of a story's text. Point at one to see its card; Cmd-click or Ctrl-click opens its page. The file is never changed.
+- Creative workshop: the desk's Chapters widget switches between **List** and **Board**. On the board each part is a column and each page a card with its first paragraph, point of view and story time. Drag a card to move the page; a move the text levels do not allow is refused with the reason.
+- Creative workshop: a dossier header says how many of its sections are written (“2 of 4 sections filled”) and names a character's empty role and importance as “not set”.
+- Creative workshop: set a daily word goal under a story's progress on its desk. It shows today's words against the goal and the days in a row you reached it. The goal is kept on this device only.
+- For developers: `ensure_plot_links` takes optional `parts` for a story's text (`characters`, `pov`, `places`, `storyTime`, next to `anchors` and `arcs`). Without `parts` it behaves as before. Format: [creative-format.md](../docs/creative-format.md) §6.
+
 - Supernotes are now called Bundles in English (Мультизаметки in Russian) and have a dedicated icon in Settings and in the workspace.
 
 - Creative workshop: all reference dossiers can open their sections as tabs, including arcs, anchors, and custom sections. Use “Whole note” to see the full dossier, or turn off “Pages in this note” in its menu to keep it in one view.

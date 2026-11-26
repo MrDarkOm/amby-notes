@@ -52,6 +52,19 @@ export function linkLabels(t: TFunction): Record<string, string> {
   }
 }
 
+/**
+ * Names of the scene links of a story's text, sent only with `ensure_plot_links` when the author
+ * first uses one (never at creation, so they are not part of `projectLabels`).
+ */
+export function sceneLinkLabels(t: TFunction): Record<string, string> {
+  return {
+    "property:characters": t("creative.scene.properties.characters"),
+    "property:pov": t("creative.scene.properties.pov"),
+    "property:places": t("creative.scene.properties.places"),
+    "property:storyTime": t("creative.scene.properties.storyTime"),
+  }
+}
+
 const PROPERTY_KEYS = ["level", "parent", "order", "format", "status"] as const
 const LEVEL_KEYS = ["book", "arc", "chapter", "page"] as const
 const FORMAT_KINDS = ["manuscript", "screenplay", "comic", "note"] as const

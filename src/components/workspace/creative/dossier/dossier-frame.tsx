@@ -11,6 +11,10 @@ import { DossierHeader } from "./dossier-header"
 import { TextPageAside } from "./text-page-aside"
 import { usePlotFold } from "./use-plot-fold"
 import { NotePlaceContext } from "./use-note-dossier"
+import { useWorldNames } from "./use-world-names"
+import { EntityCard } from "./entity-card"
+import { EntityNamesContext } from "../../editor/entity-names-context"
+import type { EntityNames } from "../../tiptap/entity-names"
 
 /** Side by side only where the text keeps a readable column next to the blocks. */
 const SIDE_BY_SIDE_MIN_WIDTH = 640
@@ -91,11 +95,33 @@ export function DossierFrame({
   const textPlace =
     place?.kind === "text" && hasPlotSections(place.text.workshop) ? place.text : null
   const framed = dossier !== null || (textPlace !== null && !folded)
+  // A page of a story's text marks the names of the world; pointing at one shows its card.
+  // Only where the page has its plot aside too: a workshop of an early stage reads nothing.
+  const textWorkshop = textPlace?.workshop ?? null
+  const world = useWorldNames(textWorkshop)
+  const [pointed, setPointed] = React.useState<{ noteId: string; rect: DOMRect } | null>(null)
+  const openRef = React.useRef(onOpenNote)
+  openRef.current = onOpenNote
+  const entityNames = React.useMemo<EntityNames | null>(
+    () =>
+      textWorkshop && world.entries.length > 0
+        ? {
+            entries: world.entries,
+            onHover: (id, element) =>
+              setPointed(
+                id && element ? { noteId: id, rect: element.getBoundingClientRect() } : null,
+              ),
+            onOpen: (id) => openRef.current?.(id),
+          }
+        : null,
+    [textWorkshop, world.entries],
+  )
+  const pointedEntity = pointed ? world.entityOf(pointed.noteId) : null
   const frameRef = React.useRef<HTMLDivElement>(null)
   const sideBySide = useWidth(frameRef) >= SIDE_BY_SIDE_MIN_WIDTH
   return (
     <div ref={frameRef} className="min-w-0" data-dossier-frame="">
-      {dossier ? <DossierHeader dossier={dossier} locked={locked} /> : null}
+      {dossier ? <DossierHeader dossier={dossier} locked={locked} content={content} /> : null}
       {textPlace && folded && (
         <Button type="button" size="sm" variant="ghost" onClick={toggle} aria-expanded={false}>
           <ChevronDown aria-hidden="true" className="size-3.5" />
@@ -111,7 +137,9 @@ export function DossierFrame({
       >
         <div className={framed ? "min-w-0 flex-1" : "contents"}>
           <HeadingHintsContext.Provider value={headingHints}>
-            {children}
+            <EntityNamesContext.Provider value={entityNames}>
+              {children}
+            </EntityNamesContext.Provider>
           </HeadingHintsContext.Provider>
         </div>
         {dossier ? (
@@ -122,6 +150,7 @@ export function DossierFrame({
             onJump={scrollToHeading}
             onOpenNote={onOpenNote}
             sideBySide={sideBySide}
+            locked={locked}
           />
         ) : textPlace && !folded ? (
           <TextPageAside
@@ -135,6 +164,13 @@ export function DossierFrame({
           />
         ) : null}
       </div>
+      {pointed && pointedEntity && (
+        <EntityCard
+          title={pointedEntity.row.title}
+          kind={pointedEntity.section.name}
+          anchor={pointed.rect}
+        />
+      )}
     </div>
   )
 }

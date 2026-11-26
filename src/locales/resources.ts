@@ -3623,6 +3623,46 @@ const ru = {
         },
       },
     },
+    // The daily word goal of a story, kept on this device.
+    goal: {
+      label: "Цель на день",
+      set: "Поставить цель на день",
+      perDay: "Слов в день",
+      today: "Сегодня {{written}} из {{goal}} слов",
+      streak: "Серия: {{count}} дн.",
+      streak_one: "Серия: {{count}} дн.",
+      streak_few: "Серия: {{count}} дн.",
+      streak_many: "Серия: {{count}} дн.",
+      remove: "Убрать цель",
+    },
+    // The text of a story as cards on its desk.
+    board: {
+      loose: "Отдельные страницы",
+      inside: "внутри: {{count}}",
+      words: "{{count}} сл.",
+      view: "Вид",
+      list: "Список",
+      cards: "Доска",
+    },
+    // Who, whose eyes, where and when of a page of a story's text.
+    scene: {
+      properties: {
+        characters: "Персонажи",
+        pov: "Точка зрения",
+        places: "Места",
+        storyTime: "Время действия",
+      },
+      title: "Сцена",
+      choosePov: "Выбрать точку зрения",
+      addCharacter: "Добавить персонажа",
+      addPlace: "Добавить место",
+      remove: "Убрать: {{name}}",
+      nobody: "Выбрать некого",
+      storyTimeHint: "Например: утро третьего дня",
+      timelinePov: "точка зрения",
+      unavailable:
+        "Здесь нельзя привязать: у истории нет текста или мастерская открыта только для чтения.",
+    },
     // Anchors and arcs bound to the pages of a story's text.
     plot: {
       unavailable:
@@ -3702,6 +3742,16 @@ const ru = {
       toc: "Разделы",
       appearsIn: "Появляется в",
       appearsInEmpty: "Пока нигде в тексте не упоминается.",
+      foundByName: "Найдено по имени",
+      bind: "Привязать",
+      bindCharacterHint: "Отметить, что персонаж есть на этой странице",
+      bindPlaceHint: "Отметить, что действие страницы происходит здесь",
+      entityCardOpen: "⌘-клик или Ctrl-клик — открыть",
+      notSet: "не указано",
+      filled: "Заполнено {{filled}} из {{count}} разделов",
+      filled_one: "Заполнено {{filled}} из {{count}} раздела",
+      filled_few: "Заполнено {{filled}} из {{count}} разделов",
+      filled_many: "Заполнено {{filled}} из {{count}} разделов",
       connections: "Связи",
       connectionsEmpty: "Связей пока нет.",
       incoming: "Входящая связь",
@@ -8297,6 +8347,43 @@ const en: LocaleShape<typeof ru> = {
         },
       },
     },
+    // The daily word goal of a story, kept on this device.
+    goal: {
+      label: "Daily goal",
+      set: "Set a daily goal",
+      perDay: "Words a day",
+      today: "Today {{written}} of {{goal}} words",
+      streak: "Streak: {{count}} days",
+      streak_one: "Streak: {{count}} day",
+      remove: "Remove goal",
+    },
+    // The text of a story as cards on its desk.
+    board: {
+      loose: "Separate pages",
+      inside: "inside: {{count}}",
+      words: "{{count}} w.",
+      view: "View",
+      list: "List",
+      cards: "Board",
+    },
+    // Who, whose eyes, where and when of a page of a story's text.
+    scene: {
+      properties: {
+        characters: "Characters",
+        pov: "Point of view",
+        places: "Places",
+        storyTime: "Story time",
+      },
+      title: "Scene",
+      choosePov: "Choose point of view",
+      addCharacter: "Add character",
+      addPlace: "Add place",
+      remove: "Remove: {{name}}",
+      nobody: "Nothing to choose",
+      storyTimeHint: "For example: morning of day three",
+      timelinePov: "point of view",
+      unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
+    },
     // Anchors and arcs bound to the pages of a story's text.
     plot: {
       unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
@@ -8374,6 +8461,14 @@ const en: LocaleShape<typeof ru> = {
       toc: "Sections",
       appearsIn: "Appears in",
       appearsInEmpty: "Not mentioned in the text yet.",
+      foundByName: "Found by name",
+      bind: "Bind",
+      bindCharacterHint: "Mark that the character is on this page",
+      bindPlaceHint: "Mark that this page takes place here",
+      entityCardOpen: "⌘-click or Ctrl-click to open",
+      notSet: "not set",
+      filled: "{{filled}} of {{count}} sections filled",
+      filled_one: "{{filled}} of {{count}} section filled",
       connections: "Connections",
       connectionsEmpty: "No connections yet.",
       incoming: "Incoming relation",

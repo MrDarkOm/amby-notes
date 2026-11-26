@@ -103,6 +103,7 @@ on a story, text levels (`updateTextLevels`) and the `status` property (`addText
 [preset heading hints](../tiptap/heading-hints.ts), arc and character links (`plot-blocks.tsx`),
 and a foldable [story-text plot](dossier/text-page-aside.tsx) bound through `usePlotBinding`.
 See [format §11](../../../../docs/creative-format.md).
+"Found by name", names in text: [mention-model.ts](dossier/mention-model.ts); scene: `scene-block.tsx`.
 
 [fractional-index.ts](../../../lib/storage/fractional-index.ts) orders the pages of the text;
 [manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) turns the tree into one Markdown

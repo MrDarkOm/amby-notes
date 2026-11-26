@@ -348,6 +348,14 @@ pub struct TextPropertyIds {
     pub status: Option<String>,
     pub anchors: Option<String>,
     pub arcs: Option<String>,
+    /// The characters of a page (relation to the characters, many); made on first use.
+    pub characters: Option<String>,
+    /// The point of view of a page (relation to the characters, one); made on first use.
+    pub pov: Option<String>,
+    /// The places of a page (relation to the locations, many); made on first use.
+    pub places: Option<String>,
+    /// When the page happens in the story's own time (text); made on first use.
+    pub story_time: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -737,6 +745,24 @@ pub struct EnsurePlotLinksRequest {
     pub expected_revision: String,
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    /// `Story` only: which link properties of the text to make. `None` makes the anchors and the
+    /// arcs, as before; the scene parts are made only when named here (on the author's first use).
+    #[serde(default)]
+    pub parts: Option<Vec<TextLinkPart>>,
+}
+
+/// A link property of a story's text that `ensure_plot_links` can make.
+#[derive(
+    Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, specta::Type,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum TextLinkPart {
+    Anchors,
+    Arcs,
+    Characters,
+    Pov,
+    Places,
+    StoryTime,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
@@ -752,6 +778,15 @@ pub struct EnsuredPlotLinks {
     pub arcs_property_id: Option<String>,
     /// `Anchors`: the "Universe" property of the anchors; `Story`: always `None`.
     pub universe_property_id: Option<String>,
+    /// `Story`: the scene links of the text as they are after the call; `Anchors`: `None`.
+    #[serde(default)]
+    pub characters_property_id: Option<String>,
+    #[serde(default)]
+    pub pov_property_id: Option<String>,
+    #[serde(default)]
+    pub places_property_id: Option<String>,
+    #[serde(default)]
+    pub story_time_property_id: Option<String>,
     /// The revision of the file that records the result, after the operation.
     pub revision: String,
     /// Whether anything was written; `false` when every property that could exist already did.

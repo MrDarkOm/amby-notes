@@ -6,6 +6,7 @@ import {
   type EnsuredPlotLinks,
   type PlotLinksTarget,
   type StorySummary,
+  type TextLinkPart,
   type WorkshopSummary,
 } from "@/lib/storage"
 import { logger } from "@/lib/logger"
@@ -19,6 +20,8 @@ export type EnsurePlot = (request: {
   target: PlotLinksTarget
   workshop: WorkshopSummary
   story?: StorySummary
+  /** `story` only: the scene links to make; without it, the anchors and arcs. */
+  parts?: TextLinkPart[]
 }) => Promise<EnsuredPlotLinks>
 
 export interface PlotBinding {

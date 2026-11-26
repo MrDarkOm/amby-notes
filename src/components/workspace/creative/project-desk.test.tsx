@@ -71,6 +71,10 @@ const story = storySummary("hills", {
       status: null,
       anchors: null,
       arcs: null,
+      characters: null,
+      pov: null,
+      places: null,
+      storyTime: null,
     },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },

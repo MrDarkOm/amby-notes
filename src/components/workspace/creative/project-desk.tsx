@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils"
 import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { ChaptersWidget } from "./desk/chapters-widget"
+import { synopsisOf } from "./desk/board-model"
+import { useWordGoal } from "./desk/use-word-goal"
+import { WordGoal } from "./desk/word-goal"
+import { readScene } from "./workshop/scene-model"
 import { DeskControls } from "./desk/desk-controls"
 import { ContinueWidget } from "./desk/continue-widget"
 import { DeskWidget } from "./desk/desk-widget"
@@ -229,6 +233,10 @@ export function ProjectDesk({
     () => all.reduce((sum, node) => sum + (stats[node.noteId]?.wordCount ?? 0), 0),
     [all, stats],
   )
+  // The daily goal counts only once every page has its words: a half-read count would set the
+  // start of the day too low and credit the author with words already there.
+  const counted = all.length > 0 && all.every((node) => stats[node.noteId] !== undefined)
+  const wordGoal = useWordGoal(vaultPath, resolvedStory?.storyId ?? null, totalWords, counted)
   const groups = React.useMemo(() => {
     if (statusOptions.length === 0) return null
     const of = (group: string) =>
@@ -349,6 +357,33 @@ export function ProjectDesk({
       .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
       .finally(bumpData)
   }
+
+  // The board of the chapters: a card's scene (point of view, story time) and first paragraph.
+  const charactersSection = sectionOf("characters")
+  const peopleRows = charactersSection ? data.rows[charactersSection.databaseId] : undefined
+  const loadSynopsis = React.useCallback(
+    async (noteId: string) =>
+      vaultPath ? synopsisOf((await readNote(vaultPath, noteId)).content) : "",
+    [vaultPath],
+  )
+  const board = React.useMemo(() => {
+    if (!text) return undefined
+    return {
+      loadSynopsis,
+      hintsOf: (noteId: string) => {
+        const row = rows?.find((candidate) => candidate.noteId === noteId)
+        if (!row) return []
+        const scene = readScene(row, text.properties)
+        const hints: string[] = []
+        const pov = scene.pov
+          ? peopleRows?.find((person) => person.noteId === scene.pov)?.title
+          : undefined
+        if (pov) hints.push(pov)
+        if (scene.storyTime) hints.push(scene.storyTime)
+        return hints
+      },
+    }
+  }, [loadSynopsis, peopleRows, rows, text])
 
   // Notes of this story, under their notebooks.
   const notesSection = sectionOf("notes")
@@ -538,6 +573,17 @@ export function ProjectDesk({
               groups={groups}
               onCompile={vaultPath ? () => void assemble() : null}
               compile={compile}
+              goal={
+                wordGoal.setGoal ? (
+                  <WordGoal
+                    goal={wordGoal.goal}
+                    written={wordGoal.written}
+                    streak={wordGoal.streak}
+                    canEdit={!locked}
+                    onSetGoal={wordGoal.setGoal}
+                  />
+                ) : null
+              }
             />
           </DeskWidget>
         )
@@ -570,6 +616,7 @@ export function ProjectDesk({
               onCreateAnchor={canCreateAnchor ? createAnchor : null}
               moveError={moveError}
               loading={data.status === "loading" || data.status === "idle"}
+              board={board}
             />
           </DeskWidget>
         )

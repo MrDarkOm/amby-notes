@@ -6854,6 +6854,14 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   row-gap: 0;
 }
 
+/* A name of the world on a page of a story's text: quiet, so reading is not disturbed. */
+.ProseMirror .amby-entity-name {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.6);
+  text-underline-offset: 0.2em;
+}
+
 .ProseMirror .amby-heading-hint {
   color: hsl(var(--muted-foreground));
   font-size: 0.875em;

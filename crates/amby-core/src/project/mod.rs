@@ -48,6 +48,9 @@ mod plot_links_test;
 #[path = "preset_test.rs"]
 mod preset_test;
 #[cfg(test)]
+#[path = "scene_links_test.rs"]
+mod scene_links_test;
+#[cfg(test)]
 #[path = "text_test.rs"]
 mod text_test;
 

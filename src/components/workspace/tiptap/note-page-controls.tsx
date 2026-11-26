@@ -44,6 +44,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import { cn } from "@/lib/utils"
 import type { NotePagesPref } from "../app-config"
 import { toRelativeVaultPath } from "../workspace-tree-utils"
+import { HeadingHintsContext } from "../editor/heading-hints-context"
 import { NotePagesDossierContext, NotePagesSlotContext } from "../editor/note-pages-context"
 import { DatabaseViewPicker } from "../database/database-view-picker"
 import type { DatabaseViewChoice } from "../database/database-view-picker-model"
@@ -186,6 +187,7 @@ export function NotePageControls({
   const { t } = useTranslation()
   const dossier = React.useContext(NotePagesDossierContext)
   const emptyLabel = t("docEditor.notePages.empty")
+  const headingHints = React.useContext(HeadingHintsContext)
   const level = notePagesRule(source.mode, source.flag, dossier)
   const key = preferenceKey(vaultPath, noteId)
   const activeKey = key ? `${key}:active` : null
@@ -218,7 +220,7 @@ export function NotePageControls({
 
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return
-    editor.registerPlugin(notePagesPlugin(level, emptyLabel), (plugin, plugins) => [
+    editor.registerPlugin(notePagesPlugin(level, emptyLabel, headingHints), (plugin, plugins) => [
       plugin,
       ...plugins,
     ])
@@ -226,7 +228,7 @@ export function NotePageControls({
     return () => {
       if (!editor.isDestroyed) editor.unregisterPlugin(notePagesKey)
     }
-  }, [editor, level, emptyLabel])
+  }, [editor, level, emptyLabel, headingHints])
 
   React.useLayoutEffect(() => {
     if (!editor || editor.isDestroyed || level === null) return

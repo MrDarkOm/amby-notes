@@ -136,6 +136,10 @@ function world(readOnly = false): ProjectCatalog {
             status: null,
             anchors: "tanc",
             arcs: null,
+            characters: null,
+            pov: null,
+            places: null,
+            storyTime: null,
           },
           levels: [
             { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },

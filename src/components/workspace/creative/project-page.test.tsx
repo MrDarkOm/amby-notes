@@ -384,6 +384,10 @@ describe("ProjectSettingsDialog", () => {
           status: null,
           anchors: null,
           arcs: null,
+          characters: null,
+          pov: null,
+          places: null,
+          storyTime: null,
         },
         levels: [
           { id: "opt_ch", name: "Глава", icon: null, color: "gray", state: "ok" },

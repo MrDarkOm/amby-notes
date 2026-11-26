@@ -21,8 +21,18 @@ const ARC_KINDS: [&str; 3] = ["character", "plot", "mini"];
 const TAGS: [&str; 3] = ["blue", "green", "red"];
 const STATUSES: [&str; 3] = ["draft", "inProgress", "done"];
 /// Names of the link properties: a world page's stories, a story's (or an anchor's) universe, and
-/// the anchors and arcs of a story's text pages (also the arcs of an anchor).
-const LINK_KEYS: [&str; 4] = ["stories", "universe", "anchors", "arcs"];
+/// the anchors and arcs of a story's text pages (also the arcs of an anchor), and the scene links of
+/// a text page (characters, point of view, places, story time).
+const LINK_KEYS: [&str; 8] = [
+    "stories",
+    "universe",
+    "anchors",
+    "arcs",
+    "characters",
+    "pov",
+    "places",
+    "storyTime",
+];
 
 /// Keys of `labels` that name a link property (`add_story_links` and `ensure_plot_links` accept
 /// only these).
@@ -38,6 +48,10 @@ fn default_label(key: &str) -> &'static str {
         "property:universe" => "Вселенная",
         "property:anchors" => "Якоря",
         "property:arcs" => "Арки",
+        "property:characters" => "Персонажи",
+        "property:pov" => "Точка зрения",
+        "property:places" => "Места",
+        "property:storyTime" => "Время действия",
         "preset:characters" => "Персонажи",
         "preset:locations" => "Локации",
         "preset:universes" => "Вселенные",

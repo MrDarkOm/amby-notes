@@ -6,17 +6,19 @@ workshop plan summary (local archive `docs/archive/`, not in git). The desk read
 writes only through the calls the panel uses (`createTextPage`, `moveTextPage`, `createWorkshopEntity`,
 `updateDatabaseRelationValue` by `usePlotBinding`); compiling the manuscript only reads and writes one new file.
 
-| Concern                                           | Owner                                                                                   |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Widgets, order, widths, hidden, columns (pure)    | [desk-layout-model.ts](desk-layout-model.ts)                                            |
-| The card of a widget (title, count, "Open")       | [desk-widget.tsx](desk-widget.tsx)                                                      |
-| Layout mode: up, down, width, hide                | [desk-controls.tsx](desk-controls.tsx); the tray and the hint are in `project-desk.tsx` |
-| Own width of the desk                             | [use-element-width.ts](use-element-width.ts)                                            |
-| Pack widgets below shorter cards                  | [use-desk-grid.ts](use-desk-grid.ts)                                                    |
-| Per-story layout and apply to all                 | [use-desk-layout.ts](use-desk-layout.ts)                                                |
-| Continue, Progress (and the manuscript)           | [continue-widget.tsx](continue-widget.tsx), [progress-widget.tsx](progress-widget.tsx)  |
-| Chapters: outline, moves, new page, "Ahead" strip | [chapters-widget.tsx](chapters-widget.tsx)                                              |
-| Notes of the story, the world of the story        | `NotesBoard` (`embedded`) and `SectionGallery` (`compact`) of [pages/](../pages/MAP.md) |
+| Concern                                           | Owner                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Widgets, order, widths, hidden, columns (pure)    | [desk-layout-model.ts](desk-layout-model.ts)                                               |
+| The card of a widget (title, count, "Open")       | [desk-widget.tsx](desk-widget.tsx)                                                         |
+| Layout mode: up, down, width, hide                | [desk-controls.tsx](desk-controls.tsx); the tray and the hint are in `project-desk.tsx`    |
+| Own width of the desk                             | [use-element-width.ts](use-element-width.ts)                                               |
+| Pack widgets below shorter cards                  | [use-desk-grid.ts](use-desk-grid.ts)                                                       |
+| Per-story layout and apply to all                 | [use-desk-layout.ts](use-desk-layout.ts)                                                   |
+| Continue, Progress (and the manuscript)           | [continue-widget.tsx](continue-widget.tsx), [progress-widget.tsx](progress-widget.tsx)     |
+| Chapters: outline, moves, new page, "Ahead" strip | [chapters-widget.tsx](chapters-widget.tsx)                                                 |
+| Daily word goal and streak (this device's prefs)  | [word-goal.tsx](word-goal.tsx), [use-word-goal.ts](use-word-goal.ts), `word-goal-model.ts` |
+| Chapters as a board of cards (List / Board)       | [story-board.tsx](story-board.tsx), [board-model.ts](board-model.ts) (pure)                |
+| Notes of the story, the world of the story        | `NotesBoard` (`embedded`) and `SectionGallery` (`compact`) of [pages/](../pages/MAP.md)    |
 
 **Description.** [StoryDescription](story-description.tsx) shows the story card's Markdown body and saves inline edits through the note port with the revision the draft started from. It sits above the customizable widgets.
 

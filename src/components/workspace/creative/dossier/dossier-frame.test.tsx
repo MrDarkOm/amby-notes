@@ -10,11 +10,16 @@ import { catalog, section, storySummary, workshopSummary } from "../project-fixt
 import { useProjectStore } from "../project-store"
 import { CreativeNoteProvider } from "./creative-note-provider"
 import { DossierFrame } from "./dossier-frame"
+import { EntityNamesContext } from "../../editor/entity-names-context"
+import type { EntityNames } from "../../tiptap/entity-names"
 
 const storage = vi.hoisted(() => ({
   getDatabaseNoteContext: vi.fn(),
   listNoteReferences: vi.fn(),
   updateDatabaseRelationValue: vi.fn(),
+  searchNotes: vi.fn(),
+  queryDatabase: vi.fn(),
+  ensurePlotLinks: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -129,6 +134,10 @@ const story = workshopSummary("molehills", {
           status: null,
           anchors: null,
           arcs: null,
+          characters: null,
+          pov: null,
+          places: null,
+          storyTime: null,
         },
         levels: [],
         formats: [],
@@ -143,6 +152,8 @@ describe("DossierFrame", () => {
     await i18n.changeLanguage("ru")
     storage.getDatabaseNoteContext.mockReset()
     storage.listNoteReferences.mockReset().mockResolvedValue([])
+    storage.searchNotes.mockReset().mockResolvedValue([])
+    storage.queryDatabase.mockReset().mockResolvedValue({ rows: [], nextCursor: null })
     useProjectStore.getState().reset()
     useDatabaseStore.getState().reset(1)
   })
@@ -219,6 +230,34 @@ describe("DossierFrame", () => {
     expect(within(aside).getByText("Боб")).toBeTruthy()
   })
 
+  it("shows how much of the dossier is filled and asks for the key fields left empty", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    const entry = context("db_characters")
+    entry.row.valuesJson = JSON.stringify({
+      story: { type: "relation", targetNoteIds: ["note_molehills_story"] },
+    })
+    storage.getDatabaseNoteContext.mockResolvedValue(entry)
+    render(
+      <CreativeNoteProvider noteId="n1">
+        <DossierFrame
+          noteId="n1"
+          content={"## Основное\n\nПилот.\n\n## Характеристика\n\n## Биография\n"}
+          canJump
+          scrollToHeading={vi.fn()}
+        >
+          <div />
+        </DossierFrame>
+      </CreativeNoteProvider>,
+    )
+    await settle()
+    const header = screen.getByRole("banner")
+    expect(within(header).getByText("Заполнено 1 из 3 разделов")).toBeTruthy()
+    // The role and the importance are empty: they are named, with a quiet "not set".
+    expect(within(header).getByText("Роль")).toBeTruthy()
+    expect(within(header).getByText("Значимость")).toBeTruthy()
+    expect(within(header).getAllByText("не указано")).toHaveLength(2)
+  })
+
   it("never remounts the editor when the answer arrives", async () => {
     act(() => useProjectStore.getState().setCatalog(catalog([story])))
     storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
@@ -250,6 +289,258 @@ describe("DossierFrame", () => {
     await settle()
     expect(screen.getByText("Пока нигде в тексте не упоминается.")).toBeTruthy()
     expect(screen.getByText("Связей пока нет.")).toBeTruthy()
+  })
+
+  it("finds the character by name in the text of a story and writes nothing", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([reference({})])
+    const page = (noteId: string, title: string) => ({
+      ...context("db_text").row,
+      noteId,
+      title,
+      relativePath: `${title}.md`,
+    })
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_text"
+          ? [page("chapter-1", "Глава первая"), page("ch2", "Глава вторая")]
+          : [],
+      nextCursor: null,
+    }))
+    const hit = (id: string, snippet: string) => ({
+      note: { id, path: `/v/${id}.md`, title: id, modified: null, wordCount: 1 },
+      matchType: "content",
+      snippet,
+      score: 1,
+    })
+    storage.searchNotes.mockImplementation(async (query: string) =>
+      query === "Алиса"
+        ? [
+            hit("chapter-1", "Алиса вошла"),
+            hit("ch2", "и тогда Алиса ушла"),
+            hit("n1", "Алиса"),
+            hit("elsewhere", "Алиса в заметке"),
+          ]
+        : [],
+    )
+    const onOpenNote = vi.fn()
+    mount({ onOpenNote })
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    // The linked chapter is listed once; the chapter that only names her comes under its own caption.
+    expect(within(aside).getAllByText("Глава первая")).toHaveLength(1)
+    expect(within(aside).getByText("Найдено по имени")).toBeTruthy()
+    const found = within(aside).getByRole("button", { name: /Глава вторая/ })
+    expect(found.getAttribute("title")).toContain("и тогда Алиса ушла")
+    expect(within(aside).queryByText("Алиса в заметке")).toBeNull()
+    fireEvent.click(found)
+    expect(onOpenNote).toHaveBeenCalledWith("ch2")
+    expect(storage.updateDatabaseRelationValue).not.toHaveBeenCalled()
+  })
+
+  it("binds a found chapter to the character, making the text's Characters on first use", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    const chapter = {
+      ...context("db_text").row,
+      noteId: "ch2",
+      title: "Глава вторая",
+      relativePath: "Глава вторая.md",
+      valuesJson: JSON.stringify({ who: { type: "relation", targetNoteIds: ["bob"] } }),
+      rowRevision: "rev-ch2",
+    }
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows: databaseId === "db_text" ? [chapter] : [],
+      nextCursor: null,
+    }))
+    storage.searchNotes.mockImplementation(async (query: string) =>
+      query === "Алиса"
+        ? [
+            {
+              note: { id: "ch2", path: "/v/ch2.md", title: "ch2", wordCount: 1 },
+              matchType: "content",
+              snippet: "и тогда Алиса ушла",
+              score: 1,
+            },
+          ]
+        : [],
+    )
+    storage.ensurePlotLinks.mockReset().mockResolvedValue({
+      operationId: "op",
+      workshopId: "molehills",
+      target: "story",
+      storyId: "molehills_story",
+      anchorsPropertyId: null,
+      arcsPropertyId: null,
+      universePropertyId: null,
+      charactersPropertyId: "who",
+      povPropertyId: null,
+      placesPropertyId: null,
+      storyTimePropertyId: null,
+      revision: "story-rev-2",
+      changed: true,
+      replayed: false,
+      warnings: [],
+    })
+    storage.updateDatabaseRelationValue.mockReset().mockResolvedValue({ warnings: [] })
+    mount()
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    fireEvent.click(within(aside).getByRole("button", { name: "Привязать" }))
+    await settle()
+    // The story's text had no "Characters": it is made first, alone.
+    expect(storage.ensurePlotLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "story",
+        storyId: "molehills_story",
+        parts: ["characters"],
+      }),
+    )
+    // Then the chapter's list gets the character, keeping who was there.
+    expect(storage.updateDatabaseRelationValue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_text",
+        noteId: "ch2",
+        propertyId: "who",
+        targetNoteIds: ["bob", "n1"],
+        expectedRevision: "rev-ch2",
+      }),
+    )
+  })
+
+  it("shows the story time and the point of view of the chapters a character is in", async () => {
+    const timed = {
+      ...story,
+      stories: story.stories.map((entry) => ({
+        ...entry,
+        text: entry.text && {
+          ...entry.text,
+          properties: {
+            ...entry.text.properties,
+            characters: "who",
+            pov: "eyes",
+            storyTime: "when",
+          },
+        },
+      })),
+    }
+    act(() => useProjectStore.getState().setCatalog(catalog([timed])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([
+      reference({ propertyId: "who", noteId: "chapter-1", title: "Глава первая" }),
+      reference({ propertyId: "eyes", noteId: "chapter-2", title: "Глава вторая" }),
+      reference({ propertyId: "who", noteId: "chapter-2", title: "Глава вторая" }),
+    ])
+    const page = (noteId: string, title: string, values: Record<string, unknown>) => ({
+      ...context("db_text").row,
+      noteId,
+      title,
+      valuesJson: JSON.stringify(values),
+    })
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_text"
+          ? [
+              page("chapter-1", "Глава первая", {
+                who: { type: "relation", targetNoteIds: ["n1"] },
+                when: { type: "text", value: "День 1" },
+              }),
+              page("chapter-2", "Глава вторая", {
+                who: { type: "relation", targetNoteIds: ["n1"] },
+                eyes: { type: "relation", targetNoteIds: ["n1"] },
+              }),
+            ]
+          : [],
+      nextCursor: null,
+    }))
+    mount()
+    await settle()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    expect(within(aside).getByText("День 1")).toBeTruthy()
+    expect(within(aside).getByText("точка зрения")).toBeTruthy()
+    // A chapter linked twice (in it and through its eyes) is listed once.
+    expect(within(aside).getAllByText("Глава вторая")).toHaveLength(1)
+  })
+
+  it("gives a page of the text the names of the world and shows a card for a pointed name", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_text"))
+    storage.queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+      rows:
+        databaseId === "db_characters"
+          ? [{ ...context("db_characters").row, noteId: "evan", title: "Evan Key" }]
+          : databaseId === "db_locations"
+            ? [{ ...context("db_locations").row, noteId: "house", title: "Дом" }]
+            : [],
+      nextCursor: null,
+    }))
+    let names: EntityNames | null = null
+    function Probe() {
+      names = useContext(EntityNamesContext)
+      return null
+    }
+    const onOpenNote = vi.fn()
+    render(
+      <CreativeNoteProvider noteId="n1">
+        <DossierFrame
+          noteId="n1"
+          content=""
+          canJump
+          scrollToHeading={vi.fn()}
+          onOpenNote={onOpenNote}
+        >
+          <Probe />
+        </DossierFrame>
+      </CreativeNoteProvider>,
+    )
+    await settle()
+    await settle()
+    expect(names).not.toBeNull()
+    const given = names as unknown as EntityNames
+    expect(given.entries).toEqual(
+      expect.arrayContaining([
+        { name: "Evan Key", noteId: "evan" },
+        { name: "Evan", noteId: "evan" },
+        { name: "Key", noteId: "evan" },
+        { name: "Дом", noteId: "house" },
+      ]),
+    )
+    const mark = document.createElement("span")
+    document.body.append(mark)
+    act(() => given.onHover("evan", mark))
+    const card = screen.getByRole("tooltip")
+    expect(within(card).getByText("Evan Key")).toBeTruthy()
+    expect(within(card).getByText("Персонажи")).toBeTruthy()
+    act(() => given.onHover(null, null))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+    act(() => given.onOpen("house"))
+    expect(onOpenNote).toHaveBeenCalledWith("house")
+    mark.remove()
+  })
+
+  it("does not repeat the stories of the header among the connections", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.listNoteReferences.mockResolvedValue([
+      reference({
+        direction: "out",
+        propertyId: "story",
+        propertyName: "Истории",
+        databaseId: "db_stories",
+        databaseName: "Истории",
+        noteId: "note_molehills_story",
+        title: "MoleHills",
+      }),
+    ])
+    mount()
+    await settle()
+    const aside = screen.getByRole("complementary", { name: "Досье" })
+    expect(within(aside).queryByText("Истории")).toBeNull()
+    expect(within(aside).getByText("Связей пока нет.")).toBeTruthy()
   })
 
   it("leaves out the table of contents where headings are not on screen", async () => {
