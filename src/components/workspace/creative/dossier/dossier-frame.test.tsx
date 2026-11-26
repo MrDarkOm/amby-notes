@@ -223,7 +223,8 @@ describe("DossierFrame", () => {
 
     expect(screen.queryByText("MoleHills · Персонажи")).toBeNull()
     expect(screen.getByText("А")).toBeTruthy()
-    expect(screen.getByText("Разведчик")).toBeTruthy()
+    // The page can be edited, so the role is in its field (owner, 2026-11-26: edited in place).
+    expect(screen.getByDisplayValue("Разведчик")).toBeTruthy()
     // The story is named by the breadcrumb, not again under the name (owner, 2026-11-26).
     expect(screen.queryByText("molehills_story")).toBeNull()
     // Key properties come with their names.

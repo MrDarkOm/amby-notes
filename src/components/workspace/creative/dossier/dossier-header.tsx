@@ -1,4 +1,9 @@
+import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
+import { applyDatabaseValueBatch } from "@/lib/storage"
+import { projectErrorText } from "@/lib/operation-errors"
+import { DatabaseCell } from "../../database/database-cell"
 import { PropertyValue } from "../../database/property-value"
 import { cardProperties } from "../../database/value-format"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
@@ -54,9 +59,54 @@ export function DossierHeader({
       )
     : []
   const fill = sectionFill(content)
+  const editable = !locked && !context.locked
+  // Editable, every field of the page is there to be filled in; read only, the values it has and
+  // a character's empty key fields.
+  const editableFields = properties
+    .filter((property) => !hidden.includes(property.propertyId))
+    .slice(0, FIELD_LIMIT)
+  const [pending, setPending] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<{ propertyId: string; text: string } | null>(null)
+  const commit = async (propertyId: string, valueJson?: string) => {
+    setPending(propertyId)
+    setError(null)
+    try {
+      await applyDatabaseValueBatch({
+        expectedGeneration: context.vaultGeneration,
+        databaseId: context.databaseId,
+        operationId: `dossier-${crypto.randomUUID()}`,
+        cells: [
+          {
+            noteId: context.row.noteId,
+            propertyId,
+            expectedRevision: context.row.rowRevision,
+            ...(valueJson === undefined ? {} : { valueJson }),
+          },
+        ],
+      })
+    } catch (caught) {
+      setError({ propertyId, text: projectErrorText(t, caught) })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const fieldCard = (key: string, name: string, value: React.ReactNode) => (
+    <div
+      key={key}
+      role="group"
+      aria-label={name}
+      className="flex min-w-0 flex-col gap-0.5 rounded-lg bg-muted/40 px-2.5 py-1.5"
+    >
+      <span className="truncate text-[11px] text-muted-foreground" title={name}>
+        {name}
+      </span>
+      <div className="min-w-0 text-sm">{value}</div>
+    </div>
+  )
 
   return (
-    <header className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+    <header className="mb-5 flex flex-col gap-5 sm:flex-row sm:items-start">
       <PortraitControl
         context={context}
         preview={preview}
@@ -64,47 +114,68 @@ export function DossierHeader({
         round={isCharacter}
         locked={locked}
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
         <DanglingStoryLink
           workshop={world.workshop}
           databaseId={context.databaseId}
           row={context.row}
           locked={locked || context.locked}
         />
-        <dl className="flex flex-col gap-1">
-          {shown.map((property) => (
-            <div
-              key={property.propertyId}
-              className="grid grid-cols-[minmax(5rem,30%)_minmax(0,1fr)] items-start gap-2"
-            >
-              <dt className="truncate pt-0.5 text-xs text-muted-foreground" title={property.name}>
-                {property.name}
-              </dt>
-              <dd className="min-w-0">
-                <PropertyValue property={property} />
-              </dd>
-            </div>
-          ))}
-          {missing.map((property) => (
-            <div
-              key={property.propertyId}
-              className="grid grid-cols-[minmax(5rem,30%)_minmax(0,1fr)] items-start gap-2"
-            >
-              <dt className="truncate pt-0.5 text-xs text-muted-foreground" title={property.name}>
-                {property.name}
-              </dt>
-              <dd className="pt-0.5 text-xs text-muted-foreground/70">
-                {t("creative.dossier.notSet")}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
+          {editable
+            ? editableFields.map((property) =>
+                fieldCard(
+                  property.propertyId,
+                  property.name,
+                  <>
+                    <DatabaseCell
+                      property={property}
+                      valuesJson={context.row.valuesJson}
+                      compact
+                      pending={pending === property.propertyId}
+                      error={error?.propertyId === property.propertyId ? error.text : null}
+                      onCommit={(valueJson) => commit(property.propertyId, valueJson)}
+                    />
+                    {error?.propertyId === property.propertyId && (
+                      <NoticeLine text={error.text} role="status" />
+                    )}
+                  </>,
+                ),
+              )
+            : [
+                ...shown.map((property) =>
+                  fieldCard(
+                    property.propertyId,
+                    property.name,
+                    <PropertyValue property={property} />,
+                  ),
+                ),
+                ...missing.map((property) =>
+                  fieldCard(
+                    property.propertyId,
+                    property.name,
+                    <span className="text-xs text-muted-foreground/70">
+                      {t("creative.dossier.notSet")}
+                    </span>,
+                  ),
+                ),
+              ]}
+        </div>
         {fill.total > 1 && (
-          <p className="text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span aria-hidden="true" className="h-1 w-24 overflow-hidden rounded-full bg-accent">
+              <span
+                className="block h-full bg-primary/60"
+                style={{ width: `${Math.round((fill.filled / fill.total) * 100)}%` }}
+              />
+            </span>
             {t("creative.dossier.filled", { filled: fill.filled, count: fill.total })}
-          </p>
+          </div>
         )}
       </div>
     </header>
   )
 }
+
+/** A header holds the key fields only; the rest of the properties are in the database. */
+const FIELD_LIMIT = 8
