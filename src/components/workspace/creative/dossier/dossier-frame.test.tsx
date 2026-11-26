@@ -20,6 +20,10 @@ const storage = vi.hoisted(() => ({
   searchNotes: vi.fn(),
   queryDatabase: vi.fn(),
   ensurePlotLinks: vi.fn(),
+  pickAssetFile: vi.fn(),
+  importDatabaseAsset: vi.fn(),
+  applyDatabaseValueBatch: vi.fn(),
+  resolveDatabaseAssetPaths: vi.fn(),
 }))
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -153,6 +157,10 @@ describe("DossierFrame", () => {
     storage.getDatabaseNoteContext.mockReset()
     storage.listNoteReferences.mockReset().mockResolvedValue([])
     storage.searchNotes.mockReset().mockResolvedValue([])
+    storage.resolveDatabaseAssetPaths.mockReset().mockResolvedValue({ paths: [] })
+    storage.pickAssetFile.mockReset()
+    storage.importDatabaseAsset.mockReset()
+    storage.applyDatabaseValueBatch.mockReset().mockResolvedValue({ revisions: [], warnings: [] })
     storage.queryDatabase.mockReset().mockResolvedValue({ rows: [], nextCursor: null })
     useProjectStore.getState().reset()
     useDatabaseStore.getState().reset(1)
@@ -216,7 +224,8 @@ describe("DossierFrame", () => {
     expect(screen.queryByText("MoleHills · Персонажи")).toBeNull()
     expect(screen.getByText("А")).toBeTruthy()
     expect(screen.getByText("Разведчик")).toBeTruthy()
-    expect(screen.getByText("molehills_story")).toBeTruthy()
+    // The story is named by the breadcrumb, not again under the name (owner, 2026-11-26).
+    expect(screen.queryByText("molehills_story")).toBeNull()
     // Key properties come with their names.
     expect(screen.getByText("Значимость")).toBeTruthy()
     expect(screen.getByText("Главные")).toBeTruthy()
@@ -256,6 +265,110 @@ describe("DossierFrame", () => {
     expect(within(header).getByText("Роль")).toBeTruthy()
     expect(within(header).getByText("Значимость")).toBeTruthy()
     expect(within(header).getAllByText("не указано")).toHaveLength(2)
+  })
+
+  it("sets a portrait from the header: the picture is copied next to the note and linked", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.pickAssetFile.mockResolvedValue("/Users/me/Pictures/face.png")
+    storage.importDatabaseAsset.mockResolvedValue({
+      databaseId: "db_characters",
+      noteId: "n1",
+      assetId: "asset-1",
+      name: "face.png",
+      relativePath: "Персонажи/assets/face.png",
+      mimeType: "image/png",
+      sizeBytes: 42,
+    })
+    mount()
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Добавить портрет" }))
+    await settle()
+    expect(storage.pickAssetFile).toHaveBeenCalledWith(true)
+    expect(storage.importDatabaseAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_characters",
+        noteId: "n1",
+        sourcePath: "/Users/me/Pictures/face.png",
+      }),
+    )
+    expect(storage.applyDatabaseValueBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_characters",
+        cells: [
+          {
+            noteId: "n1",
+            propertyId: "pic",
+            expectedRevision: "r",
+            valueJson: JSON.stringify({
+              type: "files",
+              items: [
+                {
+                  assetId: "asset-1",
+                  kind: "asset",
+                  relativePath: "Персонажи/assets/face.png",
+                  name: "face.png",
+                  mimeType: "image/png",
+                  sizeBytes: 42,
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+    )
+  })
+
+  it("writes nothing when the picture dialog is closed", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    storage.pickAssetFile.mockResolvedValue(null)
+    mount()
+    await settle()
+    fireEvent.click(screen.getByRole("button", { name: "Добавить портрет" }))
+    await settle()
+    expect(storage.importDatabaseAsset).not.toHaveBeenCalled()
+    expect(storage.applyDatabaseValueBatch).not.toHaveBeenCalled()
+  })
+
+  it("changes or removes a portrait from its menu; removing keeps the picture file", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    const entry = context("db_characters")
+    entry.row.valuesJson = JSON.stringify({
+      pic: {
+        type: "files",
+        items: [
+          {
+            assetId: "old",
+            kind: "asset",
+            relativePath: "Персонажи/assets/old.png",
+            name: "old.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+          },
+        ],
+      },
+    })
+    storage.getDatabaseNoteContext.mockResolvedValue(entry)
+    mount()
+    await settle()
+    fireEvent.keyDown(screen.getByRole("button", { name: "Портрет" }), { key: "Enter" })
+    expect(await screen.findByRole("menuitem", { name: "Сменить портрет" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Убрать портрет" }))
+    await settle()
+    expect(storage.applyDatabaseValueBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cells: [{ noteId: "n1", propertyId: "pic", expectedRevision: "r" }],
+      }),
+    )
+  })
+
+  it("offers no portrait change on a page that cannot be edited", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue({ ...context("db_characters"), locked: true })
+    mount()
+    await settle()
+    expect(screen.queryByRole("button", { name: "Добавить портрет" })).toBeNull()
   })
 
   it("never remounts the editor when the answer arrives", async () => {
