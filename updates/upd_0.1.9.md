@@ -33,8 +33,9 @@ Amby 0.1.9 brings Note pages, a major Creative workshop overhaul, AI panel editi
 
 ### Dossiers, reference and import
 
-- All reference dossiers (including arcs, anchors and custom sections) can open their sections as tabs or as “Whole note”, showing a portrait or initials, filled-section count, key details, story chips and writing prompts on empty preset headings.
-- Characters, locations and storylines live under Reference, standalone stories stay separate, universe pages mark shared entries, and Create groups actions by type with explicit labels.
+- All reference dossiers (including arcs, anchors and custom sections) can open their sections as tabs or as “Whole note”, showing a portrait or image you can set, change or remove right from the header, key fields edited in place, filled-section count, story chips and writing prompts on empty preset headings.
+- Edit a section's dossier template from the dossier header (**Section template**): configure sections in order, hints for empty tabs, and which fields appear on each tab or in the header. Use **Add missing sections** to bring older dossiers up to date in Live Preview or Source with full undo.
+- Characters, locations and storylines live under Reference, standalone stories stay separate, universe pages mark shared entries, galleries place the dashed add card after existing entries on the same grid, and Create groups actions by type with explicit labels.
 - Link notes from folders and Amby databases in one previewed, undoable import with field mapping. Sections open as tables, deleted story links can be cleaned up where they appear, and workshops stay connected when their folder is renamed.
 - With Creative and Databases enabled, MCP clients can browse and edit workshops, sections and manuscript pages, and workshop recovery preserves existing data on rollback.
 
@@ -65,7 +66,8 @@ Amby 0.1.9 brings Note pages, a major Creative workshop overhaul, AI panel editi
 
 - Templates: create a note from a template, and make a new template from the template dialog. Daily notes, off by default, open today's note from the dock.
 - Settings: the font size and the tooltip delay are smooth sliders, AI agents are a row of tiles with their status, App data uses ordinary rows, and an About section shows the version and licenses. Every section has the same margins.
-- Dock menus have the same order everywhere, and slide-out side panels are one floating sheet. Below 960 px, opening one side panel closes the other.
+- Dock menus have the same order everywhere with distinct icons for section and action buttons, and slide-out side panels are one floating sheet. Below 960 px, opening one side panel closes the other.
+- Note chrome polish: the layer switch sits directly on the header with an accent line under the active layer, nested-note buttons are more compact with a subtle divider above section tabs, and the file tree shows the bundle icon on Markdown bundles without nested notes (including those with an attached canvas or sketch).
 - Open notes, graphs, databases, canvases, and sketches in resizable workspace panes. Tabs remember their scroll position, and the start screen lists recent vaults.
 - Unified search covers notes, folders, databases, canvases, text, and tags. The graph saves its layout and zoom when locked and supports back and forward navigation.
 - The file tree supports dragging files and folders from the system file manager, offers sorting and filtering in its empty-area menu, and refreshes when an empty folder is deleted.
@@ -90,6 +92,6 @@ Amby 0.1.9 brings Note pages, a major Creative workshop overhaul, AI panel editi
 ## For developers
 
 - The CLI and MCP share vault services and the tool set in the Tauri-free `amby-core` crate, including the engine for AI proposals and exact undo. See `docs/cli.md`, `docs/mcp.md`, `docs/ai-harness.md` and `docs/sync-format.md`.
-- `ensure_plot_links` accepts optional `parts` (`characters`, `pov`, `places`, `storyTime`) for story scene links (`docs/creative-format.md` §6). Roadmaps for Note pages and Creative workshop polish live in `docs/road/note-pages.md`, `docs/road/creative-ux.md` and `docs/road/creative-visual.md`.
+- `ensure_plot_links` accepts optional `parts` (`characters`, `pov`, `places`, `storyTime`) for story scene links (`docs/creative-format.md` §6), and `get_dossier_template` / `update_dossier_template` read and write section dossier layouts (`ambyDossier`, §14). Roadmaps for Note pages and Creative workshop polish live in `docs/road/note-pages.md`, `docs/road/creative-ux.md` and `docs/road/creative-visual.md`.
 - The sync server no longer stalls on long database work, limits event streams per device and times out stalled request bodies (sync server image `ch-20261122`).
 - Native contract tests cover AI proposals and undo through the real desktop commands; a debug build can use its own app data with `AMBY_APP_DATA_DIR`. The `url` crate is updated for RUSTSEC-2026-0592.
