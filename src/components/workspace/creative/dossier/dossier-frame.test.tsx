@@ -261,10 +261,9 @@ describe("DossierFrame", () => {
     await settle()
     const header = screen.getByRole("banner")
     expect(within(header).getByText("Заполнено 1 из 3 разделов")).toBeTruthy()
-    // The role and the importance are empty: they are named, with a quiet "not set".
-    expect(within(header).getByText("Роль")).toBeTruthy()
-    expect(within(header).getByText("Значимость")).toBeTruthy()
-    expect(within(header).getAllByText("не указано")).toHaveLength(2)
+    // The role and the importance are empty: they are still there, ready to be filled in.
+    expect(within(header).getByRole("group", { name: "Роль" })).toBeTruthy()
+    expect(within(header).getByRole("group", { name: "Значимость" })).toBeTruthy()
   })
 
   it("sets a portrait from the header: the picture is copied next to the note and linked", async () => {
@@ -369,6 +368,44 @@ describe("DossierFrame", () => {
     mount()
     await settle()
     expect(screen.queryByRole("button", { name: "Добавить портрет" })).toBeNull()
+  })
+
+  it("edits a key field in the header in place, with the row's revision", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+    mount()
+    await settle()
+    const role = within(screen.getByRole("banner")).getByRole("group", { name: "Роль" })
+    const field = within(role).getByRole("textbox")
+    expect((field as HTMLInputElement).value).toBe("Разведчик")
+    fireEvent.change(field, { target: { value: "Пилот" } })
+    fireEvent.blur(field)
+    await settle()
+    expect(storage.applyDatabaseValueBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_characters",
+        cells: [
+          expect.objectContaining({
+            noteId: "n1",
+            propertyId: "role",
+            expectedRevision: "r",
+            valueJson: JSON.stringify({ type: "text", value: "Пилот" }),
+          }),
+        ],
+      }),
+    )
+  })
+
+  it("shows the header read only on a page that cannot be edited", async () => {
+    act(() => useProjectStore.getState().setCatalog(catalog([story])))
+    const entry = { ...context("db_characters"), locked: true }
+    entry.row = { ...entry.row, valuesJson: JSON.stringify({}) }
+    storage.getDatabaseNoteContext.mockResolvedValue(entry)
+    mount()
+    await settle()
+    const header = screen.getByRole("banner")
+    expect(within(header).queryByRole("textbox")).toBeNull()
+    expect(within(header).getAllByText("не указано")).toHaveLength(2)
   })
 
   it("never remounts the editor when the answer arrives", async () => {
