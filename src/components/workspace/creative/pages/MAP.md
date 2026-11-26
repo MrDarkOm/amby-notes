@@ -53,7 +53,7 @@ universes' stories in that shared list. The universe's events stay under the sto
 tabs. The universe shows each row held by its stories and marks rows held by two or more as shared
 (`sharedInUniverse`). Standalone stories still show a separate "No story" gallery.
 
-A gallery with fewer than three entries can show its purpose and a larger creation action.
+The creation card follows the last entry in the gallery grid. A small gallery can show its purpose above the cards.
 
 **One tab, one history.** A page opens in the current tab like a note, so workshop → universe or standalone stories → story → a section tab → a note, and
 back, are steps of that tab's history (`openCreativeTab` / `openCreativeSection` in `workspace-orchestration.tsx` call `openItem`; a section step

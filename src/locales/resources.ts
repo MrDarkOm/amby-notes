@@ -2613,6 +2613,7 @@ const ru = {
     sketchLayer: "Набросок",
     layers: "Слои",
     moreActions: "Другие действия",
+    nestedNotes: "Вложения",
     nestedNotesDisplay: "Отображение вложений",
     notePages: {
       label: "Страницы заметки",
@@ -3757,6 +3758,9 @@ const ru = {
     },
     dossier: {
       aside: "Досье",
+      addMissingSections: "Добавить недостающие разделы",
+      addMissingSectionsBlocked:
+        "Не удалось добавить разделы. Проверьте конец заметки в режиме исходного текста.",
       headingHints: {
         basic: "Возраст, занятие, роль в истории…",
         traits: "Черты, привычки, желания…",
@@ -7383,6 +7387,7 @@ const en: LocaleShape<typeof ru> = {
     sketchLayer: "Sketch",
     layers: "Layers",
     moreActions: "More actions",
+    nestedNotes: "Attachments",
     nestedNotesDisplay: "Nested notes display",
     notePages: {
       label: "Note pages",
@@ -8514,6 +8519,9 @@ const en: LocaleShape<typeof ru> = {
     },
     dossier: {
       aside: "Dossier",
+      addMissingSections: "Add missing sections",
+      addMissingSectionsBlocked:
+        "Could not add sections. Check the end of the note in Source mode.",
       headingHints: {
         basic: "Age, occupation, role in the story…",
         traits: "Traits, habits, desires…",

@@ -35,6 +35,9 @@ not through the property panel commands) for the active note. The "Whole note / 
 (a slot in [DocumentTitle](document-title.tsx)). Switching to the whole note is remembered per vault and note.
 
 Content changes flow into the [save lifecycle](../autosave/MAP.md), not direct I/O.
+The dossier frame can append missing headings through `EditorHandle.appendMissingHeadings`.
+[Live](../tiptap/note-pages.ts) and [Source](../source-editor.tsx) check the current editor
+buffer on click, then publish the edit through their usual undo and autosave paths.
 Use the existing document buffer for views of the same note. See database
 [editor-surface-lease.ts](../database/peek/editor-surface-lease.ts) for peek ownership.
 

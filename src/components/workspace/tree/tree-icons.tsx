@@ -9,11 +9,18 @@ import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
 import { isSuperCanvasItem, isSuperSketchItem } from "../workspace-tree-utils"
 
-function isExpandableSuperNote(item: TreeItem): boolean {
-  return item.type === "file" && Boolean(item.children?.length)
-}
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
+
+function isBundleNote(item: TreeItem): boolean {
+  return (
+    item.type === "file" &&
+    !item.bundleMember &&
+    (item.icon === "supernote" ||
+      item.bundleMembers !== undefined ||
+      Boolean(item.children?.length))
+  )
+}
 
 export function BrainIcon({ className }: { className?: string }) {
   return (
@@ -81,7 +88,7 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
     item.icon !== "sketch" &&
     item.icon !== "database"
       ? item.icon
-      : isExpandableSuperNote(item)
+      : isBundleNote(item)
         ? "supernote"
         : !item.bundleMember && isSuperCanvasItem(item)
           ? "supercanvas"
@@ -132,7 +139,6 @@ export function TreeItemStatusIcon({
 }) {
   const isFavoriteItem = isFavorite
   const isInteractive = !!onActivate
-  const isSuperNote = item.icon === "supernote" || isExpandableSuperNote(item)
   const Icon =
     item.type === "folder"
       ? Folder
@@ -142,7 +148,7 @@ export function TreeItemStatusIcon({
           ? PenLine
           : item.type === "database"
             ? Database
-            : isSuperNote
+            : isBundleNote(item)
               ? CompositeNoteIcon
               : FileText
 

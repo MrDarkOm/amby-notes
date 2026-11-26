@@ -98,12 +98,12 @@ on a story, text levels (`updateTextLevels`) and the `status` property (`addText
 
 **Operation IDs.** One per intent: a retry reuses it, a changed request gets a new one.
 
-**Dossier.** [CreativeNoteProvider](dossier/creative-note-provider.tsx) resolves placement for
-`DossierFrame` and enables shared note tabs for world dossiers. The frame provides
-[preset heading hints](../tiptap/heading-hints.ts), arc and character links (`plot-blocks.tsx`),
-and a foldable [story-text plot](dossier/text-page-aside.tsx) bound through `usePlotBinding`.
-See [format §11](../../../../docs/creative-format.md).
-"Found by name": [mention-model.ts](dossier/mention-model.ts); template: `dossier-layout-model.ts`.
+**Dossier.** [CreativeNoteProvider](dossier/creative-note-provider.tsx) resolves placement and
+enables shared tabs. `DossierFrame` provides [heading hints](../tiptap/heading-hints.ts), plot links
+(`plot-blocks.tsx`), and [the story-text plot](dossier/text-page-aside.tsx) via `usePlotBinding`.
+The header adds missing template sections through the [open editor](../editor/MAP.md).
+See [format §11](../../../../docs/creative-format.md), [name mentions](dossier/mention-model.ts)
+and [the template model](dossier/dossier-layout-model.ts).
 
 [fractional-index.ts](../../../lib/storage/fractional-index.ts) orders the pages of the text;
 [manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) turns the tree into one Markdown

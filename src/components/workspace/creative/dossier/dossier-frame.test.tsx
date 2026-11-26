@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useContext, type ReactNode } from "react"
 import i18n from "@/lib/i18n"
+import { EditorView } from "@codemirror/view"
+import type { Editor } from "@tiptap/core"
+import { DocumentEditor } from "../../editor/document-editor"
+import { flushEditorSerializations } from "../../tiptap/editor-serialization-lifecycle"
+import { markEditorUserIntent } from "../../tiptap/editor-user-intent"
+import { notePageAtPosition } from "../../tiptap/note-pages"
 import type { DatabaseNoteContext, DatabasePropertySummary, NoteReference } from "@/lib/storage"
 import { useDatabaseStore } from "../../database/database-store"
 import { HeadingHintsContext } from "../../editor/heading-hints-context"
@@ -11,6 +17,7 @@ import { catalog, section, storySummary, workshopSummary } from "../project-fixt
 import { useProjectStore } from "../project-store"
 import { CreativeNoteProvider } from "./creative-note-provider"
 import { DossierFrame } from "./dossier-frame"
+import { useDossierTemplate } from "./use-dossier-template"
 import { EntityNamesContext } from "../../editor/entity-names-context"
 import type { EntityNames } from "../../tiptap/entity-names"
 
@@ -467,6 +474,168 @@ describe("DossierFrame", () => {
       // A tab without fields and the whole note show nothing.
       expect(render(<>{render_("Биография")}</>).container.textContent).toBe("")
       expect(render(<>{render_(null)}</>).container.textContent).toBe("")
+    })
+
+    const addSectionsLabel = "Добавить недостающие разделы"
+    const olderDossier = {
+      id: "n1",
+      title: "Алиса",
+      content: "## Основное\n\n* * *\n\nНачало\n\n## Характеристика\n",
+      path: "/vault/Алиса.md",
+      modified: "0",
+      wordCount: 1,
+    }
+
+    function templateWithMissingSections() {
+      act(() => useProjectStore.getState().setCatalog(catalog([story])))
+      storage.getDatabaseNoteContext.mockResolvedValue(context("db_characters"))
+      storage.getDossierTemplate.mockResolvedValue({
+        ...layoutTemplate,
+        dossier: {
+          ...layoutTemplate.dossier,
+          sections: [
+            ...layoutTemplate.dossier.sections,
+            { id: "look", title: "Внешность", hint: "Приметы", fields: [] },
+            { id: "voice", title: "Голос *и* речь", hint: "", fields: [] },
+          ],
+        },
+      })
+    }
+
+    it.each(["live", "source"] as const)(
+      "adds only missing sections to the latest %s buffer and undoes the addition in one step",
+      async (viewMode) => {
+        templateWithMissingSections()
+        const onChange = vi.fn()
+        const onDirty = vi.fn()
+        const { container } = render(
+          <CreativeNoteProvider noteId={olderDossier.id}>
+            <DocumentEditor
+              document={olderDossier}
+              editorFrame={DossierFrame}
+              viewMode={viewMode}
+              onContentChange={onChange}
+              onContentDirty={onDirty}
+            />
+          </CreativeNoteProvider>,
+        )
+        const add = await screen.findByRole("button", { name: addSectionsLabel })
+        expect(onChange).not.toHaveBeenCalled()
+
+        const draft = "## Биография\n\nНесохранённая правка"
+        act(() => {
+          if (viewMode === "source") {
+            const view = EditorView.findFromDOM(container.querySelector(".cm-editor")!)!
+            view.dispatch({ changes: { from: view.state.doc.length, insert: "\n" + draft + "\n" } })
+          } else {
+            const editor = container.querySelector<HTMLElement & { editor: Editor }>(
+              ".ProseMirror",
+            )!.editor
+            expect(notePageAtPosition(editor.state, 0)).toBe(0)
+            markEditorUserIntent(editor)
+            const { doc, schema } = editor.state
+            // Add a heading and text at the end of the open page, before the frame sees them.
+            const from = doc.content.size - doc.lastChild!.nodeSize
+            editor.view.dispatch(
+              editor.state.tr.insert(from, [
+                schema.nodes.heading.create({ level: 2 }, schema.text("Биография")),
+                schema.nodes.paragraph.create(null, schema.text("Несохранённая правка")),
+              ]),
+            )
+          }
+        })
+        expect(onChange).not.toHaveBeenCalled()
+        expect(onDirty).toHaveBeenCalledWith("n1")
+
+        fireEvent.click(add)
+        fireEvent.click(add)
+        act(() => flushEditorSerializations())
+        const fileBody = onChange.mock.lastCall?.[0] as string
+        expect(onChange.mock.lastCall?.[1]).toBe("n1")
+        expect(fileBody.match(/^## Биография$/gm)).toHaveLength(1)
+        expect(fileBody).toContain("## Основное\n\n* * *\n\nНачало")
+        expect(fileBody).toMatch(/## Внешность\n\n## Голос \\\*и\\\* речь/u)
+        expect(fileBody).not.toContain("Приметы")
+        expect(fileBody).toContain(draft)
+        expect(screen.queryByRole("button", { name: addSectionsLabel })).toBeNull()
+
+        fireEvent.click(screen.getByRole("button", { name: /^Отменить/u }))
+        act(() => flushEditorSerializations())
+        const afterUndo = onChange.mock.lastCall?.[0] as string
+        expect(afterUndo).toContain(draft)
+        expect(afterUndo).not.toContain("## Внешность")
+        expect(afterUndo).not.toContain("## Голос")
+        expect(screen.getByRole("button", { name: addSectionsLabel })).toBeTruthy()
+      },
+    )
+
+    it("starts a dossier with second-level headings even when Source contains only spaces", async () => {
+      templateWithMissingSections()
+      const onChange = vi.fn()
+      render(
+        <CreativeNoteProvider noteId={olderDossier.id}>
+          <DocumentEditor
+            document={{ ...olderDossier, content: "    " }}
+            editorFrame={DossierFrame}
+            viewMode="source"
+            onContentChange={onChange}
+          />
+        </CreativeNoteProvider>,
+      )
+      fireEvent.click(await screen.findByRole("button", { name: addSectionsLabel }))
+      act(() => flushEditorSerializations())
+      expect(onChange.mock.lastCall?.[0]).toMatch(/^ {4}\n\n## Основное\n\n## Биография/u)
+    })
+
+    it("keeps Source text intact when an unclosed fence would swallow the new headings", async () => {
+      templateWithMissingSections()
+      const onChange = vi.fn()
+      render(
+        <CreativeNoteProvider noteId={olderDossier.id}>
+          <DocumentEditor
+            document={{ ...olderDossier, content: "## Основное\n\n```md\n## Биография" }}
+            editorFrame={DossierFrame}
+            viewMode="source"
+            onContentChange={onChange}
+          />
+        </CreativeNoteProvider>,
+      )
+      fireEvent.click(await screen.findByRole("button", { name: addSectionsLabel }))
+      act(() => flushEditorSerializations())
+      expect(onChange).not.toHaveBeenCalled()
+      expect(screen.getByText(/Не удалось добавить разделы/u)).toBeTruthy()
+    })
+
+    it.each(["locked", "read"] as const)("hides the action on a %s dossier", async (mode) => {
+      templateWithMissingSections()
+      render(
+        <CreativeNoteProvider noteId={olderDossier.id}>
+          <DocumentEditor
+            document={olderDossier}
+            editorFrame={DossierFrame}
+            viewMode={mode === "read" ? "read" : "live"}
+            isLocked={mode === "locked"}
+          />
+        </CreativeNoteProvider>,
+      )
+      await screen.findByRole("banner")
+      await settle()
+      expect(screen.queryByRole("button", { name: addSectionsLabel })).toBeNull()
+    })
+
+    it("clears the current template while another section or vault is loading", async () => {
+      storage.getDossierTemplate.mockResolvedValueOnce(layoutTemplate)
+      storage.getDossierTemplate.mockImplementation(() => new Promise(() => undefined))
+      const { result, rerender } = renderHook(
+        ({ databaseId, generation }) => useDossierTemplate(databaseId, generation),
+        { initialProps: { databaseId: "db_characters", generation: 1 } },
+      )
+      await settle()
+      expect(result.current.template).toBe(layoutTemplate)
+      rerender({ databaseId: "db_locations", generation: 1 })
+      expect(result.current.template).toBeNull()
+      rerender({ databaseId: "db_characters", generation: 2 })
+      expect(result.current.template).toBeNull()
     })
 
     it("takes the hints of the empty sections from the template", async () => {

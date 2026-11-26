@@ -1,7 +1,10 @@
-import { LayoutTemplate } from "lucide-react"
+import { useState } from "react"
+import { LayoutTemplate, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import type { DossierLayout } from "@/lib/storage"
+import { NoticeLine } from "../../notices/notice-line"
+import type { AppendHeadingsResult } from "../../tiptap/constants"
 import { cardProperties } from "../../database/value-format"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
 import { useCoverResolver } from "../../database/layouts/use-cover-resolver"
@@ -27,6 +30,7 @@ export function DossierHeader({
   content,
   layout = null,
   onOpenTemplate,
+  onAddMissingSections,
 }: {
   dossier: NoteDossier
   locked?: boolean
@@ -35,6 +39,7 @@ export function DossierHeader({
   /** The dossier layout of the section's template, when it has one. */
   layout?: DossierLayout | null
   onOpenTemplate?: () => void
+  onAddMissingSections?: () => AppendHeadingsResult
 }) {
   const { t, i18n } = useTranslation()
   const { context, world } = dossier
@@ -74,6 +79,9 @@ export function DossierHeader({
       )
     : []
   const fill = sectionFill(content)
+  const [blocked, setBlocked] = useState<{ content: string; layout: DossierLayout | null } | null>(
+    null,
+  )
 
   return (
     <header className="mb-5 flex flex-col gap-5 sm:flex-row sm:items-start">
@@ -97,7 +105,7 @@ export function DossierHeader({
           editable={editable}
           notSet={notSet}
         />
-        {(fill.total > 1 || (editable && onOpenTemplate)) && (
+        {(fill.total > 1 || (editable && (onOpenTemplate || onAddMissingSections))) && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {fill.total > 1 && (
               <>
@@ -112,6 +120,24 @@ export function DossierHeader({
                 </span>
                 {t("creative.dossier.filled", { filled: fill.filled, count: fill.total })}
               </>
+            )}
+            {editable && onAddMissingSections && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setBlocked(onAddMissingSections() === "blocked" ? { content, layout } : null)
+                  }
+                >
+                  <Plus aria-hidden="true" className="size-3.5" />
+                  {t("creative.dossier.addMissingSections")}
+                </Button>
+                {blocked?.content === content && blocked.layout === layout && (
+                  <NoticeLine text={t("creative.dossier.addMissingSectionsBlocked")} />
+                )}
+              </div>
             )}
             {editable && onOpenTemplate && (
               <Button

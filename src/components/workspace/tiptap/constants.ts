@@ -12,7 +12,11 @@ export const SAFE_UNDERLINE_RE = /^<u>(.*?)<\/u>$/is
 
 export const EMOJIS = ["✨", "✅", "🔥", "💡", "📌", "⭐", "❤️", "🚀", "🧠", "🎯", "⚠️", "📝"]
 
+export type AppendHeadingsResult = "added" | "unchanged" | "blocked"
+
 export interface EditorHandle {
+  /** Append headings still missing from the current, possibly unpublished editor text. */
+  appendMissingHeadings: (titles: readonly string[]) => AppendHeadingsResult
   undo: () => void
   redo: () => void
   flush: () => void

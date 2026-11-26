@@ -92,10 +92,10 @@ export function SectionGallery({
   const name = title ?? sectionTitle(section, t("creative.sections.arcs"))
   const Icon = section.role ? sectionRoleIcon(section.role) : Database
   const people = section.role === "characters"
-  const smallGallery = !compact && !loading && title === undefined && rows.length < 3
+  const showPurpose = !loading && title === undefined && rows.length < 3
   const quickCreate = createFor ? (
     <QuickCreate
-      tile={smallGallery}
+      card={!compact}
       label={sectionCreateLabel(
         t,
         section.role,
@@ -162,13 +162,15 @@ export function SectionGallery({
       </div>
     )
   }
+  const cardGroups =
+    groups.length === 0 && quickCreate ? [{ key: "", label: null, color: null, rows: [] }] : groups
+
   return (
     <section aria-label={name} className="flex w-full min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <h2 className="min-w-0 break-words text-sm font-semibold">{name}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{rows.length || null}</span>
-        {!smallGallery && quickCreate}
         {onOpenAsBase && (
           <button
             type="button"
@@ -180,22 +182,17 @@ export function SectionGallery({
           </button>
         )}
       </div>
-      {smallGallery && quickCreate && (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
-            {t(`creative.gallery.purpose.${section.role ?? "custom"}`, {
-              defaultValue: t("creative.gallery.purpose.custom", { name }),
-            })}
-          </p>
-          {quickCreate}
-        </div>
-      )}
-      {rows.length === 0 && !(smallGallery && quickCreate) && (
+      {showPurpose && quickCreate && (
         <p className="text-xs text-muted-foreground">
-          {loading ? "" : t("creative.workshop.world.noItems")}
+          {t(`creative.gallery.purpose.${section.role ?? "custom"}`, {
+            defaultValue: t("creative.gallery.purpose.custom", { name }),
+          })}
         </p>
       )}
-      {groups.map((group) => (
+      {rows.length === 0 && !quickCreate && !loading && (
+        <p className="text-xs text-muted-foreground">{t("creative.workshop.world.noItems")}</p>
+      )}
+      {cardGroups.map((group, index) => (
         <div key={group.key} className="flex flex-col gap-2">
           {group.label !== null && (
             <h3 className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -226,7 +223,7 @@ export function SectionGallery({
                     <button
                       type="button"
                       onClick={() => (storyId ? onOpenStory?.(storyId) : onOpenNote(row.noteId))}
-                      className="flex h-full w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left outline-none hover:border-primary/40 hover:bg-accent/30 focus-visible:ring-1 focus-visible:ring-ring"
+                      className="amby-creative-gallery-card flex h-full w-full items-center gap-3 text-left"
                     >
                       {people || hasPicture ? (
                         <PortraitDot
@@ -281,6 +278,9 @@ export function SectionGallery({
                 </li>
               )
             })}
+            {quickCreate && index === cardGroups.length - 1 && (
+              <li className="min-w-0">{quickCreate}</li>
+            )}
           </ul>
         </div>
       ))}

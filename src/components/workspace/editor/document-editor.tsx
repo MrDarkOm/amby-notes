@@ -606,6 +606,7 @@ export function DocumentEditor({
           onEnableModule={onEnableModule}
           databaseBody={databaseBody}
           editorFrame={editorFrame}
+          hasUnterminatedFrontmatter={document.noteProperties?.frontmatterStatus === "unterminated"}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}

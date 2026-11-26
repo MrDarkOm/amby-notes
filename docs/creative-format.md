@@ -822,5 +822,7 @@ older Amby keep it as an unknown field of the template.
   that is gone stays, at the end. Nothing else of the manifest changes. A locked or read-only
   database is refused (`databaseLocked`); a template kept in a separate file (manifest version 1) is
   not found (`templateNotFound`).
-- Pages already written are never changed by it (owner decision, 2026-11-26): a dossier lacking
-  sections of its template offers to add them, which writes that one note.
+- Saving a template leaves existing notes as written. In an editable dossier, **Add missing sections**
+  appends empty headings in template order using the open editor's current text. Titles are compared
+  case-insensitively at the shallowest top-level heading level, with H2 as the default for a note
+  without headings. The addition is one undo step and follows normal autosave.

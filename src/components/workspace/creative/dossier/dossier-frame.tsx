@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { localeResources } from "@/locales/resources"
 import { HeadingHintsContext } from "../../editor/heading-hints-context"
+import type { EditorFrameProps } from "../../editor/document-body"
+import { getMarkdownParser } from "../../tiptap/markdown-parser"
+import { missingHeadingNodes } from "../../tiptap/missing-headings"
 import { DossierAside } from "./dossier-aside"
 import { hasPlotSections } from "./dossier-model"
 import { DossierHeader } from "./dossier-header"
@@ -40,21 +43,6 @@ function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   return width
 }
 
-export interface DossierFrameProps {
-  noteId: string
-  vaultPath?: string
-  locked?: boolean
-  /** The page's Markdown. */
-  content: string
-  /** Scrolls the page to its n-th heading. */
-  scrollToHeading: (index: number) => void
-  /** Headings can be jumped to only where they are on screen (not in the source editor). */
-  canJump: boolean
-  onOpenNote?: (noteId: string) => void
-  /** The editor. It stays in the same place of the tree whether or not the page is a dossier. */
-  children: React.ReactNode
-}
-
 /**
  * Wraps a note's editor. For a page of a creative world section it adds the dossier header
  * above the text and the blocks beside it (under it on a narrow window); for a page of a story's
@@ -69,9 +57,10 @@ export function DossierFrame({
   content,
   scrollToHeading,
   canJump,
+  appendMissingHeadings,
   onOpenNote,
   children,
-}: DossierFrameProps) {
+}: EditorFrameProps) {
   const { t } = useTranslation()
   const place = React.useContext(NotePlaceContext)
   const { folded, toggle } = usePlotFold(vaultPath)
@@ -99,13 +88,27 @@ export function DossierFrame({
   }, [role, t])
   // The section's template, when it has a dossier layout, decides the hints and the fields shown
   // in each tab; without one the built-in hints of the preset's headings apply.
-  const { template, reload } = useDossierTemplate(dossier?.context.databaseId ?? null)
+  const { template, reload } = useDossierTemplate(
+    dossier?.context.databaseId ?? null,
+    dossier?.context.vaultGeneration ?? null,
+  )
   const layout = dossier ? (template?.dossier ?? null) : null
   const headingHints = React.useMemo(
     () => (layout ? layoutHints(layout) : builtInHints),
     [builtInHints, layout],
   )
   const editable = Boolean(dossier) && !locked && !dossier?.context.locked
+  const sectionTitles = React.useMemo(() => layout?.sections.map(({ title }) => title), [layout])
+  const canAddSections = editable && Boolean(appendMissingHeadings)
+  const hasMissingSections = React.useMemo(
+    () =>
+      Boolean(
+        canAddSections &&
+        sectionTitles &&
+        missingHeadingNodes(getMarkdownParser().parse(content), sectionTitles).length > 0,
+      ),
+    [canAddSections, sectionTitles, content],
+  )
   const above = React.useMemo(() => {
     if (!dossier || !layout) return null
     const { context } = dossier
@@ -154,11 +157,17 @@ export function DossierFrame({
     <div ref={frameRef} className="min-w-0" data-dossier-frame="">
       {dossier ? (
         <DossierHeader
+          key={noteId}
           dossier={dossier}
           locked={locked}
           content={content}
           layout={layout}
           onOpenTemplate={() => setTemplateOpen(true)}
+          onAddMissingSections={
+            hasMissingSections && appendMissingHeadings && sectionTitles
+              ? () => appendMissingHeadings(sectionTitles)
+              : undefined
+          }
         />
       ) : null}
       {dossier && templateOpen && (

@@ -2,6 +2,14 @@
 
 - Notes with pages reopen on the last tab. Copy a page link from its menu or move selected blocks to a new page from the add menu. Drag a tab or a row in the compact list to preview the new order before dropping it. The introduction stays on its own page when moved. Find lists matches by page and opens the matching tab. When the tabs fold into a list, press Cmd+Option+G on Mac or Ctrl+Alt+G on Windows and Linux to jump to a page by name.
 
+- Creative workshop galleries place the dashed add card after the existing entries, using the same card grid and size.
+
+- Nested-note buttons are smaller, with a subtle divider when they sit above the note’s section tabs. Section tabs have more space when they sit directly below the title.
+
+- The note’s layer switch sits directly on the header and marks the selected layer with a short accent line.
+
+- The dock menu uses distinct icons for section and action buttons. The file tree shows the multi-note icon on Markdown bundles with no nested notes, including bundles with an attached canvas or sketch.
+
 - For developers: the standalone Note Pages roadmap tracks page navigation, editing, and starter pages from templates.
 
 - Creative workshop: a dossier's “Appears in” also lists the story pages that mention the character or place by name, under “Found by name”: the full name, each part of a multi-word name, and the `aliases` of the note header, with common Russian endings (“Кея”, “Алисы”, “Дома у реки”). Hover a page to see the matching passage. **Bind** next to a found page links it to the character or location in one click. A character's stories show only in the header now, not again under Connections. An empty dossier page shows only that section's hint, without the general “Start writing” line.
@@ -12,6 +20,7 @@
 - Creative workshop: set a daily word goal under a story's progress on its desk. It shows today's words against the goal and the days in a row you reached it. The goal is kept on this device only.
 - Creative workshop: set, change or remove a character's portrait (or a place's image) right in its dossier header. The header shows the page's key fields as cards you edit in place, and the story is no longer repeated under the name.
 - Creative workshop: edit a section's dossier template from a dossier's header (Section template): its sections in order, a hint for each empty one, and the fields each tab shows. Fields can be existing properties or new text fields made right there. A tab shows its fields as a card above its text; the header keeps the others. Pages already written do not change.
+- Creative workshop: **Add missing sections** brings an older dossier up to date with its template. It adds empty headings to the open editor, keeping unsaved text and supporting undo in Live Preview and Source.
 - For developers: a section's page template can hold a dossier layout (`ambyDossier`: sections, hints, fields), read and written by `get_dossier_template` and `update_dossier_template`. Format: [creative-format.md](../docs/creative-format.md) §14.
 - For developers: a plan for dossier templates (sections, hints, fields) and the visual polish of the creative workshop (`docs/road/creative-visual.md`).
 - For developers: `ensure_plot_links` takes optional `parts` for a story's text (`characters`, `pov`, `places`, `storyTime`, next to `anchors` and `arcs`). Without `parts` it behaves as before. Format: [creative-format.md](../docs/creative-format.md) §6.

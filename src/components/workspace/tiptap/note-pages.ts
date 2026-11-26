@@ -6,6 +6,8 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
 import { isEnterKey } from "@/lib/keyboard"
 import { markEditorUserIntent } from "./editor-user-intent"
 import { readFind } from "./find-in-note"
+import { missingHeadingNodes } from "./missing-headings"
+import type { AppendHeadingsResult } from "./constants"
 import type { NotePagesPref } from "../app-config"
 
 export interface NotePage {
@@ -285,6 +287,31 @@ export function addNotePage(editor: Editor, title: string): boolean {
   editor.view.dispatch(tr.scrollIntoView())
   editor.view.focus()
   return true
+}
+
+/** Appends template sections in one undo step, keeping the open page and its selection. */
+export function appendMissingHeadings(
+  editor: Editor,
+  titles: readonly string[],
+): AppendHeadingsResult {
+  if (editor.isDestroyed || !editor.isEditable) return "blocked"
+  const { doc } = editor.state
+  const headings = missingHeadingNodes(doc, titles)
+  if (headings.length === 0) return "unchanged"
+  // The initial empty paragraph is only the editor's placeholder.
+  const from =
+    doc.childCount === 1 &&
+    doc.firstChild?.type.name === "paragraph" &&
+    doc.firstChild.content.size === 0
+      ? 0
+      : doc.content.size
+  const tr = closeHistory(editor.state.tr)
+    .replaceWith(from, doc.content.size, headings)
+    .setMeta(PAGE_EDIT, true)
+  markEditorUserIntent(editor)
+  editor.view.dispatch(tr)
+  editor.view.dispatch(closeHistory(editor.state.tr))
+  return "added"
 }
 
 /** Renames a page by replacing the text of its heading; the introduction has none. */
