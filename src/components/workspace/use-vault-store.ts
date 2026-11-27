@@ -10,11 +10,15 @@ function resolve<T>(updater: Updater<T>, prev: T): T {
 interface VaultStore {
   /** Absolute path of the currently open vault, or null. */
   vault: string | null
+  /** Blocks new property intents while the active backend context is changing. */
+  switching: boolean
+  /** False until startup has decided whether to reopen a vault; the start screen shows a loader meanwhile. */
+  startupResolved: boolean
   /** Increments only after a vault activation has succeeded. */
   generation: number
   /** Backend generation that binds IPC writes to the active vault context. */
   backendGeneration: number | null
-  /** Known vaults (the workspace picker list). */
+  /** Known vaults, including detached entries kept in recent history. */
   vaults: VaultRecord[]
   setVault: (updater: Updater<string | null>) => void
   setBackendGeneration: (generation: number | null) => void
@@ -28,6 +32,8 @@ interface VaultStore {
  */
 export const useVaultStore = create<VaultStore>((set) => ({
   vault: null,
+  switching: false,
+  startupResolved: false,
   generation: 1,
   backendGeneration: null,
   vaults: [],

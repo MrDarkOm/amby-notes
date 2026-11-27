@@ -10,19 +10,30 @@
 
 import {
   globalFileMissing,
+  readGlobalRaw,
+  compareWriteGlobalRaw,
   loadGlobalJSON,
   loadVaultJSON,
   saveGlobalJSON,
   saveVaultJSON,
   vaultFileMissing,
-  storeAiCredential,
-  inspectAiCredential,
 } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
+import { FONT_SIZE, FONT_SIZE_OF_SCALE } from "@/themes/preferences"
 import type { VaultRecord } from "./workspace-picker"
+import { useVaultStore } from "./use-vault-store"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
+import { findProvider, type AiModel, type AiSettings } from "./ai/providers"
+import { projectAiConnections, readAiConnections, serializeAiSettings } from "./ai/connections"
+export {
+  AI_PROVIDERS,
+  findProvider,
+  type AiModel,
+  type AiSettings,
+  type ProviderInfo,
+} from "./ai/providers"
 import i18n, { SUPPORTED_LANGUAGES, type LanguageCode } from "@/lib/i18n"
 import {
   BUILTIN_THEMES,
@@ -38,7 +49,7 @@ import {
 } from "./keyboard-shortcuts"
 import {
   applyProfileToWorkspace,
-  migrateWorkspaceModules,
+  readWorkspaceModuleConfig,
   type ProfileId,
   type WorkspaceProfileState,
 } from "@/lib/modules"
@@ -46,6 +57,11 @@ import type { DebugConfig } from "@/lib/debug/types"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
+/**
+ * The AI connections live in a file of their own. A build that predates it keeps reading and
+ * rewriting the `ai` section of settings.json in its older shape; this file is out of its reach.
+ */
+export const AI_CONNECTIONS_FILE = "ai-connections.json"
 export const WORKSPACE_FILE = "workspace.json"
 export const SESSION_FILE = "session.json"
 
@@ -55,19 +71,34 @@ export const SESSION_SCHEMA_VERSION = 1
 export const WORKSPACES_SCHEMA_VERSION = 1
 
 export const SETTINGS_SAVE_ERROR_EVENT = "amby:settings-save-error"
+export const AI_SETTINGS_CHANGED_EVENT = "amby:ai-settings-changed"
+
+/** The code our own errors carry as their message ("settingsChanged"); `undefined` for any other text. */
+function ownErrorCode(error: unknown): string | undefined {
+  const message = error instanceof Error ? error.message : ""
+  return /^[A-Za-z]{3,40}$/.test(message) ? message : undefined
+}
+
+/** Another window saved the settings first (the file changed under the one this change was built on). */
+export function isSettingsChangedError(error: unknown): boolean {
+  return ownErrorCode(error) === "settingsChanged"
+}
 
 export function emitSettingsSaveError(fileName: string, error: unknown): void {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "")
   logger.error("settings.save_failed", {
     file: safeName,
     errorType: errorType(error),
+    // Our own error codes ("settingsChanged", "unsupportedAiVersion"); never free text.
+    code: ownErrorCode(error),
   })
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(SETTINGS_SAVE_ERROR_EVENT, {
         detail: {
           file: safeName,
-          message: i18n.t("errors.settingsSaveError"),
+          // The text for the person, chosen here from the dictionary.
+          text: i18n.t("errors.settingsSaveError"),
         },
       }),
     )
@@ -169,153 +200,81 @@ export async function saveWorkspaces(file: WorkspacesFile): Promise<void> {
 
 // ── Global: settings.json ───────────────────────────────────────────────────
 
-/** A selectable provider in the model editor. Maps a friendly name to a wire
- *  `family` (what Rust dispatches on) plus sensible connection defaults. */
-export interface ProviderInfo {
-  id: string
-  label: string
-  family: AiFamily
-  kind: "local" | "cloud"
-  defaultBaseUrl: string
-  defaultModel: string
-  needsKey: boolean
-  /** Azure-only: the field is shown and a default offered. */
-  azure?: boolean
+/** Moving a model entry to another provider starts from that provider's own model and
+ *  endpoint: a name or URL left over from the previous provider would be rejected there. */
+export function changeProvider(model: AiModel, providerId: string): AiModel {
+  const provider = findProvider(providerId)
+  if (!provider || model.provider === providerId) return model
+  const codex = providerId === "codex" || providerId === "claude-code"
+  return {
+    ...model,
+    provider: providerId,
+    model: codex ? "" : provider.defaultModel,
+    baseUrl: "",
+    supportsTools: undefined,
+    apiVersion: provider.azure ? model.apiVersion : "",
+  }
 }
 
-/** Local options first (most popular), then cloud. */
-export const AI_PROVIDERS: ProviderInfo[] = [
-  {
-    id: "ollama",
-    label: "Ollama",
-    family: "ollama",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:11434",
-    defaultModel: "llama3.2",
-    needsKey: false,
-  },
-  {
-    id: "lmstudio",
-    label: "LM Studio",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:1234",
-    defaultModel: "local-model",
-    needsKey: false,
-  },
-  {
-    id: "mlx",
-    label: "MLX",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:8080",
-    defaultModel: "mlx-community/Llama-3.2-3B-Instruct-4bit",
-    needsKey: false,
-  },
-  {
-    id: "llamacpp",
-    label: "llama.cpp",
-    family: "openai",
-    kind: "local",
-    defaultBaseUrl: "http://localhost:8080",
-    defaultModel: "default",
-    needsKey: false,
-  },
-  {
-    id: "openai",
-    label: "OpenAI",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.openai.com",
-    defaultModel: "gpt-4o-mini",
-    needsKey: true,
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    family: "anthropic",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.anthropic.com",
-    defaultModel: "claude-3-5-haiku-latest",
-    needsKey: true,
-  },
-  {
-    id: "azure",
-    label: "Azure OpenAI",
-    family: "azure",
-    kind: "cloud",
-    defaultBaseUrl: "",
-    defaultModel: "",
-    needsKey: true,
-    azure: true,
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://openrouter.ai/api",
-    defaultModel: "openai/gpt-4o-mini",
-    needsKey: true,
-  },
-  {
-    id: "groq",
-    label: "Groq",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.groq.com/openai",
-    defaultModel: "llama-3.3-70b-versatile",
-    needsKey: true,
-  },
-  {
-    id: "mistral",
-    label: "Mistral",
-    family: "openai",
-    kind: "cloud",
-    defaultBaseUrl: "https://api.mistral.ai",
-    defaultModel: "mistral-small-latest",
-    needsKey: true,
-  },
-]
-
-export function findProvider(id: string): ProviderInfo | undefined {
-  return AI_PROVIDERS.find((p) => p.id === id)
+/** Agent mode: the conversation goes to the user's own Codex, not to an endpoint. */
+export function isCodexModel(model: AiModel): boolean {
+  return model.provider === "codex"
 }
 
-/** One configured model in the user's library (the chat picks from these). */
-export interface AiModel {
-  id: string
-  label: string
-  /** ProviderInfo.id */
-  provider: string
-  model: string
-  baseUrl: string
-  credentialId?: string | null
-  /** Azure only. */
-  apiVersion: string
+/** Agent mode through Claude Code: same boundary as Codex, a different account and CLI. */
+export function isClaudeCodeModel(model: AiModel): boolean {
+  return model.provider === "claude-code"
 }
 
-/** AI settings = a library of models + which one is active. Secrets are stored
- *  in the OS Keychain / Credential Manager under credentialId. */
-export interface AiSettings {
-  models: AiModel[]
-  activeModelId: string | null
+/** Either signed-in command-line agent: no endpoint, no key, consent before any turn. */
+export function isCliAgentModel(model: AiModel): boolean {
+  return isCodexModel(model) || isClaudeCodeModel(model)
 }
 
-export const DEFAULT_AI: AiSettings = {
-  models: [
-    {
-      id: "default-ollama",
-      label: "Ollama · llama3.2",
-      provider: "ollama",
-      model: "llama3.2",
-      baseUrl: "",
-      credentialId: null,
-      apiVersion: "",
-    },
-  ],
-  activeModelId: "default-ollama",
+/** One hint for the settings screen, from what the backend found on this machine. */
+export function codexStatusKey(status: {
+  installed: boolean
+  supported: boolean
+  signedIn: boolean
+}): "missing" | "unsupported" | "signedOut" | "ready" {
+  if (!status.installed) return "missing"
+  if (!status.supported) return "unsupported"
+  return status.signedIn ? "ready" : "signedOut"
 }
+
+/** Classify only addresses known to stay on a local network as local. */
+export function isLocalAiModel(model: AiModel): boolean {
+  if (isCliAgentModel(model)) return false
+  const provider = findProvider(model.provider)
+  const address = model.baseUrl.trim() || provider?.defaultBaseUrl || ""
+  if (!address) return provider?.kind === "local"
+  try {
+    const host = new URL(address).hostname.toLowerCase().replace(/^\[|\]$/g, "")
+    if (host === "localhost" || host.endsWith(".localhost")) return true
+    if (host === "::1" || /^(?:fc|fd)[0-9a-f]*:/i.test(host)) return true
+    const parts = host.split(".").map(Number)
+    if (
+      parts.length !== 4 ||
+      parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+    )
+      return false
+    return (
+      parts[0] === 127 ||
+      parts[0] === 10 ||
+      (parts[0] === 192 && parts[1] === 168) ||
+      (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    )
+  } catch {
+    return false
+  }
+}
+
+export function modelSupportsTools(model: AiModel): boolean {
+  return model.supportsTools !== false
+}
+
+/** No connections until the connections file exists. */
+export const DEFAULT_AI: AiSettings = { models: [], activeModelId: null }
 
 /** A fresh blank model entry (used by the "add model" button). */
 export function blankModel(): AiModel {
@@ -346,18 +305,28 @@ export type ContentWidth = "normal" | "wide" | "full"
 
 export const ACCENTS: AccentId[] = ["violet", "sky", "teal", "emerald", "amber", "rose"]
 
+/** Which notes show their first-level headings as page tabs: none, every note, or only notes
+ *  whose frontmatter sets `amby-pages: true`. */
+export type NotePagesPref = "off" | "always" | "flagged"
+
 export interface EditorPrefs {
   defaultViewMode: ViewModePref
   contentWidth: ContentWidth
   autosaveMs: number
+  showAreaControls?: boolean
+  notePages: NotePagesPref
 }
 
-export type DeleteModePref = "system" | "vault" | "permanent"
-export const DELETE_MODES: DeleteModePref[] = ["system", "vault", "permanent"]
+/** К4: `archive` is «Переносить в архив»; the former value `vault` is read as `archive`. */
+export type DeleteModePref = "system" | "archive" | "permanent"
+export const DELETE_MODES: DeleteModePref[] = ["system", "archive", "permanent"]
+export type UpdateChannelPref = "stable" | "beta"
 
 export interface FilePrefs {
   /** Where deleting a file sends it. `permanent` always asks for confirmation. */
   deleteMode: DeleteModePref
+  /** A click on a folder row expands or collapses it instead of opening its card. */
+  folderClickToggles: boolean
 }
 
 export interface StartupPrefs {
@@ -366,8 +335,10 @@ export interface StartupPrefs {
 }
 
 export interface UpdatePrefs {
-  /** Check GitHub Releases at launch and offer to install a signed update. */
+  /** Check the selected release channel at launch and install a newer signed update. */
   autoUpdate: boolean
+  /** Release channel used for manual and automatic update checks. */
+  channel: UpdateChannelPref
 }
 
 export type LogLevelPref = DebugConfig["logLevel"]
@@ -403,10 +374,19 @@ export interface WindowPreferences {
 export interface AppPreferences {
   theme: ThemePref
   accent: AccentId
+  /** Kept in step with `fontSize` for older builds; `fontSize` is what applies. */
   fontScale: FontScale
+  /** Interface font size in percent (see `FONT_SIZE`). */
+  fontSize: number
   fontFamily: FontFamily
   rainbowTree: boolean
   treeGuides: boolean
+  /** The file tree follows the open file: its folders open and it is scrolled to. */
+  autoRevealFile: boolean
+  /** Bookmarks are listed in a block above the file tree (needs the favorites module). */
+  favoritesInTree: boolean
+  /** Bookmarks also get a tab of their own on the dock (needs the favorites module). */
+  favoritesPanel: boolean
   density: Density
   tooltipDelayMs: number
   language: Language
@@ -424,16 +404,26 @@ export const DEFAULT_PREFS: AppPreferences = {
   theme: "dark",
   accent: "violet",
   fontScale: "md",
+  fontSize: FONT_SIZE.default,
   fontFamily: "system",
   rainbowTree: false,
   treeGuides: true,
+  autoRevealFile: false,
+  favoritesInTree: true,
+  favoritesPanel: false,
   density: "comfortable",
   tooltipDelayMs: 1000,
   language: "ru",
-  editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
+  editor: {
+    defaultViewMode: "live",
+    contentWidth: "normal",
+    autosaveMs: 500,
+    showAreaControls: true,
+    notePages: "flagged",
+  },
   startup: { reopenLastVault: true, restoreSession: true },
-  files: { deleteMode: "system" },
-  updates: { autoUpdate: true },
+  files: { deleteMode: "system", folderClickToggles: false },
+  updates: { autoUpdate: true, channel: "stable" },
   debug: { ...DEFAULT_DEBUG_PREFS },
   docks: { leftPinned: true, rightPinned: true, rightEnabled: true },
   window: {
@@ -481,11 +471,19 @@ export function normalizeAppPreferences(
       : Number.isFinite(legacyTooltipDelay) && legacyTooltipDelay >= -1
         ? legacyTooltipDelay
         : DEFAULT_PREFS.tooltipDelayMs
+  const fontScale = oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale)
   return {
     // Migrate pre-prefs `defaultTheme` if no explicit theme was stored yet.
     theme: isThemeId(migratedTheme) || migratedTheme === "system" ? migratedTheme : "dark",
     accent: oneOf<AccentId>(d.accent, ACCENTS, DEFAULT_PREFS.accent),
-    fontScale: oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale),
+    fontScale,
+    // Settings saved before the percent slider keep the size their three-step value stood for.
+    fontSize: boundedNumber(
+      d.fontSize,
+      FONT_SIZE.min,
+      FONT_SIZE.max,
+      FONT_SIZE_OF_SCALE[fontScale],
+    ),
     fontFamily: oneOf<FontFamily>(
       d.fontFamily,
       ["system", "sans", "serif", "mono"],
@@ -493,6 +491,9 @@ export function normalizeAppPreferences(
     ),
     rainbowTree: typeof d.rainbowTree === "boolean" ? d.rainbowTree : false,
     treeGuides: typeof d.treeGuides === "boolean" ? d.treeGuides : true,
+    autoRevealFile: typeof d.autoRevealFile === "boolean" ? d.autoRevealFile : false,
+    favoritesInTree: typeof d.favoritesInTree === "boolean" ? d.favoritesInTree : true,
+    favoritesPanel: typeof d.favoritesPanel === "boolean" ? d.favoritesPanel : false,
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
     tooltipDelayMs,
     language: oneOf<Language>(
@@ -504,6 +505,12 @@ export function normalizeAppPreferences(
       defaultViewMode: oneOf<ViewModePref>(ed.defaultViewMode, ["source", "live", "read"], "live"),
       contentWidth: oneOf<ContentWidth>(ed.contentWidth, ["normal", "wide", "full"], "normal"),
       autosaveMs,
+      showAreaControls: typeof ed.showAreaControls === "boolean" ? ed.showAreaControls : true,
+      notePages: oneOf<NotePagesPref>(
+        ed.notePages,
+        ["off", "always", "flagged"],
+        DEFAULT_PREFS.editor.notePages,
+      ),
     },
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,
@@ -511,13 +518,17 @@ export function normalizeAppPreferences(
     },
     files: {
       deleteMode: oneOf<DeleteModePref>(
-        fi.deleteMode,
+        // К4: the old «Корзина хранилища» (`vault`) is read as «Переносить в архив».
+        (fi.deleteMode as string | undefined) === "vault" ? "archive" : fi.deleteMode,
         DELETE_MODES,
         DEFAULT_PREFS.files.deleteMode,
       ),
+      folderClickToggles:
+        typeof fi.folderClickToggles === "boolean" ? fi.folderClickToggles : false,
     },
     updates: {
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,
+      channel: oneOf<UpdateChannelPref>(up.channel, ["stable", "beta"], "stable"),
     },
     debug: {
       enabled: typeof dbg.enabled === "boolean" ? dbg.enabled : DEFAULT_DEBUG_PREFS.enabled,
@@ -584,60 +595,15 @@ function normalizeExperimental(raw: unknown): ExperimentalSettings {
   }
 }
 
-export async function migrateLegacyAiKeys(
-  rawAi: unknown,
-): Promise<{ ai: AiSettings; migrated: boolean }> {
-  if (!rawAi || typeof rawAi !== "object") {
-    return { ai: DEFAULT_AI, migrated: false }
+/** The connections file, or null before it exists. A damaged file is an error, never defaults. */
+async function readConnectionsFile(): Promise<unknown | null> {
+  const raw = await readGlobalRaw(AI_CONNECTIONS_FILE)
+  if (raw === null) return null
+  try {
+    return JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch {
+    throw new Error("corruptAiConnections")
   }
-  const d = rawAi as { models?: unknown[]; activeModelId?: unknown }
-  if (!Array.isArray(d.models)) {
-    return { ai: DEFAULT_AI, migrated: false }
-  }
-  let migrated = false
-  const models: AiModel[] = []
-  for (const raw of d.models) {
-    if (!raw || typeof raw !== "object") continue
-    const m = raw as Partial<AiModel> & { apiKey?: string }
-    if (typeof m.id !== "string" || typeof m.provider !== "string") continue
-    let credId = typeof m.credentialId === "string" ? m.credentialId : null
-    const legacyKey = typeof m.apiKey === "string" ? m.apiKey.trim() : ""
-    if (legacyKey && !credId) {
-      const newCredId = crypto.randomUUID()
-      try {
-        await storeAiCredential(newCredId, legacyKey)
-        const info = await inspectAiCredential(newCredId)
-        if (info.exists) {
-          credId = newCredId
-          migrated = true
-        }
-      } catch (err) {
-        logger.error("settings.credential_migration_failed", {
-          modelId: m.id,
-          errorType: errorType(err),
-        })
-      }
-    } else if (legacyKey && credId) {
-      migrated = true
-    }
-    models.push({
-      id: m.id,
-      label: typeof m.label === "string" && m.label ? m.label : i18n.t("workspace.modelFallback"),
-      provider: m.provider,
-      model: typeof m.model === "string" ? m.model : "",
-      baseUrl: typeof m.baseUrl === "string" ? m.baseUrl : "",
-      credentialId: credId,
-      apiVersion: typeof m.apiVersion === "string" ? m.apiVersion : "",
-    })
-  }
-  if (models.length === 0) {
-    return { ai: DEFAULT_AI, migrated }
-  }
-  const activeModelId =
-    typeof d.activeModelId === "string" && models.some((m) => m.id === d.activeModelId)
-      ? d.activeModelId
-      : models[0].id
-  return { ai: { models, activeModelId }, migrated }
 }
 
 export async function loadSettings(): Promise<GlobalSettings> {
@@ -661,8 +627,12 @@ export async function loadSettings(): Promise<GlobalSettings> {
       prefs: DEFAULT_PREFS,
       themes: [],
     }
+    const stored = await readConnectionsFile()
+    if (stored) settings.ai = projectAiConnections(readAiConnections(stored))
     if (layout.activePresetId || layout.buttons || layout.activeBySide) {
-      await saveGlobalJSON(SETTINGS_FILE, settings)
+      const { ai: _ai, ...toSave } = settings
+      void _ai
+      await saveGlobalJSON(SETTINGS_FILE, toSave)
     }
     return settings
   }
@@ -678,8 +648,13 @@ export async function loadSettings(): Promise<GlobalSettings> {
   ) {
     prefs.theme = "dark"
   }
-  const { ai, migrated } = await migrateLegacyAiKeys(d.ai)
+  // The connections live only in their own file; the `ai` section of settings.json is not read.
+  const storedConnections = await readConnectionsFile()
+  const ai = storedConnections
+    ? projectAiConnections(readAiConnections(storedConnections))
+    : DEFAULT_AI
   const settings: GlobalSettings = {
+    ...d,
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : SETTINGS_SCHEMA_VERSION,
     panelScope: d.panelScope === "workspace" ? "workspace" : "global",
     defaultTheme: legacyTheme,
@@ -689,15 +664,16 @@ export async function loadSettings(): Promise<GlobalSettings> {
     prefs,
     themes,
   }
-  if (migrated) {
-    await saveGlobalJSON(SETTINGS_FILE, settings)
-  }
   return settings
 }
 
 /** The currently-active model in the library, or null if none configured. */
 export function activeModel(ai: AiSettings): AiModel | null {
-  return ai.models.find((m) => m.id === ai.activeModelId) ?? ai.models[0] ?? null
+  return (
+    ai.models.find((m) => m.id === ai.activeModelId) ??
+    (ai.connectionSettings ? null : ai.models[0]) ??
+    null
+  )
 }
 
 /** Resolve a model entry to the flat `AiConfig` the `aiChat` command expects,
@@ -707,25 +683,112 @@ export function resolveAiConfig(model: AiModel): AiConfig {
   const family: AiFamily = p?.family ?? "ollama"
   return {
     provider: family,
+    internalModelId: model.id,
     model: model.model || p?.defaultModel || "",
     baseUrl: model.baseUrl || p?.defaultBaseUrl || "",
     credentialId: model.credentialId || null,
-    maxTokens: 1024,
+    // A local model that thinks first spends part of the limit on thinking; at 1024 it can run
+    // out before it writes the answer, which then arrives empty.
+    maxTokens: isLocalAiModel(model) ? 4096 : 1024,
     apiVersion: family === "azure" ? model.apiVersion || "2024-06-01" : null,
   }
 }
 
-export function saveSettingsPatch(patch: Partial<GlobalSettings>): Promise<void> {
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * The normalized value laid over what was read from the file: keys the normalizer does not know
+ * (written by another build) survive, at every depth of nested objects; known keys take the
+ * normalized value.
+ */
+function overlayKnownKeys(raw: unknown, normalized: unknown): unknown {
+  if (!isPlainRecord(raw) || !isPlainRecord(normalized)) return normalized
+  const merged: Record<string, unknown> = { ...raw }
+  for (const [key, value] of Object.entries(normalized)) {
+    merged[key] = overlayKnownKeys(raw[key], value)
+  }
+  return merged
+}
+
+export function saveSettingsPatch(
+  patch: Partial<GlobalSettings>,
+  options?: { expectedAi?: AiSettings["connectionSettings"] },
+): Promise<void> {
   const write = async () => {
-    const cur = await loadSettings()
-    await saveGlobalJSON(SETTINGS_FILE, {
-      ...cur,
-      ...patch,
-      schemaVersion: SETTINGS_SCHEMA_VERSION,
-    })
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const beforeSettings = await readGlobalRaw(SETTINGS_FILE)
+      const beforeConnections = await readGlobalRaw(AI_CONNECTIONS_FILE)
+      const cur = await loadSettings()
+      if (
+        (await readGlobalRaw(SETTINGS_FILE)) !== beforeSettings ||
+        (await readGlobalRaw(AI_CONNECTIONS_FILE)) !== beforeConnections
+      )
+        continue
+      if (cur.ai.connectionSettings && patch.ai && !patch.ai.connectionSettings) {
+        throw new Error("unsupportedAiVersion")
+      }
+      if (patch.ai?.connectionSettings) {
+        const expected = options?.expectedAi ?? patch.ai.connectionSettings
+        if (JSON.stringify(cur.ai.connectionSettings) !== JSON.stringify(expected))
+          throw new Error("settingsChanged")
+      }
+      const nextAi = patch.ai ?? cur.ai
+      const connectionsChange = Boolean(patch.ai?.connectionSettings)
+      // 1. Connections go to their own file.
+      if (connectionsChange) {
+        const base = await readGlobalRaw(AI_CONNECTIONS_FILE)
+        const text = JSON.stringify(serializeAiSettings(nextAi), null, 2)
+        if (!(await compareWriteGlobalRaw(AI_CONNECTIONS_FILE, base, text))) continue
+      }
+      // 2. Everything else goes to settings.json, whose `ai` section is left as it was whenever
+      //    as it was: an older build may still read it.
+      const { ai: _ai, ...rest } = patch
+      void _ai
+      if (!connectionsChange || Object.keys(rest).length > 0 || beforeSettings === null) {
+        let rawSection: unknown
+        let rawSettings: Record<string, unknown> = {}
+        if (beforeSettings !== null) {
+          try {
+            const parsed: unknown = JSON.parse(beforeSettings.replace(/^\uFEFF/, ""))
+            if (isPlainRecord(parsed)) rawSettings = parsed
+            rawSection = rawSettings.ai
+          } catch {
+            rawSection = undefined
+          }
+        }
+        const next: Record<string, unknown> = {
+          ...cur,
+          ...rest,
+          schemaVersion: SETTINGS_SCHEMA_VERSION,
+        }
+        // The sections rebuilt from a fixed list of keys keep the keys another build wrote.
+        for (const key of ["prefs", "experimental"] as const) {
+          next[key] = overlayKnownKeys(rawSettings[key], next[key])
+        }
+        if (rawSection === undefined) delete next.ai
+        else next.ai = rawSection
+        if (
+          !(await compareWriteGlobalRaw(
+            SETTINGS_FILE,
+            beforeSettings,
+            JSON.stringify(next, null, 2),
+          ))
+        )
+          continue
+      }
+      if (patch.ai && typeof window !== "undefined")
+        window.dispatchEvent(new Event(AI_SETTINGS_CHANGED_EVENT))
+      return
+    }
+    throw new Error("settingsChanged")
   }
   const next = settingsWriteChain.then(write, write)
   settingsWriteChain = next.catch((err) => {
+    // A caller that passes the settings it built on handles a conflict itself (it reloads and
+    // repeats the change), so the generic save error would only be noise.
+    if (options?.expectedAi && isSettingsChangedError(err)) return
     emitSettingsSaveError(SETTINGS_FILE, err)
   })
   return next
@@ -748,6 +811,15 @@ export interface WorkspaceConfig {
   moduleSettings?: Record<string, unknown>
 }
 
+/**
+ * The backend generation a vault-file write is made for, read when the caller decides to write
+ * (not when the queued write finally runs), so a late save cannot land in the next vault (IPC-11).
+ * `null` where the window does not track it (the settings window): the write is not bound.
+ */
+function writeGeneration(): number | null {
+  return useVaultStore.getState().backendGeneration
+}
+
 let pendingWorkspaceProfile: ProfileId | null = null
 
 export function setPendingWorkspaceProfile(profile: ProfileId | null): void {
@@ -759,6 +831,7 @@ export function getPendingWorkspaceProfile(): ProfileId | null {
 }
 
 export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
+  const generation = writeGeneration()
   if (await vaultFileMissing(WORKSPACE_FILE)) {
     // Custom presets were a single global list pre-tier; each vault inherits a copy.
     const customPresets = parseLS<Preset[]>("amby:user-presets:v1", Array.isArray) ?? []
@@ -767,7 +840,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
 
     const baseConfig = requestedProfile
       ? applyProfileToWorkspace(requestedProfile)
-      : (await migrateWorkspaceModules({ layout: EMPTY_LAYOUT })).config
+      : applyProfileToWorkspace("standard")
 
     const layout: LayoutConfig = {
       ...EMPTY_LAYOUT,
@@ -785,11 +858,11 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
       enabledModules: baseConfig.enabledModules,
       moduleSettings: baseConfig.moduleSettings,
     }
-    await saveVaultJSON(WORKSPACE_FILE, cfg)
+    await saveVaultJSON(WORKSPACE_FILE, cfg, generation)
     return cfg
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
-  const { config, migrated } = await migrateWorkspaceModules(d as Record<string, unknown>)
+  const config = readWorkspaceModuleConfig(d)
   const result: WorkspaceConfig = {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACE_SCHEMA_VERSION,
     theme: typeof d.theme === "string" ? d.theme : null,
@@ -805,24 +878,58 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     enabledModules: config.enabledModules,
     moduleSettings: config.moduleSettings,
   }
-  if (migrated) {
-    try {
-      await saveVaultJSON(WORKSPACE_FILE, result)
-    } catch (err) {
-      console.warn("Failed to persist migrated workspace config:", err)
-    }
-  }
   return result
 }
 
 export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promise<void> {
+  const generation = writeGeneration()
   const write = async () => {
     const cur = await loadWorkspaceConfig()
-    await saveVaultJSON(WORKSPACE_FILE, {
-      ...cur,
-      ...patch,
-      schemaVersion: WORKSPACE_SCHEMA_VERSION,
-    })
+    await saveVaultJSON(
+      WORKSPACE_FILE,
+      {
+        ...cur,
+        ...patch,
+        profile: patch.profile
+          ? {
+              ...patch.profile,
+              catalogRevision: patch.profile.catalogRevision ?? cur.profile?.catalogRevision,
+            }
+          : cur.profile,
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      },
+      generation,
+    )
+  }
+  const next = workspaceConfigWriteChain.then(write, write)
+  workspaceConfigWriteChain = next.catch((err) => {
+    emitSettingsSaveError(WORKSPACE_FILE, err)
+  })
+  return next
+}
+
+/**
+ * Records which preset runs and with which modules in the vault's own file, beside its list of
+ * presets. The settings window reads the active preset from there, so what the app runs and what
+ * the settings show cannot drift apart. The rest of the layout is left as it is.
+ */
+export function saveWorkspaceActivePreset(
+  activePresetId: string,
+  activeModules: string[],
+): Promise<void> {
+  const generation = writeGeneration()
+  const write = async () => {
+    const cur = await loadWorkspaceConfig()
+    await saveVaultJSON(
+      WORKSPACE_FILE,
+      {
+        ...cur,
+        enabledModules: activeModules,
+        layout: { ...cur.layout, activePresetId, activeModules },
+        schemaVersion: WORKSPACE_SCHEMA_VERSION,
+      },
+      generation,
+    )
   }
   const next = workspaceConfigWriteChain.then(write, write)
   workspaceConfigWriteChain = next.catch((err) => {
@@ -855,6 +962,7 @@ export interface SessionFile {
 }
 
 export async function loadSession(vaultPath: string): Promise<SessionFile> {
+  const generation = writeGeneration()
   if (await vaultFileMissing(SESSION_FILE)) {
     // Migrate pre-tier localStorage: per-vault keys (suffixed by the vault path)
     // plus the formerly-global icons map.
@@ -885,7 +993,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       Object.keys(session.databaseTitleLabels ?? {}).length ||
       Object.keys(session.nestedNotesPlacements).length ||
       Object.keys(session.icons).length
-    if (hasAny) await saveVaultJSON(SESSION_FILE, session)
+    if (hasAny) await saveVaultJSON(SESSION_FILE, session, generation)
     return session
   }
   const d = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
@@ -908,16 +1016,21 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
 }
 
 export function saveSession(session: SessionFile): Promise<void> {
+  const generation = writeGeneration()
   const write = async () => {
     const persisted = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
     const persistedIcons = isRecord(persisted.icons) ? persisted.icons : {}
-    await saveVaultJSON(SESSION_FILE, {
-      ...session,
-      schemaVersion: SESSION_SCHEMA_VERSION,
-      // Icon choices are durable workspace metadata. A transient empty store
-      // during development HMR must not erase every file emoji.
-      icons: { ...persistedIcons, ...session.icons },
-    })
+    await saveVaultJSON(
+      SESSION_FILE,
+      {
+        ...session,
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        // Icon choices are durable workspace metadata. A transient empty store
+        // during development HMR must not erase every file emoji.
+        icons: { ...persistedIcons, ...session.icons },
+      },
+      generation,
+    )
   }
   const next = sessionWriteChain.then(write, write)
   sessionWriteChain = next.catch((err) => {

@@ -18,17 +18,19 @@ import {
   createWorkshopSection,
   type WorkshopSummary,
 } from "@/lib/storage"
-import { projectErrorText } from "./project-error"
 import { projectLabels } from "./project-labels"
 import {
   levelChain,
   levelsProblem,
+  canAddArcLevel,
   MAX_TEXT_LEVELS,
   presetLevelNames,
   TEXT_SCHEMAS,
   type TextSchemaChoice,
 } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
+import { ShownError, projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 export type CreativeCreationKind = "story" | "universe"
 
@@ -112,7 +114,7 @@ export function CreateProjectDialog({
     setError(null)
     try {
       if (kind === "story") {
-        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        if (!workshop) throw new ShownError(t("creative.errors.projectNotFound"))
         const created = await createStory({
           expectedGeneration: vaultGeneration,
           operationId: operationId(),
@@ -123,7 +125,7 @@ export function CreateProjectDialog({
         })
         onCreated({ kind: "story", id: created.storyId, cardNoteId: created.cardNoteId })
       } else if (kind === "universe") {
-        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        if (!workshop) throw new ShownError(t("creative.errors.projectNotFound"))
         // A universe is a page of the "Universes" base, made the way any world page is.
         let sectionId = workshop.sections.find((s) => s.role === "universes")?.id
         if (!sectionId) {
@@ -299,6 +301,23 @@ export function CreateProjectDialog({
                 </div>
               )}
 
+              {canAddArcLevel(levelNames) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => {
+                    const [first, ...rest] = levelNames
+                    setCustomLevels([first, t("creative.schema.levels.arc"), ...rest])
+                    setSchema("custom")
+                  }}
+                >
+                  <Plus className="size-4" />
+                  {t("creative.createProject.textSchema.addArcLevel")}
+                </Button>
+              )}
+
               <p className="text-xs text-muted-foreground">
                 {t("creative.createProject.textSchema.chain", {
                   chain: levelChain(levelNames) || "—",
@@ -314,11 +333,7 @@ export function CreateProjectDialog({
             </div>
           )}
 
-          {error && (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <NoticeLine role="alert" text={error} />}
 
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>

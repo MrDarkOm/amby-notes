@@ -1,32 +1,39 @@
-# Обновления Amby (Release Notes)
+# Amby updates (release notes)
 
-В этой папке ведутся файлы обновлений приложения Amby. Для каждого релиза создаётся отдельный файл с подробным списком изменений, понятных пользователю.
+This folder holds the release notes of the Amby app. Each release has its own file with the changes a user can see.
 
-## Структура файлов
+Everything here is written in English (owner's decision, 2026-11-17). Notes released before that date and entries accumulated in Russian stay as they are; Russian entries in `upd_next.md` are translated when they are condensed at release.
 
-- **[`upd_next.md`](upd_next.md)** — рабочий черновик для накопления изменений перед следующим релизом. Все новые возможности, оптимизации, исправления и заметки разработчиков в процессе работы добавляются сюда.
-- **`upd_<версия>.md`** (например, [`upd_0.1.8.md`](upd_0.1.8.md)) — заметки к выпуску. Из них автоматически собирается текст выпуска на GitHub и текст обновления в приложении.
-- **[`TEMPLATE.md`](TEMPLATE.md)** — шаблон заметок к выпуску: короткое вступление, «Главное», разделы по областям, «Для разработчиков» в конце.
-- **[`release-footer.md`](release-footer.md)** — блок «Установка», который добавляется в конец каждого выпуска на GitHub.
+## Files
 
-## Регламент работы с обновлениями
+- **[`upd_next.md`](upd_next.md)** — the working draft that collects changes before the next release. Every new feature, optimization, fix and developer note goes here while work is in progress.
+- **`upd_<version>.md`** (for example [`upd_0.1.8.md`](upd_0.1.8.md)) — the release notes. The GitHub release text and the in-app update text are built from them automatically.
+- **[`TEMPLATE.md`](TEMPLATE.md)** — the release notes template: a short intro, "Highlights", sections by area, "For developers" last.
+- **[`release-footer.md`](release-footer.md)** — the "Installation" block appended to every GitHub release.
 
-1. **Во время разработки:**
-   - Каждое изменение (функциональное, интерфейсное, конфигурационное, документационное или платформенное) описывается в [`upd_next.md`](upd_next.md).
-   - В черновике записи группируются по разделам `Исправления`, `Улучшения`, `Для разработчиков` и могут быть подробными; при выпуске они сжимаются по шаблону.
-   - Формулировки должны быть ёмкими, грамотными и отражать реальную пользу для пользователя без сырых технических хэшей и непроверенных обещаний.
+## How updates are kept
 
-2. **Перед релизом (при запросе пользователя на commit & push накопительного выпуска):**
-   - Проверяется весь diff накопленных изменений.
-   - Создаётся файл для новой версии `updates/upd_<версия>.md` по шаблону [`TEMPLATE.md`](TEMPLATE.md): записи из `upd_next.md` не переносятся как есть, а сжимаются в «Главное» и короткие пункты по разделам.
-   - Файл `updates/upd_next.md` очищается и подготавливается к следующему циклу разработки.
-   - Повышается patch-версия в `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json`.
-   - Запускаются обязательные проверки: `npm run version:check`, `npm run verify`, `npm run build`.
-   - Заметки из созданного файла `upd_<версия>.md` используются для описания релиза на GitHub.
+1. **During development:**
+   - Every change (feature, interface, configuration, documentation or platform) is described in [`upd_next.md`](upd_next.md).
+   - Draft entries may be detailed; they are condensed into the template at release.
+   - Wording is short, correct and states the real benefit for the user, without raw hashes or unverified promises.
 
-## История версий
+2. **Before a release (when the owner asks to commit and push the cumulative release):**
+   - The whole diff of the accumulated changes is reviewed.
+   - A file for the new version `updates/upd_<version>.md` is created from [`TEMPLATE.md`](TEMPLATE.md): entries from `upd_next.md` are not copied as they are but condensed into "Highlights" and short bullets by area.
+   - `updates/upd_next.md` is cleared for the next cycle.
+   - The patch version is raised in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
+   - Required checks run: `npm run version:check`, `npm run verify`, `npm run build`.
+   - The notes in the new `upd_<version>.md` become the GitHub release description.
 
-- [Следующая версия (в разработке)](upd_next.md)
+## Version history
+
+- [Next version (in development)](upd_next.md)
+- [0.1.9 — 2026-11-26](upd_0.1.9.md)
+- [0.1.8 — 2026-10-16](upd_0.1.8.md)
+- [0.1.7 — 2026-10-11](upd_0.1.7.md)
+- [0.1.6 — 2026-10-02](upd_0.1.6.md)
+- [0.1.5 — 2026-09-27](upd_0.1.5.md)
 - [0.1.4 — 2026-09-20](upd_0.1.4.md)
 - [0.1.3 — 2026-09-11](upd_0.1.3.md)
 - [0.1.2 — 2026-09-11](upd_0.1.2.md)
@@ -34,4 +41,4 @@
 
 ---
 
-_Примечание: прежний монолитный файл `updates.md` заменён файлами по версиям._
+_Note: the former single `updates.md` file was replaced by per-version files._

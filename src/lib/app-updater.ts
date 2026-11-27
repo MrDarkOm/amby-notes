@@ -1,12 +1,27 @@
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import packageJson from "../../package.json"
+import { commands } from "@/lib/bindings"
+import type { UpdateChannelPref } from "@/components/workspace/app-config"
 import { errorType, logger } from "@/lib/logger"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import { isTauri } from "@/lib/storage"
+import { flushEditingWindows } from "@/lib/flush-all-windows"
 
 const CHECK_TIMEOUT_MS = 30_000
 const STARTUP_CHECK_TIMEOUT_MS = 5_000
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * The pending edits of the windows could not be flushed, so the update was not installed (SAVE-04).
+ * Carries no text of its own: the interface shows its own words.
+ */
+export class UpdateFlushError extends Error {
+  constructor() {
+    super("UpdateFlushFailed")
+    this.name = "UpdateFlushError"
+  }
+}
 
 export type StartupUpdateResult = "ready" | "restarting"
 
@@ -32,12 +47,43 @@ export function isAppUpdaterAvailable(): boolean {
 export async function getCurrentAppVersion(): Promise<string> {
   if (!isTauri()) return packageJson.version
   try {
-    const { getVersion } = await import("@tauri-apps/api/app")
-    return await getVersion()
+    const result = await commands.appReleaseVersion()
+    if (result.status === "error") throw new Error(result.error)
+    return result.data
   } catch (error) {
     logger.warn("updater.version_read_failed", { errorType: errorType(error) })
     return packageJson.version
   }
+}
+
+/**
+ * Why an update could not be installed, as a code the journal may keep (docs/notices.md: no raw
+ * error text): only the kind is read from the message of the updater, nothing of it is kept.
+ */
+export function updateFailureCode(error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (message.includes("previous app")) return "PreviousAppNotRestored"
+  if (message.includes("same mount point")) return "TempDirNotOnSameMountPoint"
+  // tauri-plugin-updater 2.14+: the signature names another version than the feed, or none.
+  if (message.includes("signed for version")) return "SignedVersionMismatch"
+  if (message.includes("does not specify the version")) return "SignedVersionMissing"
+  if (message.includes("signature")) return "SignatureInvalid"
+  if (
+    message.includes("permission denied") ||
+    message.includes("operation not permitted") ||
+    message.includes("os error 13") ||
+    message.includes("os error 1)")
+  )
+    return "PermissionDenied"
+  if (
+    message.includes("sending request") ||
+    message.includes("download request failed") ||
+    message.includes("timed out") ||
+    message.includes("network") ||
+    message.includes("connect")
+  )
+    return "NetworkError"
+  return "UnknownError"
 }
 
 export function calculateDownloadPercent(downloaded: number, total?: number): number | null {
@@ -69,10 +115,31 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
         }
       }
 
-      await update.downloadAndInstall(report, {
-        timeout: DOWNLOAD_TIMEOUT_MS,
-        restartAfterInstall: true,
-      })
+      try {
+        await update.download(report, { timeout: DOWNLOAD_TIMEOUT_MS })
+      } catch (error) {
+        logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })
+        throw error
+      }
+      // SAVE-04: installing replaces the program and restarts it, so every window saves first. A window
+      // that cannot keep its edits stops the update; the downloaded update stays for a retry.
+      let flushed = false
+      try {
+        flushed = await flushEditingWindows()
+      } catch (error) {
+        logger.warn("updater.flush_failed", { errorType: errorType(error) })
+      }
+      if (!flushed) {
+        logger.warn("updater.install_skipped", { failureCode: "FlushFailed" })
+        throw new UpdateFlushError()
+      }
+      try {
+        await update.install({ restartAfterInstall: true })
+      } catch (error) {
+        // The journal keeps why it failed as a code (docs/notices.md), for the setting and for the start.
+        logger.warn("updater.install_failed", { failureCode: updateFailureCode(error) })
+        throw error
+      }
       onProgress?.({ phase: "restarting" })
       const { relaunch } = await import("@tauri-apps/plugin-process")
       await relaunch()
@@ -82,12 +149,17 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
 }
 
 export async function checkForAppUpdate(
+  channel: UpdateChannelPref = "stable",
   timeoutMs = CHECK_TIMEOUT_MS,
 ): Promise<AvailableAppUpdate | null> {
   if (!isAppUpdaterAvailable()) return null
-  const { check } = await import("@tauri-apps/plugin-updater")
-  const update = await check({ timeout: timeoutMs })
-  return update ? wrapUpdate(update) : null
+  const result = await commands.checkAppUpdate(channel, timeoutMs)
+  if (result.status === "error") throw new Error(result.error)
+  if (!result.data) return null
+  const { Update } = await import("@tauri-apps/plugin-updater")
+  return wrapUpdate(
+    new Update({ ...result.data, body: result.data.body ?? undefined, rawJson: {} }),
+  )
 }
 
 let automaticUpdateTask: Promise<StartupUpdateResult> | null = null
@@ -98,14 +170,18 @@ let automaticUpdateTask: Promise<StartupUpdateResult> | null = null
  * The update endpoint request itself checks connectivity (including DNS/TLS);
  * no unrelated ping service or unreliable navigator.onLine hint is needed.
  */
-export function runAutomaticAppUpdate(): Promise<StartupUpdateResult> {
+export function runAutomaticAppUpdate(
+  channel: UpdateChannelPref = "stable",
+): Promise<StartupUpdateResult> {
   if (import.meta.env.DEV || !isAppUpdaterAvailable()) return Promise.resolve("ready")
-  automaticUpdateTask ??= installStartupUpdate()
+  automaticUpdateTask ??= installStartupUpdate(channel)
   return automaticUpdateTask
 }
 
-async function installStartupUpdate(): Promise<StartupUpdateResult> {
+async function installStartupUpdate(channel: UpdateChannelPref): Promise<StartupUpdateResult> {
   let update: AvailableAppUpdate | null = null
+  // Set once a found update starts to install: the journal then names it and offers it for download.
+  let installing: string | null = null
   try {
     if (getCurrentWindow().label !== "main") return "ready"
     const { getBundleType } = await import("@tauri-apps/api/app")
@@ -113,16 +189,26 @@ async function installStartupUpdate(): Promise<StartupUpdateResult> {
     // Linux package installs invoke pkexec/GUI sudo inside the native updater.
     // Keep those explicit in settings; portable AppImage updates stay silent.
     if (bundleType === "deb" || bundleType === "rpm") return "ready"
-    update = await checkForAppUpdate(STARTUP_CHECK_TIMEOUT_MS)
+    update = await checkForAppUpdate(channel, STARTUP_CHECK_TIMEOUT_MS)
     if (!update) return "ready"
 
+    installing = update.version
     await update.install()
     // Keep the old workspace unopened while the process is being replaced.
     return "restarting"
   } catch (error) {
     logger.warn("updater.automatic_update_failed", { errorType: errorType(error) })
+    // Information for the journal of the notification centre (docs/notices.md, step 7): the person is not
+    // asked for anything, and the cause stays in the log as a code, not as text.
+    useNoticeJournalStore.getState().record({
+      kind: "updateFailed",
+      level: "info",
+      subject: "automatic",
+      params: installing ? { version: installing } : {},
+    })
     return "ready"
   } finally {
+    // Releasing the update handle: a failure changes nothing for the person.
     await update?.close().catch(() => {})
   }
 }

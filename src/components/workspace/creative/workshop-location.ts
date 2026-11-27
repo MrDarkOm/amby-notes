@@ -69,6 +69,18 @@ export function resolveWorkshopPlace(
   }
 }
 
+/** Follow the same marker after its folder moves, provided its previous folder is now vacant. */
+export function movedWorkshopPath(
+  previous: WorkshopSummary | undefined,
+  next: WorkshopSummary[],
+): string | null {
+  if (!previous) return null
+  const matches = next.filter((workshop) => workshop.workshopId === previous.workshopId)
+  if (matches.length !== 1 || matches[0].path === previous.path) return null
+  if (next.some((workshop) => workshop.path === previous.path)) return null
+  return normalizeWorkshopPath(matches[0].path)
+}
+
 /**
  * The catalog the module's screens read: only the active workshop, and a diagnostic for each
  * marker that was left out.

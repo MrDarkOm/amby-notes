@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FolderOpen, RotateCcw, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -11,7 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, isTauri, openInExplorer } from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { errorType, logger } from "@/lib/logger"
+import { isTauri, revealAppDataFolder } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
@@ -24,61 +28,90 @@ import {
 } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
+import { NoticeLine } from "../notices/notice-line"
 import { Row, selectTrigger } from "./settings-common"
+
+/** Matches the small outline buttons of the other settings rows. */
+const actionButton = "h-7 text-[12px] font-normal [&_svg:not([class*='size-'])]:size-3.5"
 
 export function DataTab({ vault }: { vault: string | null }) {
   const { t } = useTranslation()
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const setVaults = useVaultStore((s) => s.setVaults)
   const [dir, setDir] = React.useState<string>("")
+  /** The answer to "Open folder" when the folder could not be shown stands under the button (docs/notices.md, section 8). */
+  const [openFailed, setOpenFailed] = React.useState(false)
+
+  async function openDataFolder() {
+    setOpenFailed(false)
+    try {
+      await revealAppDataFolder()
+    } catch (error) {
+      logger.warn("vault.reveal_failed", { errorType: errorType(error) })
+      setOpenFailed(true)
+    }
+  }
 
   React.useEffect(() => {
     if (!isTauri()) return
     import("@tauri-apps/api/path")
       .then(({ localDataDir }) => localDataDir())
       .then((base) => setDir(`${base.replace(/[/\\]$/, "")}/Amby/notes`))
+      // The folder shown as a hint is unknown: the hint stays empty.
       .catch(() => {})
   }, [])
 
-  const btn =
-    "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-foreground hover:bg-card"
+  const path = dir || (isTauri() ? "…" : "localStorage (web)")
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div>
-        <div className="mb-1 text-[13px] text-foreground">{t("settings.data.location")}</div>
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded bg-card px-2 py-1.5 text-[12px] text-muted-foreground">
-            {dir || (isTauri() ? "…" : "localStorage (web)")}
-          </code>
-          {isTauri() && (
-            <button
-              type="button"
-              className={btn}
-              onClick={() => void openInExplorer(dir)}
-              disabled={!dir}
-            >
-              <FolderOpen className="size-4" />
-              {t("settings.data.openFolder")}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <button
+    <>
+      <Row
+        label={t("settings.data.location")}
+        hint={
+          <>
+            <span title={path} className="block truncate font-mono">
+              {path}
+            </span>
+            {openFailed && (
+              <NoticeLine text={t("settings.data.openFolderFailed")} className="mt-1" />
+            )}
+          </>
+        }
+      >
+        {isTauri() && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={actionButton}
+            onClick={() => void openDataFolder()}
+            disabled={!dir}
+          >
+            <FolderOpen />
+            {t("settings.data.openFolder")}
+          </Button>
+        )}
+      </Row>
+      <Row label={t("settings.data.reset")} hint={t("settings.data.resetHint")}>
+        <Button
           type="button"
-          className={btn}
+          variant="outline"
+          size="sm"
+          className={actionButton}
           onClick={async () => {
-            if (await confirmAction(t("settings.data.resetConfirm"))) setPrefs({ ...DEFAULT_PREFS })
+            if (await confirm(confirmations.resetSettings())) setPrefs({ ...DEFAULT_PREFS })
           }}
         >
-          <RotateCcw className="size-4" />
-          {t("settings.data.reset")}
-        </button>
-        <button
+          <RotateCcw />
+          {t("settings.data.resetAction")}
+        </Button>
+      </Row>
+      <Row label={t("settings.data.recent")} hint={t("settings.data.recentHint")}>
+        <Button
           type="button"
-          className={cn(btn, "text-red-300 hover:bg-red-950/30")}
+          variant="outline"
+          size="sm"
+          className={cn(actionButton, "text-destructive hover:text-destructive")}
           onClick={() => {
             setVaults([])
             void saveWorkspaces({
@@ -88,11 +121,11 @@ export function DataTab({ vault }: { vault: string | null }) {
             })
           }}
         >
-          <Trash2 className="size-4" />
+          <Trash2 />
           {t("settings.data.clearRecent")}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Row>
+    </>
   )
 }
 
@@ -107,6 +140,8 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
       .then((config) => {
         if (!cancelled) setEnabled(config.confirmations.confirmFileDelete)
       })
+      // The setting could not be read: the switch keeps its default and the setting file is not
+      // touched.
       .catch(() => {})
     return () => {
       cancelled = true
@@ -138,7 +173,8 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
 
 export function DeleteModeSetting() {
   const { t } = useTranslation()
-  const mode = useSettingsStore((s) => s.prefs.files.deleteMode)
+  const files = useSettingsStore((s) => s.prefs.files)
+  const mode = files.deleteMode
   const setPrefs = useSettingsStore((s) => s.setPrefs)
 
   return (
@@ -149,7 +185,11 @@ export function DeleteModeSetting() {
       <Select
         value={mode}
         onValueChange={(value) =>
-          void setPrefs({ files: { deleteMode: value as DeleteModePref } }).catch(() => {})
+          // The failed save is already reported by the settings window (emitSettingsSaveError);
+          // nothing more to do here.
+          void setPrefs({ files: { ...files, deleteMode: value as DeleteModePref } }).catch(
+            () => {},
+          )
         }
       >
         <SelectTrigger className={selectTrigger}>
@@ -163,6 +203,27 @@ export function DeleteModeSetting() {
           ))}
         </SelectContent>
       </Select>
+    </Row>
+  )
+}
+
+export function FolderClickSetting() {
+  const { t } = useTranslation()
+  const files = useSettingsStore((s) => s.prefs.files)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+
+  return (
+    <Row
+      label={t("settings.general.folderClickToggles")}
+      hint={t("settings.general.folderClickTogglesHint")}
+    >
+      <Switch
+        checked={!files.folderClickToggles}
+        onCheckedChange={(next) =>
+          // A failed save is already reported by the settings window.
+          void setPrefs({ files: { ...files, folderClickToggles: !next } }).catch(() => {})
+        }
+      />
     </Row>
   )
 }

@@ -1,5 +1,12 @@
 import { expect, type Page } from "@playwright/test"
-import { liveEditor, openInLive, seedVault, test } from "./support"
+import {
+  liveEditor,
+  openInLive,
+  seedVault,
+  storedMarkdown,
+  test,
+  waitForAutosaveWindow,
+} from "./support"
 
 const NOTE = "## Upper line\n\n## Lower line\n\nTail\n"
 
@@ -51,4 +58,129 @@ test("between two lines the handle stands at the line a click puts the cursor in
     await page.mouse.click(x, y)
     await expect.poll(() => caretHeading(page), `cursor at ${share} of the gap`).toBe(expected)
   }
+})
+
+const COLUMNS = [
+  "Outside",
+  "",
+  "<!-- amby:columns -->",
+  "",
+  "<!-- amby:column -->",
+  "",
+  "Left text",
+  "",
+  "<!-- amby:column -->",
+  "",
+  "Right text",
+  "",
+  "<!-- /amby:columns -->",
+  "",
+].join("\n")
+
+test("column text lines up with the note and its first letters take a click", async ({ page }) => {
+  await seedVault(page, { Columns: COLUMNS })
+  await openInLive(page, "Columns")
+  const editor = liveEditor(page)
+  const outside = (await editor.getByText("Outside").boundingBox())!
+  const inside = (await editor.getByText("Left text").boundingBox())!
+  expect(Math.abs(inside.x - outside.x)).toBeLessThan(1)
+
+  // The handle shows beside the line; its hover bridge must not cover the text.
+  await editor.getByText("Outside").click()
+  await page.mouse.move(inside.x + 20, inside.y + inside.height / 2)
+  await expect(page.locator(".amby-block-handles")).toBeVisible()
+  await page.mouse.click(inside.x + 3, inside.y + inside.height / 2)
+  const caret = await page.evaluate(() => {
+    const selection = getSelection()!
+    return { text: selection.anchorNode?.textContent, offset: selection.anchorOffset }
+  })
+  expect(caret).toEqual({ text: "Left text", offset: 0 })
+})
+
+test("dragging the last block out removes its column and can be undone", async ({ page }) => {
+  await seedVault(page, { Columns: COLUMNS })
+  await openInLive(page, "Columns")
+  const editor = liveEditor(page)
+  const source = editor.getByText("Right text", { exact: true })
+  await source.hover()
+  const grip = page.locator(".amby-block-handle-grip")
+  await expect(grip).toBeVisible()
+  const outside = editor.getByText("Outside", { exact: true })
+  const box = (await outside.boundingBox())!
+  await grip.dragTo(outside, { targetPosition: { x: 20, y: box.height - 1 } })
+  await expect(editor.locator(".amby-column-set")).toHaveCount(0)
+  await expect(editor.getByText("Left text", { exact: true })).toBeVisible()
+  await expect(editor.getByText("Right text", { exact: true })).toBeVisible()
+  await waitForAutosaveWindow(page)
+  const markdown = (await storedMarkdown(page, "Columns")) ?? ""
+  expect(markdown).not.toContain("amby:column")
+  expect(markdown.match(/Right text/gu)).toHaveLength(1)
+  await editor.press("Meta+z")
+  await expect(editor.locator(".amby-column-set")).toHaveCount(1)
+  await expect(editor.locator(".amby-column")).toHaveCount(2)
+})
+
+test("side insertion uses all whitespace and stays at the visible content edge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 1000 })
+  await seedVault(page, { Note: "Before\n\nTarget\n\nSource\n" })
+  await openInLive(page, "Note")
+  const editor = liveEditor(page)
+  await editor.getByText("Source", { exact: true }).hover()
+  const grip = page.locator(".amby-block-handle-grip")
+  await expect(grip).toBeVisible()
+  const start = (await grip.boundingBox())!
+  const target = (await editor.getByText("Target", { exact: true }).boundingBox())!
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + 24, target.y + target.height / 2, { steps: 5 })
+  await expect(page.locator(".amby-block-drop-indicator")).toBeVisible()
+  await expect(page.locator(".amby-block-drop-indicator--column")).toHaveCount(0)
+  const content = await editor.getByText("Target", { exact: true }).evaluate((element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const rect = range.getBoundingClientRect()
+    return { left: rect.left, right: rect.right }
+  })
+  const pane = (await page.locator(".amby-editor-scroll").boundingBox())!
+  expect(content.left - pane.x).toBeGreaterThan(64)
+  const indicator = page.locator(".amby-block-drop-indicator--column")
+  for (const x of [content.right + 12, target.x + target.width - 8, pane.x + pane.width - 12]) {
+    await page.mouse.move(x, target.y + target.height / 2, { steps: 4 })
+    await expect(indicator).toHaveCount(1)
+    await expect
+      .poll(async () => Math.abs((await indicator.boundingBox())!.x - (content.right - 3)))
+      .toBeLessThan(2)
+  }
+  for (const x of [content.left - 12, (pane.x + content.left) / 2, pane.x + 8]) {
+    await page.mouse.move(x, target.y + target.height / 2, { steps: 4 })
+    await expect(indicator).toHaveCount(1)
+    await expect
+      .poll(async () => Math.abs((await indicator.boundingBox())!.x - content.left))
+      .toBeLessThan(2)
+  }
+  await page.mouse.up()
+  await expect(editor.locator(".amby-column-set")).toHaveCount(1)
+  await expect(editor.locator(".amby-column").nth(0)).toHaveText("Source")
+  await expect(editor.locator(".amby-column").nth(1)).toHaveText("Target")
+})
+
+// EDIT-02: the first thing done after opening a note is deleting a block from the grip menu, with the
+// mouse only. The change used to show on screen and never reach the file.
+test("a block deleted from the grip menu with the mouse only is saved", async ({ page }) => {
+  await seedVault(page, { Menu: NOTE })
+  await openInLive(page, "Menu")
+  const lower = (await liveEditor(page).getByText("Lower line").boundingBox())!
+  await page.mouse.move(lower.x + 40, lower.y + lower.height / 2, { steps: 3 })
+  expect(await handleHeading(page)).toBe("Lower line")
+  await page.locator(".amby-block-handle-grip").click()
+  await page
+    .locator(".amby-block-panel--actions")
+    .getByText(/^(Удалить|Delete)$/u)
+    .click()
+  await expect(liveEditor(page).getByText("Lower line")).toHaveCount(0)
+  await expect.poll(() => storedMarkdown(page, "Menu")).toBe("## Upper line\n\nTail\n")
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Menu")).toBe("## Upper line\n\nTail\n")
 })

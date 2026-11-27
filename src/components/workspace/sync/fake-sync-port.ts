@@ -1,0 +1,356 @@
+// A sync port for tests: every method is a `vi.fn` with a believable answer. Test code only.
+
+import { vi, type Mock } from "vitest"
+import {
+  SyncPortError,
+  type AccountOverview,
+  type DeviceView,
+  type PasswordCheck,
+  type RemoteDeletedEvent,
+  type SpaceView,
+  type SyncPort,
+  type SyncStatus,
+  type VaultSyncStatus,
+} from "@/lib/sync/sync-port"
+
+/** The 14 groups of the recovery code the fake shows. */
+export const FAKE_CODE_GROUPS = [
+  "1111",
+  "2222",
+  "3333",
+  "4444",
+  "5555",
+  "6666",
+  "7777",
+  "8888",
+  "9999",
+  "AAAA",
+  "BBBB",
+  "CCCC",
+  "DDDD",
+  "EEEE",
+]
+export const FAKE_CODE = FAKE_CODE_GROUPS.join("-")
+/** The groups the fake asks to type back (1-based). */
+export const FAKE_CONFIRM_GROUPS = [3, 9]
+
+export const DISCONNECTED: SyncStatus = {
+  connected: false,
+  keysMissing: false,
+  pending: false,
+  serverUrl: null,
+  host: null,
+  username: null,
+  deviceId: null,
+  allowHttp: false,
+}
+
+export const CONNECTED: SyncStatus = {
+  connected: true,
+  keysMissing: false,
+  pending: false,
+  serverUrl: "https://sync.example.com",
+  host: "sync.example.com",
+  username: "alice",
+  deviceId: "d1",
+  allowHttp: false,
+}
+
+export const DEVICES: DeviceView[] = [
+  {
+    deviceId: "d1",
+    name: "Mac mini",
+    createdMs: 1_760_000_000_000,
+    lastSeenMs: 1_760_000_100_000,
+    current: true,
+  },
+  {
+    deviceId: "d2",
+    name: "Ноутбук",
+    createdMs: 1_760_000_200_000,
+    lastSeenMs: 1_760_000_300_000,
+    current: false,
+  },
+  {
+    deviceId: "d3",
+    name: null,
+    createdMs: 1_760_000_400_000,
+    lastSeenMs: 1_760_000_500_000,
+    current: false,
+  },
+]
+
+/** A status of the sync of a vault: switched on and idle, unless `overrides` say otherwise. */
+export function vaultStatus(overrides: Partial<VaultSyncStatus> = {}): VaultSyncStatus {
+  return {
+    enabled: true,
+    linked: true,
+    resumable: false,
+    backupMissing: false,
+    spaceId: "00112233445566778899aabbccddeeff",
+    spaceName: "Рабочее хранилище",
+    phase: "idle",
+    lastSyncMs: 1_760_000_000_000,
+    nextTrySecs: null,
+    errorCode: null,
+    stop: null,
+    outgoingPaused: false,
+    needsUpdate: false,
+    conflicts: [],
+    unsynced: [],
+    itemErrors: 0,
+    last: null,
+    ...overrides,
+  }
+}
+
+/** A vault that was never synchronised. */
+export const VAULT_OFF: VaultSyncStatus = vaultStatus({
+  enabled: false,
+  linked: false,
+  resumable: false,
+  spaceId: null,
+  spaceName: null,
+  phase: "off",
+  lastSyncMs: null,
+})
+
+export const SPACES: SpaceView[] = [
+  { spaceId: "a1".repeat(16), name: "Рабочее", seq: 120, createdMs: 1_760_000_000_000 },
+  { spaceId: "b2".repeat(16), name: null, seq: 3, createdMs: 1_760_000_100_000 },
+]
+
+/** The overview of the owner's "Standard" plan: one storage of 312 MB of 1 GB, the open vault. */
+export const ACCOUNT_STANDARD: AccountOverview = {
+  limitsKnown: true,
+  plan: { name: "standard", title: "Стандарт", pinned: false, sync: true, untilMs: null },
+  limits: {
+    maxSpaces: 1,
+    maxTotalBytes: 1_000_000_000,
+    maxFileBytes: 20_000_000,
+    historyDays: 30,
+    maxHistoryBytes: 1_000_000_000,
+  },
+  usage: { liveBytes: 312_000_000, pendingBytes: 0, historyBytes: 40_000_000, spaces: 1 },
+  spaces: [
+    {
+      spaceId: "00112233445566778899aabbccddeeff",
+      name: "Рабочее хранилище",
+      liveBytes: 312_000_000,
+      historyBytes: 40_000_000,
+      thisVault: true,
+      boundFolder: "Work",
+    },
+  ],
+}
+
+/** An own server without plans and without limits, with two storages. */
+export const ACCOUNT_UNLIMITED: AccountOverview = {
+  limitsKnown: true,
+  plan: null,
+  limits: {
+    maxSpaces: null,
+    maxTotalBytes: null,
+    maxFileBytes: null,
+    historyDays: 30,
+    maxHistoryBytes: null,
+  },
+  usage: { liveBytes: 312_000_000, pendingBytes: 0, historyBytes: 0, spaces: 2 },
+  spaces: [
+    {
+      spaceId: "a1".repeat(16),
+      name: "Дом",
+      liveBytes: 12_000_000,
+      historyBytes: 0,
+      thisVault: false,
+      boundFolder: null,
+    },
+    {
+      spaceId: "b2".repeat(16),
+      name: "Работа",
+      liveBytes: 300_000_000,
+      historyBytes: 0,
+      thisVault: false,
+      boundFolder: "Work",
+    },
+  ],
+}
+
+const vaultListeners = new Set<(status: VaultSyncStatus) => void>()
+
+/** Tells every screen that listens that the status of the vault changed (the Rust side does it). */
+export function emitVaultStatus(status: VaultSyncStatus): void {
+  for (const listener of [...vaultListeners]) listener(status)
+}
+
+const remoteDeletedListeners = new Set<(event: RemoteDeletedEvent) => void>()
+
+/**
+ * Tells every listener that files of the vault at `vault` were deleted on another computer (the Rust
+ * side does it). The default is the open vault of the tests.
+ */
+export function emitRemoteDeleted(paths: string[], vault = "/vault"): void {
+  for (const listener of [...remoteDeletedListeners]) listener({ vault, paths })
+}
+
+const restoredListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that notes deleted here came back after another computer's edit. */
+export function emitRestoredAfterDeletion(paths: string[]): void {
+  for (const listener of [...restoredListeners]) listener(paths)
+}
+
+const mergedListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass merged the edits of two computers in these notes (paths in the vault). */
+export function emitMerged(paths: string[]): void {
+  for (const listener of [...mergedListeners]) listener(paths)
+}
+
+const ambyWrittenListeners = new Set<(paths: string[]) => void>()
+
+/** Tells every listener that a pass wrote these files of `.amby/` (paths relative to the vault). */
+export function emitAmbyWritten(paths: string[]): void {
+  for (const listener of [...ambyWrittenListeners]) listener(paths)
+}
+
+/** How many screens listen now (for "stops listening when closed"). */
+export function vaultListenerCount(): number {
+  return vaultListeners.size
+}
+
+/** The fake's rule: the real one (12 characters, lower and upper case, a digit, a symbol) and a few well-known words are weak. */
+export function fakePasswordCheck(password: string): PasswordCheck {
+  const length = [...password].length
+  const tooShort = length < 12
+  const weak = /password|12345|qwerty/i.test(password)
+  const score = tooShort ? 1 : weak ? 1 : length > 20 ? 4 : 3
+  const chars = [...password]
+  const missing = [
+    tooShort && "length",
+    !chars.some((c) => c !== c.toUpperCase()) && "lowercase",
+    !chars.some((c) => c !== c.toLowerCase()) && "uppercase",
+    !chars.some((c) => /\p{N}/u.test(c)) && "digit",
+    !chars.some((c) => !/[\p{L}\p{N}\s]/u.test(c)) && "symbol",
+  ].filter((name): name is string => Boolean(name))
+  return {
+    ok: missing.length === 0 && !weak,
+    score,
+    length,
+    minLength: 12,
+    tooShort,
+    missing,
+  }
+}
+
+export type FakePort = { [K in keyof SyncPort]: Mock<SyncPort[K]> }
+
+export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
+  const port: SyncPort = {
+    status: async () => DISCONNECTED,
+    checkServer: async ({ url }) => ({
+      url,
+      host: "sync.example.com",
+      serverVersion: "0.1.0",
+      registrationOpen: false,
+      instanceId: "00112233445566778899aabbccddeeff",
+    }),
+    checkPassword: async (password) => fakePasswordCheck(password),
+    prepareAccount: async () => ({ recoveryCode: FAKE_CODE, confirmGroups: FAKE_CONFIRM_GROUPS }),
+    confirmRecoveryCode: async (groups) => {
+      const typed = groups.map((group) => group.trim().toUpperCase())
+      const expected = FAKE_CONFIRM_GROUPS.map((position) => FAKE_CODE_GROUPS[position - 1])
+      if (typed.length === 2 && typed[0] === expected[0] && typed[1] === expected[1])
+        return CONNECTED
+      throw new SyncPortError("recovery_confirmation_mismatch")
+    },
+    setEnrollCode: async () => {},
+    cancelPending: async () => {},
+    signIn: async () => CONNECTED,
+    recover: async () => CONNECTED,
+    renameDevice: async () => {},
+    renameAccount: async (username) => ({ ...CONNECTED, username }),
+    listDevices: async () => DEVICES,
+    disconnectDevice: async () => {},
+    signOut: async () => ({ serverNotified: true }),
+    changePassword: async () => {},
+    saveRecoveryCode: async () => "/Users/alice/amby-recovery-code.txt",
+    vaultStatus: async () => VAULT_OFF,
+    listSpaces: async () => SPACES,
+    accountOverview: async () => ACCOUNT_STANDARD,
+    deleteSpace: async () => {},
+    enableVault: async () => vaultStatus(),
+    disableVault: async () => VAULT_OFF,
+    runNow: async () => {},
+    approve: async () => {},
+    resolveConflict: async () => {},
+    readConflictVersions: async () => ({
+      original: "основная версия",
+      copy: "версия с другого компьютера",
+      stamp: "stamp-1",
+    }),
+    resolveConflictWithText: async () => {},
+    readGroupConflict: async () => {
+      throw new SyncPortError("conflict_not_group")
+    },
+    resolveGroupConflict: async () => {},
+    noteVersions: async () => ({
+      available: true,
+      reason: null,
+      versions: [],
+      snapshotsOnServer: [],
+      currentOnServer: false,
+    }),
+    readServerVersion: async () => ({ state: "ok", content: "" }),
+    restoreServerVersion: async () => ({ status: "restored" }),
+    deletedFiles: async () => ({
+      available: true,
+      reason: null,
+      files: [],
+      truncated: false,
+      trashOnServer: [],
+    }),
+    restoreDeleted: async (itemIds) => ({
+      requested: itemIds.length,
+      restored: itemIds.length,
+      damaged: 0,
+      results: itemIds.map((itemId) => ({ itemId, status: "restored", finalPath: null })),
+    }),
+    onVaultStatus: async (listener) => {
+      vaultListeners.add(listener)
+      return () => {
+        vaultListeners.delete(listener)
+      }
+    },
+    onRemoteDeleted: async (listener) => {
+      remoteDeletedListeners.add(listener)
+      return () => {
+        remoteDeletedListeners.delete(listener)
+      }
+    },
+    onRestoredAfterDeletion: async (listener) => {
+      restoredListeners.add(listener)
+      return () => {
+        restoredListeners.delete(listener)
+      }
+    },
+    onMerged: async (listener) => {
+      mergedListeners.add(listener)
+      return () => {
+        mergedListeners.delete(listener)
+      }
+    },
+    onAmbyWritten: async (listener) => {
+      ambyWrittenListeners.add(listener)
+      return () => {
+        ambyWrittenListeners.delete(listener)
+      }
+    },
+    ...overrides,
+  }
+  const wrapped = {} as FakePort
+  for (const key of Object.keys(port) as Array<keyof SyncPort>) {
+    ;(wrapped as Record<string, unknown>)[key] = vi.fn(port[key] as (...args: never[]) => unknown)
+  }
+  return wrapped
+}

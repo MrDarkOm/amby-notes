@@ -1,0 +1,7 @@
+# Caddy in front of the Amby sync server: HTTPS certificates are handled automatically.
+{$AMBY_SYNC_DOMAIN} {
+	# flush_interval -1 sends event-stream lines (the "something changed" notices) at once.
+	reverse_proxy amby-sync:8080 {
+		flush_interval -1
+	}
+}

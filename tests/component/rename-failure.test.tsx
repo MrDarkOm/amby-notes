@@ -15,7 +15,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   useDocStore.getState().clearDocs()
-  useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+  useTabsStore.setState({ tabs: [], activeTabKey: "" })
 })
 
 it("keeps the original document, tab and pending autosave path after a rename collision", async () => {
@@ -48,10 +48,6 @@ it("keeps the original document, tab and pending autosave path after a rename co
   useDocStore.getState().setDoc("note", original)
   useDocStore.getState().markUnsaved("note")
   useTabsStore.getState().openItem({ fileId: "note", title: "Original", kind: "document" })
-  vi.spyOn(storage, "previewRenameRefactor").mockResolvedValue({
-    replacements: 0,
-    notes: 0,
-  })
   vi.spyOn(storage, "renameItem").mockRejectedValue(new Error("Target already exists"))
   vi.spyOn(console, "error").mockImplementation(() => {})
   const apply = vi.fn()
@@ -60,12 +56,15 @@ it("keeps the original document, tab and pending autosave path after a rename co
     useDocumentMutations({
       vault: "/vault",
       treeItems: [{ id: "note", path: payload.path, name: "Original", type: "file" }],
+      setTreeItems: vi.fn(),
       backendGeneration: 1,
       refreshTree: refresh,
       autosave,
       autosaveKey: () => key,
       handleApplyMutation: apply,
       handleContentChange: vi.fn(),
+      handleContentDirty: vi.fn(),
+      recoveryScope: { vault: "/vault", generation: 1 },
       releaseUnusedDocumentBuffers: async () => {},
       handleSelect: async () => {},
     }),

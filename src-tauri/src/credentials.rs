@@ -16,7 +16,9 @@ fn credential_error(_: keyring::Error) -> String {
 }
 
 fn read_credential(credential_id: &str) -> keyring::Result<String> {
-    keyring::Entry::new(SERVICE_NAME, credential_id)?.get_password()
+    crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.get_password()
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -45,8 +47,10 @@ pub fn get_credential(credential_id: &str) -> Result<String, String> {
 }
 
 pub fn set_credential(credential_id: &str, secret: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, credential_id).map_err(credential_error)?;
-    entry.set_password(secret).map_err(credential_error)?;
+    crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.set_password(secret)
+    })
+    .map_err(credential_error)?;
     // A fresh entry must see the exact stored value before store reports success.
     // This also prevents an accidental switch back to entry-local mock storage.
     match read_credential(credential_id) {
@@ -56,11 +60,11 @@ pub fn set_credential(credential_id: &str, secret: &str) -> Result<(), String> {
 }
 
 pub fn delete_credential_entry(credential_id: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, credential_id).map_err(credential_error)?;
-    match entry.delete_credential() {
-        Ok(()) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(credential_error(e)),
+    match crate::keychain_access::access(true, || {
+        keyring::Entry::new(SERVICE_NAME, credential_id)?.delete_credential()
+    }) {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(credential_error(error)),
     }
 }
 
@@ -84,6 +88,7 @@ where
 #[tauri::command]
 #[specta::specta]
 pub fn store_ai_credential(credential_id: String, secret: String) -> Result<(), String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
     store_or_delete_credential(
         &credential_id,
         &secret,
@@ -95,7 +100,62 @@ pub fn store_ai_credential(credential_id: String, secret: String) -> Result<(), 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_ai_credential(credential_id: String) -> Result<(), String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
     delete_credential_entry(&credential_id)
+}
+
+/// Whether any section of AI settings still names the credential. A section that cannot be read
+/// with certainty makes the answer an error: a key is never deleted on a guess.
+fn credential_referenced(
+    sections: &[serde_json::Value],
+    credential_id: &str,
+) -> Result<bool, String> {
+    if sections.is_empty() {
+        return Err("corruptAiSettings".into());
+    }
+    let mut referenced = false;
+    for section in sections {
+        let ai = section.as_object().ok_or("corruptAiSettings")?;
+        if ai.get("version").is_some_and(|version| version != 1) {
+            return Err("unsupportedAiVersion".into());
+        }
+        let items = if ai.contains_key("version") {
+            ai.get("connections")
+        } else {
+            ai.get("models")
+        }
+        .and_then(serde_json::Value::as_array)
+        .ok_or("corruptAiSettings")?;
+        if items.iter().any(|item| {
+            !item.is_object()
+                || item
+                    .get("credentialId")
+                    .is_some_and(|id| !id.is_null() && !id.is_string())
+        }) {
+            return Err("corruptAiSettings".into());
+        }
+        referenced |= items.iter().any(|item| {
+            item.get("credentialId").and_then(serde_json::Value::as_str) == Some(credential_id)
+        });
+    }
+    Ok(referenced)
+}
+
+/// Delete only after rechecking references while settings writes are locked.
+#[tauri::command]
+#[specta::specta]
+pub fn delete_unreferenced_ai_credential(
+    app: tauri::AppHandle,
+    credential_id: String,
+) -> Result<bool, String> {
+    let _guard = crate::app_data::lock_app_data_writes()?;
+    let root = crate::app_data::app_root(&app)?;
+    let sections = crate::ai::connections::credential_sections(&root)?;
+    if credential_referenced(&sections, &credential_id)? {
+        return Ok(false);
+    }
+    delete_credential_entry(&credential_id)?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -217,5 +277,25 @@ mod tests {
         assert!(!info.exists);
         assert!(info.masked.is_none());
         std::mem::forget(cleanup);
+    }
+
+    #[test]
+    fn a_credential_is_referenced_by_the_connections_file_or_the_older_section() {
+        use serde_json::json;
+        let file = json!({"version":1,"connections":[{"id":"c","credentialId":"k1"}],"models":[]});
+        let older = json!({"models":[{"id":"m","provider":"openai","credentialId":"k2"}]});
+        let both = [file.clone(), older.clone()];
+        assert!(credential_referenced(&both, "k1").unwrap());
+        assert!(credential_referenced(&both, "k2").unwrap());
+        assert!(!credential_referenced(&both, "k3").unwrap());
+        assert_eq!(
+            credential_referenced(&[], "k1").unwrap_err(),
+            "corruptAiSettings"
+        );
+        let broken = json!({"models":[{"credentialId":7}]});
+        assert_eq!(
+            credential_referenced(&[file, broken], "k3").unwrap_err(),
+            "corruptAiSettings"
+        );
     }
 }

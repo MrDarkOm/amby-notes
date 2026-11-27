@@ -12,6 +12,8 @@ import {
   pageMoves,
   pageStatusDotClass,
   planMove,
+  assessPageMove,
+  pageLevelChoices,
   resolvePageStatus,
   startLevelId,
   type TextNode,
@@ -384,4 +386,19 @@ describe("pageMoves: the moves a page can make from its menu", () => {
   it("has no moves for a page the tree does not hold", () => {
     expect(moves("nowhere")).toEqual({ up: null, down: null, indent: null, outdent: null })
   })
+})
+
+it("only offers usable levels between the parent and children", () => {
+  const levels = [...LEVELS, { id: "missing", state: "dangling" }]
+  const tree = buildTextTree(rows, PROPS)
+  expect(pageLevelChoices(tree, levels, "b1")).toEqual([])
+  expect(pageLevelChoices(tree, levels, "c2").map((level) => level.id)).toEqual(["page"])
+  expect(pageLevelChoices(tree, levels, "b2").map((level) => level.id)).toEqual(["chapter", "page"])
+})
+
+it("explains level, cycle, and self drop refusals", () => {
+  const tree = buildTextTree(rows, PROPS)
+  expect(assessPageMove(tree, LEVELS, "c2", "p1", "inside")).toEqual({ reason: "parentLevel" })
+  expect(assessPageMove(tree, LEVELS, "b1", "c1", "inside")).toEqual({ reason: "descendant" })
+  expect(assessPageMove(tree, LEVELS, "c2", "c2", "inside")).toEqual({ reason: "samePage" })
 })

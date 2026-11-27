@@ -1,314 +1,314 @@
-# Состояние, журнал и восстановление ИИ-агента
+# State, log, and recovery of the AI agent
 
-Статус: проект durable-формата v1, ещё не реализован. Версия документа: 1.
-Дата: 2026-09-30.
+Status: draft of the durable format v1, not yet implemented. Document version: 1.
+Date: 2026-09-30.
 
-Основания: [контракт harness](./ai-harness.md), план,
-[сохранность данных](./data-safety-contract.md), [vault format](./vault-format.md).
-Этот документ задаёт формат в терминах записей и инвариантов; schemas и их
-исполняемые валидаторы создаются в H-01/H-21. Markdown и вложения остаются
-пользовательскими данными. Новая agent SQLite не становится их источником истины.
+Foundations: the [harness contract](ai-harness.md), the plan,
+[data safety](data-safety-contract.md), [vault format](vault-format.md).
+This document defines the format in terms of records and invariants; the schemas and their
+executable validators are created in H-01/H-21. Markdown and attachments remain
+user data. The new agent SQLite does not become their source of truth.
 
-## 1. Размещение и владение
+## 1. Placement and ownership
 
-Предлагаемое размещение внутри существующего platform app-data каталога:
+Proposed placement inside the existing platform app-data directory:
 
 ```text
 ai/v1/
   registry/                          # workspace bindings; grant/revoke events
-  global/                            # задания только с global settings
-  workspaces/<workspace-id>/         # задания конкретного vault
-    namespace.json                   # identity и поддерживаемый format version
-    events/<sequence>-<event-id>.json # immutable события данного namespace
+  global/                            # jobs with global settings only
+  workspaces/<workspace-id>/         # jobs of a specific vault
+    namespace.json                   # identity and supported format version
+    events/<sequence>-<event-id>.json # immutable events of this namespace
     operations/<operation-id>/
-      intent.json                    # immutable подготовленный план публикации
+      intent.json                    # immutable prepared publication plan
       receipts/<receipt-id>.json     # immutable outcomes/reconciliation
-    blobs/<digest-prefix>/<digest>   # точные bytes snapshots/plans/private payloads
-    checkpoints/<run-id>.json        # восстановимый указатель на checkpoint
+    blobs/<digest-prefix>/<digest>   # exact bytes of snapshots/plans/private payloads
+    checkpoints/<run-id>.json        # recoverable pointer to a checkpoint
     skills/<skill-id>/               # manifests/revisions; active pointer derived
     proposals/<proposal-id>/         # candidate/evaluation references
     memory/                          # versioned scoped records
-    plugin-projects/<project-id>/    # source revisions и build artifacts
-    recovery/                       # незавершённые recovery/migration intents
-    projection.sqlite               # derived; можно перестроить
-    staging/                        # только unpublished temporary objects
+    plugin-projects/<project-id>/    # source revisions and build artifacts
+    recovery/                       # unfinished recovery/migration intents
+    projection.sqlite               # derived; can be rebuilt
+    staging/                        # unpublished temporary objects only
 ```
 
-`global/` использует ту же внутреннюю структуру namespace. Реестр хранит привязку
-opaque workspace ID к canonical root; имена каталогов пользователя не становятся
-именами namespace. Перенос vault и его дублирование различаются: пользователь
-выбирает rebind существующей истории или новую identity. Совпадение пути/имён
-файлов не доказывает identity. Старые grants автоматически не переносятся.
+`global/` uses the same internal namespace structure. The registry stores the binding
+of an opaque workspace ID to a canonical root; the user's directory names do not become
+namespace names. Moving a vault and duplicating it are different things: the user
+chooses between rebinding the existing history and a new identity. A match of path/file
+names does not prove identity. Old grants are not carried over automatically.
 
-Состояние агента не индексируется как заметки и не доступно через raw file tools.
-Agent history API выдаёт отфильтрованные записи, а не путь к журналу. Runtime
-не даёт модели/плагину filesystem доступ к каталогу `ai/`.
+Agent state is not indexed as notes and is not available through raw file tools.
+The agent history API returns filtered records, not a path to the log. The runtime
+does not give the model/plugin filesystem access to the `ai/` directory.
 
-Навыки, память, отчёты и plugin source — durable состояние пользователя; их
-нельзя удалить вместе с перестроением projection. Checkpoint и active pointers
-можно пересоздать из committed events/immutable manifests. Пока восстановление
-не завершено, соответствующий объект недоступен для новых mutations.
+Skills, memory, reports, and plugin source are the user's durable state; they
+cannot be deleted along with a projection rebuild. Checkpoints and active pointers
+can be recreated from committed events/immutable manifests. Until recovery
+is complete, the corresponding object is unavailable for new mutations.
 
-### 1.1 Один авторитетный журнал операции
+### 1.1 One authoritative log per operation
 
-Run с заметками и global setting хранится в workspace namespace. Его журнал
-содержит все receipts, в том числе global setting effect. Global history index
-содержит только ссылки/разрешённую проекцию этого эффекта. Два независимых
-авторитетных receipt для одной операции не создаются.
+A run with notes and a global setting is stored in the workspace namespace. Its log
+contains all receipts, including the global setting effect. The global history index
+contains only references/an allowed projection of that effect. Two independent
+authoritative receipts for one operation are not created.
 
-Для просмотра global setting effect не выдаются приватные соседние действия
-run. Сведение разных namespaces в один UI timeline — derived query; общего
-надёжного порядка по wall clock нет. Dependencies связываются явными IDs.
-Удаление workspace из списка recent не удаляет журнал и не отменяет его права.
+Viewing the global setting effect does not expose the run's private neighboring
+actions. Merging different namespaces into one UI timeline is a derived query; there is no
+common reliable ordering by wall clock. Dependencies are linked by explicit IDs.
+Removing a workspace from the recent list does not delete its log and does not revoke its rights.
 
-## 2. Общие правила формата
+## 2. General format rules
 
-- Записи — UTF-8 JSON с `format`, `formatVersion`, ID и namespace. Неизвестная
-  версия блокирует запись и recovery данного объекта; исходные bytes сохраняются.
-- IDs генерирует host. Путь, ID и digest проверяются до построения filesystem
-  path; в записи не допускаются исполняемые expressions или arbitrary backup paths.
-- Immutable файл создаётся только no-replace. Повтор с теми же bytes допустим,
-  несовпадение — повреждение/коллизия, а не разрешение перезаписать.
-- Content digest относится к точным bytes. Before/after snapshots сохраняют BOM,
-  CRLF/LF, binary assets и неизвестные поля. Они не проходят JSON/Markdown
-  pretty-print ради хранения.
-- Алгоритм digest и canonical request representation указан версией. Предлагаемый
-  digest для v1 — SHA-256; это контроль целостности, а не подпись доверенного автора.
-- Timestamps нужны для UI. `sequence` задаёт порядок событий в namespace; числа
-  последовательности в JSON хранятся десятичными строками без потери точности JS.
-- Любые журналы считаются недоверенным входом при чтении, даже из app data.
-  Проверяются размер, глубина, schema, ссылки, namespace и все целевые paths.
+- Records are UTF-8 JSON with `format`, `formatVersion`, ID, and namespace. An unknown
+  version blocks writing and recovery of that object; the original bytes are preserved.
+- IDs are generated by the host. The path, ID, and digest are validated before building the filesystem
+  path; records may not contain executable expressions or arbitrary backup paths.
+- An immutable file is created only no-replace. A retry with the same bytes is allowed,
+  a mismatch is corruption/a collision, not permission to overwrite.
+- The content digest refers to the exact bytes. Before/after snapshots preserve BOM,
+  CRLF/LF, binary assets, and unknown fields. They do not go through JSON/Markdown
+  pretty-printing for the sake of storage.
+- The digest algorithm and canonical request representation are specified by version. The proposed
+  digest for v1 is SHA-256; it is an integrity check, not a signature of a trusted author.
+- Timestamps are for the UI. `sequence` defines the order of events in a namespace; sequence
+  numbers are stored in JSON as decimal strings without losing JS precision.
+- All logs are treated as untrusted input on read, even from app data.
+  Size, depth, schema, references, namespace, and all target paths are checked.
 
-### 2.1 Защита и ограничения
+### 2.1 Protection and limits
 
-Локальное хранение не означает шифрование. В v1 snapshots и source blobs содержат
-пользовательские bytes и защищаются разрешениями app data и scoped API. Не
-обещать защиту от администратора/процесса с правами пользователя. Credentials
-остаются в штатном credential storage и не включаются в экспорт журнала.
+Local storage does not mean encryption. In v1, snapshots and source blobs contain
+user bytes and are protected by app-data permissions and the scoped API. Do not
+promise protection against an administrator/a process with the user's rights. Credentials
+remain in the standard credential storage and are not included in a log export.
 
-Dedup blobs выполняется внутри namespace, не между независимыми vault.
-Счётчик ссылок/наличие одинакового digest не выдаются агенту. Права определяет
-каждая ссылка и provenance, а не владение hash. Произвольный hash не является
-capability на чтение blob.
+Blob dedup is performed inside a namespace, not between independent vaults.
+A reference counter/the presence of an identical digest is not exposed to the agent. Rights are determined by
+each reference and its provenance, not by owning the hash. An arbitrary hash is not a
+capability to read a blob.
 
 ## 3. Event envelope
 
-| Поле                                          | Семантика                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------- |
-| `eventId`, `sequence`, `previousEventDigest`  | Identity и порядок; genesis имеет явное отсутствие predecessor    |
-| `eventType`, `schemaVersion`                  | Тип события и его схема                                           |
-| `timestamp`, `processSessionId`               | Время наблюдения и host session                                   |
-| `runId`, `stepId`, `operationId`, `attemptId` | Nullable references согласно типу события                         |
-| `actorRef`, `grantRef`, `bindingRevision`     | Host-issued provenance, не модельные строки                       |
-| `publicSummaryCode`                           | Безопасный код для локализованного UI; без текста заметки/секрета |
-| `payloadRef`, `resourceRefs`                  | References защищённых данных с scope provenance                   |
-| `recordDigest`                                | Digest канонической записи без самого поля digest                 |
+| Field                                         | Semantics                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| `eventId`, `sequence`, `previousEventDigest`  | Identity and order; genesis has an explicit absence of a predecessor |
+| `eventType`, `schemaVersion`                  | Event type and its schema                                            |
+| `timestamp`, `processSessionId`               | Observation time and host session                                    |
+| `runId`, `stepId`, `operationId`, `attemptId` | Nullable references according to the event type                      |
+| `actorRef`, `grantRef`, `bindingRevision`     | Host-issued provenance, not model strings                            |
+| `publicSummaryCode`                           | A safe code for the localized UI; no note text/secret                |
+| `payloadRef`, `resourceRefs`                  | References to protected data with scope provenance                   |
+| `recordDigest`                                | Digest of the canonical record without the digest field itself       |
 
-Содержательные titles, paths, arguments, text diffs и model outputs хранятся в
-защищённом payload, а не в безусловно выдаваемой шапке. Даже metadata envelope
-фильтруется перед показом агенту. Ошибка разрешения не раскрывает существование
-объектов другого раздела.
+Substantive titles, paths, arguments, text diffs, and model outputs are stored in a
+protected payload, not in an unconditionally exposed header. Even the envelope metadata
+is filtered before being shown to the agent. A resolution error does not reveal the existence of
+objects in another section.
 
-Типы событий включают: submission/run lifecycle, plan revision, grant decision,
+Event types include: submission/run lifecycle, plan revision, grant decision,
 context disclosure, provider request/result, tool attempt/denial, operation
 prepared/receipt/verification, user approval, stop, recovery, undo, skill/memory
 revision, proposal/evaluation/activation, plugin build/lifecycle, retention.
-Каждое состояние run выводится из событий; «running» в SQLite не authority.
+Every run state is derived from events; "running" in SQLite is not an authority.
 
-Host пишет событие запроса до передачи контекста провайдеру или выдачи данных
-модели. Для read записывает также revisions/resources и outcome до раскрытия
-результата. Если журнал недоступен, новые раскрытия и mutations приостанавливаются.
-При отказе самого носителя последняя попытка может остаться только в памяти;
-UI сообщает о неполном аудите. Абсолютная запись события при разрушенном диске
-не обещается, незафиксированные side effects автоматически не повторяются.
+The host writes the request event before passing context to the provider or giving data to the
+model. For a read it also records the revisions/resources and the outcome before disclosing the
+result. If the log is unavailable, new disclosures and mutations are suspended.
+If the medium itself fails, the last attempt may remain only in memory;
+the UI reports an incomplete audit. Absolute recording of an event on a destroyed
+disk is not promised; unrecorded side effects are not retried automatically.
 
-Raw prompts/responses отключены по умолчанию. Журнал содержит metadata, usage,
-references и безопасное резюме, достаточное для анализа действий. Hidden
-chain-of-thought не сохраняется. Секреты редактируются до записи диагностик.
+Raw prompts/responses are disabled by default. The log contains metadata, usage,
+references, and a safe summary sufficient for analyzing actions. Hidden
+chain-of-thought is not stored. Secrets are redacted before diagnostics are written.
 
-## 4. Intent и recovery manifest
+## 4. Intent and recovery manifest
 
-`intent.json` существует и durable до первого domain effect. Его наличие само
-по себе не означает, что изменение применено. Минимальные поля:
+`intent.json` exists and is durable before the first domain effect. Its presence
+by itself does not mean the change has been applied. Minimum fields:
 
-| Группа           | Содержание                                                              |
-| ---------------- | ----------------------------------------------------------------------- |
-| Identity         | Operation/run/step, namespace, action/schema/catalog version            |
-| Authorization    | Grant revision, binding revision/generation, approval reference         |
-| Inputs           | Request digest, аргументы/payload refs, pinned skill/artifact revisions |
-| Read set         | Логические ресурсы и source revisions для preconditions                 |
-| Write/effect set | Все физические targets и логические изменяемые поля                     |
-| Before           | Presence, exact revision, snapshot/blob references, object identity     |
-| Intended after   | Expected bytes/digest или ограниченный domain reconciliation predicate  |
-| Undo             | Версионированный inverse plan, dependencies, protected blobs            |
-| Domain recovery  | Ссылка на существующий domain journal с тем же operation identity       |
-| Limits           | Число/размер targets, разрешённые этапы публикации, expiry              |
+| Group            | Content                                                                  |
+| ---------------- | ------------------------------------------------------------------------ |
+| Identity         | Operation/run/step, namespace, action/schema/catalog version             |
+| Authorization    | Grant revision, binding revision/generation, approval reference          |
+| Inputs           | Request digest, arguments/payload refs, pinned skill/artifact revisions  |
+| Read set         | Logical resources and source revisions for preconditions                 |
+| Write/effect set | All physical targets and logical mutable fields                          |
+| Before           | Presence, exact revision, snapshot/blob references, object identity      |
+| Intended after   | Expected bytes/digest or a bounded domain reconciliation predicate       |
+| Undo             | Versioned inverse plan, dependencies, protected blobs                    |
+| Domain recovery  | Reference to an existing domain journal with the same operation identity |
+| Limits           | Number/size of targets, allowed publication stages, expiry               |
 
-Для create ожидается `absent`, заранее резервируются object IDs и destinations.
-Для rename/move записываются обе стороны, bundle children, переписываемые ссылки
-и metadata. Системный путь trash нельзя придумать до OS операции; такой эффект
-имеет отдельный ограниченный контракт и не включается в обычный automatic undo.
+For create, `absent` is expected, and object IDs and destinations are reserved in advance.
+For rename/move, both sides, bundle children, rewritten references,
+and metadata are recorded. The system trash path cannot be invented before the OS operation; such an effect
+has a separate bounded contract and is not included in ordinary automatic undo.
 
-Перед recovery валидируется manifest целиком до первой записи, включая каждый
-target и backup reference. Загрузка журнала не предоставляет право выйти за
-vault, изменить другой namespace или проигнорировать отозванную grant.
+Before recovery, the manifest is validated in full before the first write, including every
+target and backup reference. Loading a log does not grant the right to leave the
+vault, change another namespace, or ignore a revoked grant.
 
 ### 4.1 Domain journals
 
-Harness не заменяет действующие recovery contracts баз, history, modules и
-миграций. Domain operation должна принять/сопоставить operation ID и вернуть
-свой durable outcome. Recovery сначала согласует domain intent и фактические
-bytes, затем пишет harness receipt. Один и тот же backup может использоваться
-по проверенной ссылке с pin; очистка domain history учитывает этот pin.
+The harness does not replace the existing recovery contracts of databases, history, modules, and
+migrations. A domain operation must accept/match an operation ID and return its own
+durable outcome. Recovery first reconciles the domain intent with the actual
+bytes, then writes the harness receipt. The same backup can be used
+through a verified reference with a pin; cleanup of domain history accounts for this pin.
 
-Пока domain journal не поддерживает требуемое распознавание результата,
-обёртка «записать до/после» не считается достаточной. Соответствующее действие
-остаётся `missingImplementation` для агента.
+Until the domain journal supports the required outcome recognition,
+a "write before/after" wrapper is not considered sufficient. The corresponding action
+remains `missingImplementation` for the agent.
 
-## 5. Протокол публикации журнала
+## 5. Log publication protocol
 
-1. Зарезервировать operation ID и записать принятый tool attempt.
-2. Записать необходимые blobs через staging; sync, проверить digest, no-replace
-   publish. Синхронизировать directory entry по возможностям платформы.
-3. Атомарно опубликовать immutable intent; затем событие `operationPrepared`.
-4. Выполнить domain action, проверяя preconditions у границы публикации.
-5. Сохранить immutable receipt; затем событие, ссылающееся на receipt.
-6. Обновить derived projection/checkpoint и отправить событие UI.
+1. Reserve the operation ID and record the accepted tool attempt.
+2. Write the required blobs through staging; sync, verify the digest, no-replace
+   publish. Sync the directory entry as far as the platform allows.
+3. Atomically publish the immutable intent; then the `operationPrepared` event.
+4. Perform the domain action, checking preconditions at the publication boundary.
+5. Save the immutable receipt; then the event referencing the receipt.
+6. Update the derived projection/checkpoint and send the UI event.
 
-Если сбой возник между immutable объектом и событием, startup scanner находит
-orphan intent/receipt и сверяет его. Отсутствие event reference не доказывает
-отсутствие эффекта. Объект без подтверждённой связи помещается в recovery, а не
-удаляется как мусор. Операция с durable intent не запускается повторно только
-потому, что checkpoint отстаёт.
+If a failure occurs between the immutable object and the event, the startup scanner finds the
+orphan intent/receipt and reconciles it. The absence of an event reference does not prove the
+absence of an effect. An object without a confirmed link is placed into recovery, not
+deleted as garbage. An operation with a durable intent is not restarted
+merely because the checkpoint lags behind.
 
-Events публикуются одним writer на namespace в serial append section. Номер
-следующего события определяется по проверенной цепочке. Hole, duplicate sequence
-или mismatch predecessor останавливает дальнейший append; исходные файлы
-сохраняются для диагностики. Частично записанный temp не считается event.
+Events are published by a single writer per namespace in a serial append section. The number of the
+next event is determined from the verified chain. A hole, a duplicate sequence,
+or a predecessor mismatch stops further appends; the original files
+are preserved for diagnostics. A partially written temp is not considered an event.
 
-Файловый rename даёт атомарность видимости одного файла; долговечность при потере
-питания зависит от sync и платформы. H-21 проверяет crash boundaries на целевых
-платформах. В спецификации нет обещания общей транзакции между vault и app data.
+A file rename gives atomicity of visibility of a single file; durability on power
+loss depends on sync and the platform. H-21 checks crash boundaries on the target
+platforms. The specification makes no promise of a common transaction between the vault and app data.
 
-## 6. Матрица прерываний
+## 6. Interruption matrix
 
-| Момент сбоя                                         | Что проверяет recovery                                                   | Допустимый результат                                                         |
-| --------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| До durable intent                                   | Нет публикаций по контракту; temp blobs не являются разрешением          | `failedBeforePublish`, staging cleanup после проверки references             |
-| Intent есть, before bytes на всех targets           | Domain journal и права; не считать операцию начатой заново автоматически | `notApplied`; продолжение только после revalidation                          |
-| Один target совпадает с intended after              | Source identity, остальные targets, domain progress                      | Partial/recoverable либо completed для однофайловой операции                 |
-| Все targets совпадают с intended after, receipt нет | Preconditions/effect closure и domain journal                            | Receipt `succeeded` с recovery provenance и original operation identity      |
-| Receipt есть, event/UI ответа нет                   | Целостность receipt; расхождение bytes может быть последующей правкой    | Доставить исторический receipt; не повторять effect                          |
-| Receipt success, index update упал                  | Durable sources и состояние projection                                   | Retry только derived indexing                                                |
-| Часть targets изменилась пользователем              | Before/after/actual по каждому ресурсу                                   | `needsRecovery`; конфликт без перезаписи пользователя                        |
-| Source rename отсутствует, target отличается        | Domain identity и записи публикации                                      | `outcomeUnknown`; отсутствие source не доказывает успех                      |
-| Grant отозвана или vault перепривязан               | Registry revision и новый scope                                          | Только host reconciliation; новые data writes требуют актуального разрешения |
-| Повреждены intent/blob/цепочка                      | Schema/digest и доступный recovery point                                 | Read-only для затронутой цепочки; не выдумывать успешный outcome             |
-| Неизвестный format version                          | Supported versions                                                       | Сохранить bytes, предложить совместимую версию приложения                    |
+| Moment of failure                                | What recovery checks                                                             | Allowed outcome                                                                  |
+| ------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Before durable intent                            | No publications per the contract; temp blobs are not a permission                | `failedBeforePublish`, staging cleanup after checking references                 |
+| Intent exists, before bytes on all targets       | Domain journal and rights; do not consider the operation restarted automatically | `notApplied`; continue only after revalidation                                   |
+| One target matches the intended after            | Source identity, other targets, domain progress                                  | Partial/recoverable, or completed for a single-file operation                    |
+| All targets match the intended after, no receipt | Preconditions/effect closure and domain journal                                  | Receipt `succeeded` with recovery provenance and the original operation identity |
+| Receipt exists, no event/UI response             | Receipt integrity; a bytes mismatch may be a later edit                          | Deliver the historical receipt; do not repeat the effect                         |
+| Receipt success, index update failed             | Durable sources and projection state                                             | Retry only derived indexing                                                      |
+| Some targets changed by the user                 | Before/after/actual per resource                                                 | `needsRecovery`; a conflict without overwriting the user                         |
+| Source rename absent, target differs             | Domain identity and publication records                                          | `outcomeUnknown`; the absence of the source does not prove success               |
+| Grant revoked or vault rebound                   | Registry revision and new scope                                                  | Host reconciliation only; new data writes require a current permission           |
+| Intent/blob/chain corrupted                      | Schema/digest and an available recovery point                                    | Read-only for the affected chain; do not invent a successful outcome             |
+| Unknown format version                           | Supported versions                                                               | Preserve the bytes, suggest a compatible app version                             |
 
-Совпадение digest после операции не доказывает, кто записал эти bytes. Recovery
-использует identity/operation markers и domain journal, где они предусмотрены.
-При недостаточной доказательности результат остаётся unknown. Поддельные или
-неоднозначные журналы не «лечатся» успешным пересохранением.
+A digest match after an operation does not prove who wrote those bytes. Recovery
+uses identity/operation markers and the domain journal where they are provided.
+With insufficient evidence the outcome remains unknown. Forged or
+ambiguous logs are not "healed" by a successful re-save.
 
-## 7. Receipt, verification и undo manifest
+## 7. Receipt, verification, and undo manifest
 
-Receipt — immutable наблюдение. Поздняя проверка/компенсация добавляет следующую
-запись со ссылкой на предыдущую; она не переписывает исторический outcome.
-Projection вычисляет последнее согласованное состояние operation.
+A receipt is an immutable observation. A later verification/compensation adds the next
+record with a reference to the previous one; it does not rewrite the historical outcome.
+The projection computes the latest reconciled state of the operation.
 
-Verification report различает deterministic invariants, domain query,
-visual inspection и model judgement. Модельная оценка рисунка не доказывает
-сохранность JSON. Report содержит проверяемые resource revisions, checker version
-и результаты. Проверки после последующей правки не переопределяют ранний успех.
+A verification report distinguishes deterministic invariants, domain query,
+visual inspection, and model judgement. A model's assessment of a drawing does not prove
+the integrity of the JSON. The report contains the verifiable resource revisions, checker version,
+and results. Checks made after a later edit do not override an earlier success.
 
-Undo manifest содержит inverse kind/version, before refs, ожидаемые after
-revisions, dependency closure и правило conflict handling. Для shared JSON
-sidecar/settings сохраняется field inverse с presence/value и schema version;
-полный snapshot нужен для recovery, но не разрешает затирать соседние изменения.
+An undo manifest contains the inverse kind/version, before refs, expected after
+revisions, dependency closure, and a conflict handling rule. For shared JSON
+sidecar/settings, a field inverse with presence/value and schema version is stored;
+a full snapshot is needed for recovery, but does not permit overwriting neighboring changes.
 
-Undo run записывает отдельные operation IDs с `revertsOperationId`. Частично
-применённый rollback имеет собственные receipts/recovery intents. Прерывание
-rollback проверяется так же, как обычная публикация. «Откат начат» не равно
-«исходное состояние восстановлено».
+An undo run records separate operation IDs with `revertsOperationId`. A partially
+applied rollback has its own receipts/recovery intents. An interrupted
+rollback is checked in the same way as an ordinary publication. "Rollback started" does not equal
+"original state restored".
 
-## 8. Retention, квоты и удаление данных
+## 8. Retention, quotas, and data deletion
 
-### 8.1 Защищённые ссылки
+### 8.1 Protected references
 
-Не удаляются blobs/intents, нужные незавершённым operations, конфликтам, активному
-recovery, обещанному undo, pinned skills, текущим plugin builds и migrations.
-References учитываются между namespaces через host registry; агент не может
-снять защиту собственного аудита. GC использует durable mark/sweep plan и
-проверяет отсутствие новых references непосредственно перед удалением.
+The following are not deleted: blobs/intents needed by unfinished operations, conflicts, active
+recovery, promised undo, pinned skills, current plugin builds, and migrations.
+References are tracked across namespaces through the host registry; the agent cannot
+remove the protection of its own audit. GC uses a durable mark/sweep plan and
+checks that there are no new references immediately before deletion.
 
-Недостаток места для snapshot/intent останавливает mutation до публикации.
-При исчерпании места после публикации сохраняется recovery ambiguity; UI не
-выдаёт `failedBeforePublish`. Квота не является разрешением удалить пользовательский
-vault или нужный rollback blob. Размер journals/blobs виден в storage UI.
+Insufficient space for a snapshot/intent stops the mutation before publication.
+If space runs out after publication, recovery ambiguity remains; the UI does not
+report `failedBeforePublish`. A quota is not a permission to delete the user's
+vault or a needed rollback blob. The size of journals/blobs is visible in the storage UI.
 
-### 8.2 Три разных пользовательских операции
+### 8.2 Three different user operations
 
-| Операция                           | Последствие                                                                                               |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Убрать задание из списка           | Только UI archival; история и undo сохраняются                                                            |
-| Очистить историю/точки отката      | Preview affected runs/skills; после подтверждения undo становится unavailable                             |
-| Забыть данные выбранного источника | Удалить его retained payloads, memory, embeddings, summaries и производные приватные данные по provenance |
+| Operation                          | Consequence                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Remove a job from the list         | UI archival only; history and undo are preserved                                                    |
+| Clear history/rollback points      | Preview of affected runs/skills; after confirmation, undo becomes unavailable                       |
+| Forget the data of a chosen source | Delete its retained payloads, memory, embeddings, summaries, and derived private data by provenance |
 
-Forget не реализуется только удалением строки SQLite. План очистки вычисляет
-зависимые objects: proposal, skill revision, checkpoint, rendered preview, plugin
-source/build output могут содержать исходный текст. Зависимые активные версии
-блокируются либо пересоздаются после очистки; ссылку на удалённый источник
-нельзя сохранить как способ повторно загрузить содержимое.
+Forget is not implemented by merely deleting a SQLite row. The cleanup plan computes
+dependent objects: a proposal, skill revision, checkpoint, rendered preview, plugin
+source/build output may contain the source text. Dependent active versions
+are blocked or rebuilt after cleanup; a reference to a deleted source
+cannot be kept as a way to load the content again.
 
-Обычный append-only журнал допускает только добавление событий. Исключение —
-явная пользовательская privacy/retention операция по отдельному контракту:
-она удаляет защищённые payloads и оставляет минимальный tombstone без текста,
-путей и названий удалённых данных. Если чувствительные данные попали в envelope,
-нужна versioned redaction/пересборка цепочки с новым genesis и явным разрывом
-истории, а не скрытое изменение hash chain. Агенту это действие недоступно.
+An ordinary append-only log permits only appending events. The exception is an
+explicit user privacy/retention operation under a separate contract:
+it deletes protected payloads and leaves a minimal tombstone without the text,
+paths, and names of the deleted data. If sensitive data got into the envelope,
+a versioned redaction/rebuild of the chain with a new genesis and an explicit break
+in history is needed, not a hidden change to the hash chain. This action is unavailable to the agent.
 
-Очистка работающего задания сначала останавливает его и разрешает in-flight
-operations; нельзя удалять единственный recovery point незавершённой публикации.
-Preview сообщает о потере undo и невозможности восстановления старой памяти.
-Приложение не обещает стирание уже отправленных данных у провайдера, внешних
-backups или физическое уничтожение секторов SSD.
+Clearing a running job first stops it and resolves in-flight
+operations; the only recovery point of an unfinished publication must not be deleted.
+The preview reports the loss of undo and the impossibility of restoring old memory.
+The application does not promise erasure of data already sent to the provider, external
+backups, or physical destruction of SSD sectors.
 
-## 9. Export и перенос
+## 9. Export and transfer
 
-Экспорт истории — отдельная пользовательская операция с выбором scope и
-содержимого. По умолчанию экспортируется безопасный timeline без note snapshots,
-raw prompts и credentials. Полный backup явно включает private blobs, versions
-навыков/плагинов и сведения о чувствительности.
+History export is a separate user operation with a choice of scope and
+content. By default, a safe timeline is exported without note snapshots,
+raw prompts, and credentials. A full backup explicitly includes private blobs, skill/plugin
+versions, and sensitivity information.
 
-Импорт валидирует формат, ссылки, размер, digest и paths. Он не импортирует
-действующие grants, approvals, credential references или разрешение продолжить
-run. История открывается read-only до привязки к workspace; операции никогда
-не воспроизводятся ради импорта. Новая machine binding требует revalidation.
+Import validates the format, references, size, digest, and paths. It does not import
+active grants, approvals, credential references, or permission to continue a
+run. History opens read-only until bound to a workspace; operations are never
+replayed for the sake of an import. A new machine binding requires revalidation.
 
-## 10. Миграции и совместимость
+## 10. Migrations and compatibility
 
-Миграция имеет ID/version, read-only preflight, backup manifest, outcome и
-rollback description. Она переводит namespace целиком в maintenance mode,
-не запускает model calls и не меняет note IDs. Multi-namespace references
-проверяются до publication. Durable progress позволяет повторить запуск без
-повторного преобразования уже опубликованных records.
+A migration has an ID/version, a read-only preflight, a backup manifest, an outcome, and a
+rollback description. It puts the whole namespace into maintenance mode,
+makes no model calls, and does not change note IDs. Multi-namespace references
+are checked before publication. Durable progress allows restarting without
+re-converting already published records.
 
-Новая версия пишет отдельные файлы/namespace и переключает проверенный binding
-после завершения. Старые recovery readers сохраняются на заявленный срок
-поддержки. Downgrade не пытается исполнить неизвестные inverse/schema версии.
-Rollback миграции допустим только при отсутствии несовместимых последующих
-записей либо по отдельному проверенному плану.
+The new version writes separate files/a separate namespace and switches the verified binding
+after completion. Old recovery readers are kept for the declared support
+period. A downgrade does not attempt to execute unknown inverse/schema versions.
+Migration rollback is allowed only if there are no incompatible later
+records, or under a separate verified plan.
 
-## 11. Обязательные доказательства реализации
+## 11. Required implementation evidence
 
-H-21/H-22/H-23 должны показать failure injection для каждой строки матрицы
-прерываний, повтор startup/recovery/undo, отсутствие lost update в mixed
-workspace/global run, отказ на повреждённых путях журнала и неизменность sources
-при ошибке snapshot. Проверять настоящий filesystem и domain calls.
+H-21/H-22/H-23 must demonstrate failure injection for every row of the interruption
+matrix, repeated startup/recovery/undo, the absence of lost updates in a mixed
+workspace/global run, refusal on corrupted log paths, and the immutability of sources
+on a snapshot error. Real filesystem and domain calls must be tested.
 
-H-24/H-32 подтверждают scope для исторических payloads, queued UI events,
-summaries и provider requests после revoke. H-50/H-63/H-74 добавляют provenance
-и retention для skills, learning и plugins. Сценарии привязаны к Q01–Q70 в
-матрице приёмки; новый формат сам по себе
-не означает PASS ни одного сценария.
+H-24/H-32 confirm scope for historical payloads, queued UI events,
+summaries, and provider requests after revoke. H-50/H-63/H-74 add provenance
+and retention for skills, learning, and plugins. The scenarios are tied to Q01–Q70 in the
+acceptance matrix; the new format by itself
+does not mean PASS for any scenario.

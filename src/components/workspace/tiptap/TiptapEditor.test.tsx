@@ -1,12 +1,19 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { Editor } from "@tiptap/core"
 import { afterEach, expect, it, vi } from "vitest"
+import { NotePagesSlotContext } from "../editor/note-pages-context"
+import { useConfirmStore } from "@/lib/confirm"
 import {
   clearSourceRewriteSnapshots,
   pendingSourceRewriteSnapshot,
 } from "../autosave/source-rewrite"
 import { TiptapEditor } from "./TiptapEditor"
+import { markEditorUserIntent } from "./editor-user-intent"
+import { flushEditorSerializations } from "./editor-serialization-lifecycle"
+import type { EditorHandle } from "./constants"
+import { REVEAL_ANCHOR_EVENT } from "../anchor-navigation"
+import { OPEN_FIND_EVENT } from "./find-in-note"
 
 vi.mock("./BlockHandles", () => ({ BlockHandles: () => null }))
 vi.mock("./BubbleToolbar", () => ({ BubbleToolbar: () => null }))
@@ -141,4 +148,459 @@ it("does not ask for a snapshot when the note is already in the editor's own for
   const { onChange } = await typeInto("---\n\n1. one\n2. two\n\ntail", "note-1", "!", 7)
   expect(onChange).toHaveBeenLastCalledWith("---\n\n1. one!\n2. two\n\ntail")
   expect(pendingSourceRewriteSnapshot("note-1")).toBeNull()
+})
+
+// EDIT-02: block controls (the grip menu: delete, duplicate, turn into, colours) are clicked with the
+// mouse outside the editor's DOM, so no key or ProseMirror pointer event marks the change as the
+// person's. Their change must still be saved; a change nobody asked for must still not be written.
+it("saves a change made through block controls with the mouse only", async () => {
+  vi.useFakeTimers()
+  const onChange = vi.fn()
+  const { container } = render(<TiptapEditor value={"First\n\nSecond"} onChange={onChange} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editor = (container.querySelector(".ProseMirror") as HTMLElement & { editor: Editor })
+    .editor
+  const firstBlockEnd = editor.state.doc.firstChild!.nodeSize
+
+  // A change without the person: no write.
+  act(() => {
+    editor.view.dispatch(editor.state.tr.insertText("!", 1))
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).not.toHaveBeenCalled()
+
+  // The person deletes the first block from the block menu.
+  act(() => {
+    markEditorUserIntent(editor)
+    editor.view.dispatch(editor.state.tr.delete(0, firstBlockEnd + 1))
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledWith("Second")
+})
+
+// Serialization lifecycle (EDIT-05): the path "edit -> deferred serialization -> onChange -> flush
+// on blur, unmount, window lifecycle or an explicit handle call" is pinned here, so it can move
+// out of the component without changing.
+async function mountEdited(
+  onChange = vi.fn(),
+  extra: Partial<React.ComponentProps<typeof TiptapEditor>> = {},
+) {
+  vi.useFakeTimers()
+  const utils = render(<TiptapEditor value="Original text" onChange={onChange} {...extra} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editable = utils.container.querySelector<HTMLElement>(".ProseMirror")!
+  const editor = (editable as HTMLElement & { editor: Editor }).editor
+  const edit = (text = "x") =>
+    act(() => {
+      editor.view.focus()
+      editor.commands.setTextSelection(5)
+      fireEvent.keyDown(editable, { key: "x" })
+      editor.commands.insertContent(text)
+    })
+  return { ...utils, editable, editor, edit, onChange }
+}
+
+it("publishes an edit only after the debounce, and reports the dirty state at once", async () => {
+  const onContentDirty = vi.fn()
+  const { edit, onChange } = await mountEdited(vi.fn(), { onContentDirty })
+  edit()
+  expect(onContentDirty).toHaveBeenCalled()
+  expect(onChange).not.toHaveBeenCalled()
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+})
+
+it("flushes a pending edit when the editor loses focus", async () => {
+  const { edit, editor, onChange } = await mountEdited()
+  edit()
+  expect(onChange).not.toHaveBeenCalled()
+  act(() => {
+    editor.emit("blur", { editor, event: new FocusEvent("blur"), transaction: editor.state.tr })
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).toHaveBeenCalledTimes(1)
+})
+
+it("flushes a pending edit when the editor unmounts", async () => {
+  const { edit, unmount, onChange } = await mountEdited()
+  edit()
+  expect(onChange).not.toHaveBeenCalled()
+  unmount()
+  expect(onChange).toHaveBeenCalledWith("Origxinal text")
+})
+
+it("flushes through the lifecycle registry before autosave and through the editor handle", async () => {
+  const handle = { current: undefined as unknown as EditorHandle }
+  const { edit, onChange } = await mountEdited(vi.fn(), { editorRef: handle })
+  edit()
+  flushEditorSerializations()
+  expect(onChange).toHaveBeenCalledTimes(1)
+  edit("y")
+  handle.current!.flush()
+  expect(onChange).toHaveBeenCalledTimes(2)
+  // Nothing pending: another flush writes nothing.
+  flushEditorSerializations()
+  expect(onChange).toHaveBeenCalledTimes(2)
+})
+
+it("never writes for an untouched editor, and reports it clean when an edit round-trips", async () => {
+  const onContentClean = vi.fn()
+  const { editor, edit, onChange } = await mountEdited(vi.fn(), { onContentClean })
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
+  edit("x")
+  act(() => {
+    editor.commands.undo()
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(onChange).not.toHaveBeenCalled()
+  expect(onContentClean).toHaveBeenCalled()
+})
+
+it("drops a pending edit when an external value replaces the text", async () => {
+  const { edit, rerender, onChange, editor } = await mountEdited()
+  edit()
+  rerender(<TiptapEditor value="Loaded from disk" onChange={onChange} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(editor.getText()).toBe("Loaded from disk")
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
+})
+
+it("stops flushing through the registry after unmount", async () => {
+  const { unmount, onChange } = await mountEdited()
+  unmount()
+  flushEditorSerializations()
+  expect(onChange).not.toHaveBeenCalled()
+})
+
+it("switches H1 pages without saving, preserves other source bytes, and remembers the view", async () => {
+  vi.useFakeTimers()
+  const value = "# Details\n\n* * *\n\n# Media\n\nDraft"
+  const onChange = vi.fn()
+  const props = {
+    value,
+    onChange,
+    notePages: { mode: "flagged", flag: true } as const,
+    noteId: "pages-test",
+    vaultPath: "/pages-test",
+  }
+  const { container, unmount } = render(<TiptapEditor {...props} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  const editor = (editable as HTMLElement & { editor: Editor }).editor
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Media" }), { button: 0 })
+  expect(screen.getByRole("tab", { name: "Media" }).getAttribute("aria-selected")).toBe("true")
+  expect(container.querySelector(".ProseMirror")).toBe(editable)
+  expect(onChange).not.toHaveBeenCalled()
+  expect(editable.querySelector("[data-note-page-hidden]")?.textContent).toBe("Details")
+
+  act(() => {
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1)
+    fireEvent.keyDown(editable, { key: "!" })
+    editor.commands.insertContent("!")
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  expect(onChange).toHaveBeenLastCalledWith(value + "!")
+  unmount()
+
+  const second = render(<TiptapEditor {...props} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  expect(screen.getByRole("tab", { name: "Details" })).toBeTruthy()
+  expect(screen.getByRole("tab", { name: "Media" }).getAttribute("aria-selected")).toBe("true")
+  fireEvent.click(screen.getByRole("button", { name: "Вся заметка" }))
+  expect(screen.queryByRole("tab", { name: "Details" })).toBeNull()
+  second.unmount()
+
+  render(<TiptapEditor {...props} />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  expect(screen.queryByRole("tab", { name: "Details" })).toBeNull()
+  expect(screen.getByRole("button", { name: "Показать страницы" })).toBeTruthy()
+  localStorage.removeItem('amby:note-pages:v1:["/pages-test","pages-test"]')
+  localStorage.removeItem('amby:note-pages:v1:["/pages-test","pages-test"]:active')
+})
+
+it("opens a heading's page and keeps paging while stepping through Find matches", async () => {
+  vi.useFakeTimers()
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne match\n\n# Second\n\nAnother match"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  act(() => {
+    editable
+      .querySelectorAll("h1")[1]
+      .dispatchEvent(new CustomEvent(REVEAL_ANCHOR_EVENT, { bubbles: true }))
+    editable.dispatchEvent(new CustomEvent(OPEN_FIND_EVENT))
+  })
+  expect(screen.getByRole("tab", { name: "Second" }).getAttribute("aria-selected")).toBe("true")
+  const field = screen.getByRole("search").querySelector("input")!
+  fireEvent.change(field, { target: { value: "match" } })
+  expect(editable.querySelector(".amby-find-current")?.closest("p")?.textContent).toBe(
+    "Another match",
+  )
+  fireEvent.keyDown(field, { key: "Enter" })
+  expect(screen.getByRole("tab", { name: "First" }).getAttribute("aria-selected")).toBe("true")
+  expect(editable.querySelector(".amby-find-current")?.closest("p")?.textContent).toBe("One match")
+  expect(screen.getByRole("button", { name: "Совпадения по страницам" })).toBeTruthy()
+})
+
+it("copies a vault-relative heading link and keeps the quick picker out of the full tab row", async () => {
+  vi.useFakeTimers()
+  const copied = vi.fn().mockResolvedValue(undefined)
+  vi.spyOn(navigator.clipboard, "writeText").mockImplementation(copied)
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne\n\n# Second\n\nTwo"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+      notePath="/vault/Folder/Note.md"
+      vaultPath="/vault"
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Second" }))
+  expect(screen.queryByRole("menuitem", { name: "Перейти к странице" })).toBeNull()
+  fireEvent.click(screen.getByRole("menuitem", { name: "Копировать ссылку на страницу" }))
+  expect(copied).toHaveBeenCalledWith("[[Folder/Note#Second]]")
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  fireEvent.keyDown(editable, { key: "g", code: "KeyG", ctrlKey: true, altKey: true })
+  expect(screen.queryByPlaceholderText("Найти страницу по названию…")).toBeNull()
+})
+
+it("offers the quick picker and its shortcut when the tabs collapse into a list", async () => {
+  vi.useFakeTimers()
+  vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.hasAttribute("data-note-page-measure") ? 500 : 0
+  })
+  const { container } = render(
+    <TiptapEditor
+      value={"# First\n\nOne\n\n# Second\n\nTwo"}
+      onChange={vi.fn()}
+      notePages={{ mode: "always", flag: null }}
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Страницы заметки: First" }), {
+    button: 0,
+    ctrlKey: false,
+  })
+  expect(screen.getByRole("menuitem", { name: "Перейти к странице" })).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+  const editable = container.querySelector<HTMLElement>(".ProseMirror")!
+  fireEvent.keyDown(editable, { key: "g", code: "KeyG", ctrlKey: true, altKey: true })
+  expect(screen.getByPlaceholderText("Найти страницу по названию…")).toBeTruthy()
+})
+
+it("offers no pages when the setting or the note does not ask for them", async () => {
+  vi.useFakeTimers()
+  const value = "# Details\n\nA\n\n# Media\n\nB"
+  for (const notePages of [
+    { mode: "off", flag: true },
+    { mode: "flagged", flag: null },
+    { mode: "always", flag: false },
+  ] as const) {
+    const { unmount } = render(
+      <TiptapEditor value={value} onChange={vi.fn()} notePages={notePages} noteId="no-pages" />,
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20)
+    })
+    expect(screen.queryByRole("tab")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Показать страницы" })).toBeNull()
+    unmount()
+  }
+})
+
+it("puts the pages switch into the title row slot when the note offers one", async () => {
+  vi.useFakeTimers()
+  const slot = document.createElement("div")
+  document.body.append(slot)
+  render(
+    <NotePagesSlotContext.Provider value={slot}>
+      <TiptapEditor
+        value={"# Details\n\nA\n\n# Media\n\nB"}
+        onChange={vi.fn()}
+        notePages={{ mode: "always", flag: null }}
+        noteId="slot-test"
+      />
+    </NotePagesSlotContext.Provider>,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  expect(slot.querySelector("button")?.textContent).toBe("Вся заметка")
+  fireEvent.click(slot.querySelector("button")!)
+  expect(slot.querySelector("button")?.textContent).toBe("Показать страницы")
+  slot.remove()
+  localStorage.removeItem('amby:note-pages:v1:["","slot-test"]')
+})
+
+it("adds a page from the plus button and renames a page from its tab menu", async () => {
+  vi.useFakeTimers()
+  const onChange = vi.fn()
+  const { container } = render(
+    <TiptapEditor
+      value={"# Goals\n\nA\n\n# Plans\n\nB"}
+      onChange={onChange}
+      notePages={{ mode: "always", flag: null }}
+      noteId="add-rename-test"
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  // Tabs carry no page icon.
+  expect(screen.getByRole("tab", { name: "Goals" }).querySelector("svg")).toBeNull()
+
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Добавить" }), {
+    button: 0,
+    ctrlKey: false,
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.click(screen.getByRole("menuitem", { name: "Добавить страницу" }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  // The new page opens with its name ready to type.
+  const field = screen.getByRole("textbox", { name: "Название страницы" }) as HTMLInputElement
+  expect(field.value).toBe("Страница 3")
+  fireEvent.change(field, { target: { value: "Ideas" } })
+  fireEvent.keyDown(field, { key: "Enter" })
+  expect(screen.getByRole("tab", { name: "Ideas" }).getAttribute("aria-selected")).toBe("true")
+
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Goals" }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.click(screen.getByRole("menuitem", { name: "Переименовать" }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const rename = screen.getByRole("textbox", { name: "Название страницы" }) as HTMLInputElement
+  expect(rename.value).toBe("Goals")
+  fireEvent.change(rename, { target: { value: "Aims" } })
+  fireEvent.keyDown(rename, { key: "Enter" })
+  expect(screen.getByRole("tab", { name: "Aims" })).toBeTruthy()
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  expect(onChange).toHaveBeenLastCalledWith("# Aims\n\nA\n\n# Plans\n\nB\n\n# Ideas")
+  expect(container.querySelector(".ProseMirror")).toBeTruthy()
+  localStorage.removeItem('amby:note-pages:v1:["","add-rename-test"]')
+})
+
+it("deletes a page from its tab menu after asking, keeping the text when asked to move it", async () => {
+  vi.useFakeTimers()
+  const onChange = vi.fn()
+  render(
+    <TiptapEditor
+      value={"# Goals\n\nA\n\n# Plans\n\nB"}
+      onChange={onChange}
+      notePages={{ mode: "always", flag: null }}
+      noteId="delete-page-test"
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Plans" }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  fireEvent.click(screen.getByRole("menuitem", { name: "Удалить страницу" }))
+  const question = useConfirmStore.getState().queue[0]
+  expect(question.title).toBe("Удалить страницу «Plans»?")
+  expect([question.confirmLabel, question.alternativeLabel]).toEqual(["Удалить всё", "Перенести"])
+  await act(async () => {
+    useConfirmStore.getState().settle(question.id, "alternative")
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  expect(onChange).toHaveBeenLastCalledWith("# Goals\n\nA\n\nB")
+  localStorage.removeItem('amby:note-pages:v1:["","delete-page-test"]')
+})
+
+it("offers a page or a database view from the plus menu and lets a new page be taken back", async () => {
+  vi.useFakeTimers()
+  const onChange = vi.fn()
+  render(
+    <TiptapEditor
+      value={"# Goals\n\nA\n\n# Plans\n\nB"}
+      onChange={onChange}
+      notePages={{ mode: "always", flag: null }}
+      noteId="plus-menu-test"
+    />,
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const open = async () => {
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Добавить" }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20)
+    })
+  }
+  await open()
+  expect(screen.getByRole("menuitem", { name: "Добавить представление базы" })).toBeTruthy()
+  fireEvent.click(screen.getByRole("menuitem", { name: "Добавить страницу" }))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(20)
+  })
+  const field = screen.getByRole("textbox", { name: "Название страницы" })
+  expect(screen.getByRole("tab", { name: "Goals" })).toBeTruthy()
+  // Escape while naming a page just added takes the page back.
+  fireEvent.keyDown(field, { key: "Escape" })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  expect(screen.queryByRole("textbox", { name: "Название страницы" })).toBeNull()
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Goals", "Plans"])
+  const saved = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+  expect(saved === undefined || saved === "# Goals\n\nA\n\n# Plans\n\nB").toBe(true)
+  localStorage.removeItem('amby:note-pages:v1:["","plus-menu-test"]')
 })

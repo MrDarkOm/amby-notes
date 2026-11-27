@@ -1,5 +1,10 @@
 # Live storage contract
 
+The AI contract exercises a read-only tool turn through real IPC against a
+disposable loopback provider, including streamed events, search, reading and
+sources. It also tests chat persistence, archive restore, revision conflicts and
+per-vault consent. It does not certify a real cloud provider or Ollama model.
+
 Run `npm run test:storage:live` on a desktop with Tauri prerequisites and WebView.
 The command builds a frozen test page and launches an opt-in `native-contract`
 binary with Tauri's custom asset protocol. It uses the production generated
@@ -23,7 +28,7 @@ retain their existing dedicated categories.
 
 Four native-only scenarios additionally verify real `note-written` event delivery,
 save persistence across vault reactivation, stale-revision rejection without
-overwrite, history/recycle restoration, and read/write/delete traversal rejection.
+overwrite, history/recycle restoration, read-only archive preview with exact-byte preservation and payload path confinement, and read/write/delete traversal rejection.
 Together with the four shared scenarios, all eight passed on Windows.
 
 Desktop delegation tests remain separate and are explicitly labeled as mocked.
@@ -72,3 +77,15 @@ rollback after a read-only related schema changes, malformed YAML, legacy aliase
 and metadata preservation have focused Rust coverage. The native interrupted-state
 fixture above still exercises version-1 property creation. Manual dialog smoke
 and Windows/Linux execution remain separate checks.
+
+`tests/native/backup-contract.ts` lists and verifies a disposable pre-sync backup
+through generated IPC, then rejects verification with a stale vault generation.
+It does not automate the OS folder picker; restore copy, byte preservation and
+interruption cases run in the Rust backup restore tests.
+
+The native updater scenarios check the compiled release identity, the denial of
+the generic plugin check with a downgrade flag, and that separate download and
+install calls reach resource validation. They exercise the WebView permissions
+using invalid update resource IDs, so no network request or installation occurs.
+
+Database layout coverage also checks read-only v1 detection, explicit conversion through IPC, embedded template preservation and use, asset relocation without changing stored relative paths, and unique typed attachment filenames with original display names. All scenarios use disposable vaults.

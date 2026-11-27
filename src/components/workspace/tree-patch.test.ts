@@ -1,0 +1,287 @@
+import { describe, expect, it } from "vitest"
+import type { TreeItem, TreePatch } from "@/lib/storage"
+import { projectBundleFolders } from "./tree/bundle-folders"
+import { applyTreePatchOps, concatTreePatches, patchedItems, removePaths } from "./tree-patch"
+
+const V = "/vault"
+
+function note(path: string, id = path): TreeItem {
+  const name = path.split("/").pop()!.replace(/\.md$/u, "")
+  return { id, path, name, type: "file", icon: "file", created: 1, modified: 1 }
+}
+
+function folder(path: string, children: TreeItem[] = []): TreeItem {
+  return {
+    id: `folder:${path}`,
+    path,
+    name: path.split("/").pop()!,
+    type: "folder",
+    icon: "folder",
+    created: 1,
+    modified: 1,
+    children,
+  }
+}
+
+/** A bundle: its main note stands for the folder. */
+function bundle(dir: string, children: TreeItem[] = []): TreeItem {
+  const name = dir.split("/").pop()!
+  return { ...note(`${dir}/${name}.md`), children }
+}
+
+const upsert = (
+  parentPath: string | null,
+  item: TreeItem,
+  replaceChildren = true,
+): TreePatch["ops"][number] => ({ kind: "upsert", parentPath, item, replaceChildren })
+
+const names = (items: TreeItem[] | undefined) => (items ?? []).map((item) => item.name)
+
+describe("applyTreePatchOps", () => {
+  it("replaces the optimistic Windows bundle using native separator paths without duplicating it", () => {
+    const native = "C:\\vault\\Light novels\\Light novels.md"
+    const optimistic = note("C:/vault/Light novels/Light novels.md", "stable-note")
+    const rebuilt = { ...optimistic, path: native, icon: "supernote" }
+    const next = applyTreePatchOps(
+      [optimistic],
+      {
+        ops: [{ kind: "remove", parentPath: null, paths: [native] }, upsert(null, rebuilt)],
+      },
+      "C:\\vault",
+    )
+    expect(next).toEqual([rebuilt])
+    expect(removePaths([optimistic], new Set([native]))).toEqual([])
+    expect(applyTreePatchOps([optimistic], { ops: [upsert(null, rebuilt)] }, "C:\\vault")).toEqual([
+      rebuilt,
+    ])
+  })
+
+  it("finds Windows parents with mixed separators when applying a nested patch", () => {
+    const tree = [folder("C:/vault/F", [note("C:/vault/F/a.md")])]
+    const inserted = note("C:/vault/F/b.md")
+    expect(
+      applyTreePatchOps(tree, { ops: [upsert("C:\\vault\\F", inserted)] }, "C:\\vault")?.[0]
+        ?.children,
+    ).toHaveLength(2)
+  })
+
+  it("keeps layer membership changes even when main-note timestamps stay the same", () => {
+    const main = { ...bundle(`${V}/Project`), bundleMembers: [] }
+    const canvas: TreeItem = {
+      id: "canvas",
+      path: `${V}/Project/Project.canvas`,
+      name: "Project",
+      type: "canvas",
+    }
+    const withCanvas = { ...main, bundleMembers: [canvas] }
+    expect(applyTreePatchOps([main], { ops: [upsert(null, withCanvas, false)] }, V)).toEqual([
+      withCanvas,
+    ])
+    expect(applyTreePatchOps([withCanvas], { ops: [upsert(null, main, false)] }, V)).toEqual([main])
+  })
+
+  it("keeps the folder and manifest row when the main note is removed", () => {
+    const dir = `${V}/Project`
+    const child = note(`${dir}/Child.md`)
+    const manifest: TreeItem = {
+      id: "db",
+      path: `${dir}/Project.json`,
+      name: "Project",
+      type: "database",
+    }
+    const main = { ...bundle(dir, [child]), bundleMembers: [manifest] }
+    const remaining = { ...manifest, path: dir, children: [child], bundleMembers: [manifest] }
+    const next = applyTreePatchOps(
+      [main],
+      {
+        ops: [{ kind: "remove", parentPath: null, paths: [main.path] }, upsert(null, remaining)],
+      },
+      V,
+    )!
+    expect(projectBundleFolders(next)).toEqual([
+      expect.objectContaining({
+        id: `folder:${dir}`,
+        path: dir,
+        type: "folder",
+        children: [child, { ...manifest, bundleMember: true }],
+      }),
+    ])
+  })
+
+  it("puts a new file in its sorted place: case-insensitive, folders and bundles first", () => {
+    const tree = [
+      bundle(`${V}/beta`),
+      folder(`${V}/Zeta`),
+      note(`${V}/Alpha.md`),
+      note(`${V}/delta.md`),
+    ]
+    const next = applyTreePatchOps(
+      tree,
+      { ops: [upsert(null, note(`${V}/Charlie.md`)), upsert(null, folder(`${V}/alpha folder`))] },
+      V,
+    )
+    // Folders and bundles are one group by directory name; files follow.
+    expect(names(next!)).toEqual(["alpha folder", "beta", "Zeta", "Alpha", "Charlie", "delta"])
+  })
+
+  it("removes an entry by any of its alternative paths", () => {
+    const tree = [folder(`${V}/F`, [bundle(`${V}/F/Old`), note(`${V}/F/Keep.md`)])]
+    const next = applyTreePatchOps(
+      tree,
+      {
+        ops: [
+          {
+            kind: "remove",
+            parentPath: `${V}/F`,
+            paths: [`${V}/F/Old`, `${V}/F/Old/Old.md`, `${V}/F/Old/Old.canvas`],
+          },
+        ],
+      },
+      V,
+    )
+    expect(names(next![0]!.children)).toEqual(["Keep"])
+  })
+
+  it("removes an empty folder and a folder of only json files without a note under it (TREE-01)", () => {
+    const tree = [
+      folder("/vault/Empty"),
+      folder("/vault/Shop", [folder("/vault/Shop/Deep")]),
+      note("/vault/keep.md"),
+    ]
+    const next = applyTreePatchOps(
+      tree,
+      {
+        ops: [
+          { kind: "remove", parentPath: null, paths: ["/vault/Empty"] },
+          { kind: "remove", parentPath: null, paths: ["/vault/Shop"] },
+        ],
+      },
+      V,
+    )
+    expect(names(next ?? undefined)).toEqual(["keep"])
+  })
+
+  it("replaces a whole subtree when children are replaced, and keeps them otherwise", () => {
+    const tree = [folder(`${V}/F`, [note(`${V}/F/a.md`), note(`${V}/F/b.md`)])]
+    const rebuilt = { ...folder(`${V}/F`, [note(`${V}/F/c.md`)]), modified: 9 }
+    const replaced = applyTreePatchOps(tree, { ops: [upsert(null, rebuilt)] }, V)
+    expect(names(replaced![0]!.children)).toEqual(["c"])
+
+    const shallow = { ...folder(`${V}/F`), modified: 9, children: undefined }
+    const refreshed = applyTreePatchOps(tree, { ops: [upsert(null, shallow, false)] }, V)
+    expect(refreshed![0]!.modified).toBe(9)
+    expect(names(refreshed![0]!.children)).toEqual(["a", "b"])
+  })
+
+  it("finds a parent inside a bundle and inside a folder in a bundle", () => {
+    const inner = folder(`${V}/B/Inner`, [note(`${V}/B/Inner/x.md`)])
+    const tree = [bundle(`${V}/B`, [inner])]
+    const next = applyTreePatchOps(
+      tree,
+      { ops: [upsert(`${V}/B/Inner`, note(`${V}/B/Inner/a.md`))] },
+      V,
+    )
+    expect(names(next![0]!.children![0]!.children)).toEqual(["a", "x"])
+    const intoBundle = applyTreePatchOps(
+      tree,
+      { ops: [upsert(`${V}/B/B.md`, note(`${V}/B/child.md`))] },
+      V,
+    )
+    expect(names(intoBundle![0]!.children)).toEqual(["Inner", "child"])
+  })
+
+  it("does not apply a patch that does not fit, so the caller reloads", () => {
+    const tree = [folder(`${V}/F`)]
+    expect(
+      applyTreePatchOps(tree, { ops: [upsert(`${V}/Missing`, note(`${V}/Missing/a.md`))] }, V),
+    ).toBeNull()
+    expect(
+      applyTreePatchOps(tree, { ops: [upsert(null, folder(`${V}/Unknown`), false)] }, V),
+    ).toBeNull()
+  })
+
+  it("orders by code point, not by UTF-16 unit (an emoji sorts after a CJK name)", () => {
+    const tree = [folder(`${V}/日本語`)]
+    const next = applyTreePatchOps(tree, { ops: [upsert(null, folder(`${V}/🔥`))] }, V)
+    expect(names(next!)).toEqual(["日本語", "🔥"])
+  })
+
+  it("is the same array when nothing changes", () => {
+    const tree = [folder(`${V}/F`, [note(`${V}/F/a.md`)])]
+    const same = applyTreePatchOps(
+      tree,
+      {
+        ops: [
+          { kind: "remove", parentPath: `${V}/F`, paths: [`${V}/F/none.md`] },
+          upsert(`${V}/F`, note(`${V}/F/a.md`)),
+        ],
+      },
+      V,
+    )
+    expect(same).toBe(tree)
+  })
+
+  it("applies operations in order: a removal first, then the insert at the new place", () => {
+    const tree = [folder(`${V}/A`, [note(`${V}/A/n.md`)]), folder(`${V}/B`)]
+    const moved = note(`${V}/B/n.md`)
+    const next = applyTreePatchOps(
+      tree,
+      {
+        ops: [
+          { kind: "remove", parentPath: `${V}/A`, paths: [`${V}/A/n.md`] },
+          upsert(`${V}/B`, moved),
+        ],
+      },
+      V,
+    )
+    expect(names(next![0]!.children)).toEqual([])
+    expect(names(next![1]!.children)).toEqual(["n"])
+  })
+
+  it("treats a note named like the vault folder at the root as a plain file", () => {
+    const tree = [folder(`${V}/F`)]
+    const next = applyTreePatchOps(tree, { ops: [upsert(null, note(`${V}/vault.md`))] }, V)
+    expect(names(next!)).toEqual(["F", "vault"])
+  })
+})
+
+describe("patchedItems", () => {
+  it("lists upserted items with their descendants", () => {
+    const patch: TreePatch = {
+      ops: [
+        { kind: "remove", parentPath: null, paths: ["x"] },
+        upsert(null, folder(`${V}/F`, [note(`${V}/F/a.md`)])),
+      ],
+    }
+    expect(patchedItems(patch).map((item) => item.name)).toEqual(["F", "a"])
+  })
+})
+
+describe("removePaths", () => {
+  it("drops items wherever they sit and keeps untouched branches", () => {
+    const keep = folder(`${V}/Keep`, [note(`${V}/Keep/a.md`)])
+    const tree = [keep, folder(`${V}/F`, [note(`${V}/F/ghost.md`), note(`${V}/F/stay.md`)])]
+    const next = removePaths(tree, new Set([`${V}/F/ghost.md`]))
+    expect(next[0]).toBe(keep)
+    expect(names(next[1]!.children)).toEqual(["stay"])
+  })
+
+  it("is the same array when nothing matches", () => {
+    const tree = [folder(`${V}/F`)]
+    expect(removePaths(tree, new Set(["/nowhere"]))).toBe(tree)
+    expect(removePaths(tree, new Set())).toBe(tree)
+  })
+})
+
+describe("concatTreePatches", () => {
+  it("joins the patches of consecutive mutations in order", () => {
+    const first: TreePatch = { ops: [{ kind: "remove", parentPath: null, paths: ["a"] }] }
+    const second: TreePatch = { ops: [{ kind: "remove", parentPath: null, paths: ["b"] }] }
+    expect(concatTreePatches([first, second])).toEqual({ ops: [...first.ops, ...second.ops] })
+  })
+
+  it("has no patch when one mutation had none", () => {
+    expect(concatTreePatches([{ ops: [] }, null])).toBeNull()
+    expect(concatTreePatches([undefined])).toBeNull()
+  })
+})

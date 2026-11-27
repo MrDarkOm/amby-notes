@@ -1,6 +1,6 @@
 /**
  * Core types for Amby's Modular Architecture (0.1.5+).
- * See docs/Road/modular-architecture-0.1.5-plan.md for architectural specifications.
+ * See docs/road/modules.md for architectural specifications.
  */
 
 export type ModuleKind = "official" | "community"
@@ -126,11 +126,13 @@ export const MODULE_ID_MAP: Record<string, string> = {
   history: "amby.history",
   links: "amby.links",
   graph: "amby.graph",
-  sync: "amby.sync",
   ai: "amby.ai",
   excalidraw: "amby.excalidraw",
   canvas: "amby.canvas",
   creative: "amby.creative",
+  templates: "amby.templates",
+  supernotes: "amby.supernotes",
+  daily: "amby.daily",
 }
 
 export const REVERSE_MODULE_ID_MAP: Record<string, string> = Object.fromEntries(

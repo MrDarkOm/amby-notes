@@ -75,4 +75,4 @@ A `healthy` projection means the published cache matches the current source and 
 
 A `v*` tag build starts with the `gate` job in `.github/workflows/release.yml`: version check, `npm run verify:full` and `npm run audit` on the exact tagged commit. Installers are built (`publish`) only after it passes. This workflow has not been exercised end to end locally; the first tagged run is its real test.
 
-Installed (package-manager) modules are not executed: `INSTALLED_MODULE_EXECUTION_ENABLED` in `src/lib/modules/host/execution-policy.ts` is `false` and `loadInstalledModule` returns `null`. Official modules are bundled and unaffected. Enable it only together with a verified isolation runtime and packaged-CSP checks.
+Installed (package-manager) modules are not executed: `INSTALLED_MODULE_EXECUTION_ENABLED` in `src/lib/modules/host/execution-policy.ts` is `false` and `loadInstalledModule` returns `null`. Official modules are bundled and unaffected. Enable it only together with a verified isolation runtime, packaged-CSP checks and the provisioned official signing key (MOD-01; guard tests fail otherwise).

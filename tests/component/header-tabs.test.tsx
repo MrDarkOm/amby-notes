@@ -1,20 +1,9 @@
 // @vitest-environment happy-dom
 import type { ComponentProps } from "react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+import { fireEvent, render, screen } from "@testing-library/react"
 import "@/lib/i18n"
-import { HeaderTabs } from "@/components/workspace/header-tabs"
-import { useTabActions } from "@/components/workspace/use-tab-actions"
-import { useTabsStore, type Tab } from "@/components/workspace/use-tabs-store"
-
-const tab = (key: string, fileId: string): Tab => ({
-  key,
-  fileId,
-  kind: "document",
-  title: fileId,
-  history: [fileId],
-  historyIndex: 0,
-})
+import { detectWindowControlsSide, HeaderTabs } from "@/components/workspace/header-tabs"
 
 function headerProps(): ComponentProps<typeof HeaderTabs> {
   return {
@@ -27,70 +16,9 @@ function headerProps(): ComponentProps<typeof HeaderTabs> {
     showWorkspacePicker: false,
     onSwitchVault: vi.fn(),
     onAddVault: vi.fn(),
-    onRenameVault: vi.fn(),
-    onDeleteVault: vi.fn(),
-    onMoveVault: vi.fn(),
-    onOpenVaultInExplorer: vi.fn(),
+    onManageVaults: vi.fn(),
   }
 }
-
-function SplitHeader() {
-  const { tabs, activeTabKey, secondaryTabKey } = useTabsStore()
-  const actions = useTabActions({
-    tabs,
-    activeTabKey,
-    secondaryTabKey,
-    activeTab: tabs.find((item) => item.key === activeTabKey) ?? null,
-    treeItems: [],
-    canGoBack: false,
-    canGoForward: false,
-    navigateToFile: async () => {},
-  })
-  return (
-    <HeaderTabs
-      {...headerProps()}
-      tabs={tabs}
-      activeTabKey={activeTabKey}
-      onToggleSplit={actions.toggleSplit}
-      isSplit={secondaryTabKey !== null}
-    />
-  )
-}
-
-describe("HeaderTabs split control", () => {
-  beforeEach(() => {
-    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
-  })
-
-  afterEach(cleanup)
-
-  it("exposes a localized button that toggles split without selecting a duplicate note", () => {
-    useTabsStore.setState({
-      tabs: [tab("active", "note"), tab("duplicate", "note"), tab("other", "other-note")],
-      activeTabKey: "active",
-    })
-    render(<SplitHeader />)
-
-    const button = screen.getByRole("button", { name: "Разделить редактор" })
-    expect(button.getAttribute("aria-pressed")).toBe("false")
-
-    fireEvent.click(button)
-
-    expect(useTabsStore.getState().secondaryTabKey).toBe("other")
-    expect(button.getAttribute("aria-pressed")).toBe("true")
-
-    fireEvent.click(button)
-
-    expect(useTabsStore.getState().secondaryTabKey).toBeNull()
-    expect(button.getAttribute("aria-pressed")).toBe("false")
-  })
-
-  it("does not display an inert split button when no action is provided", () => {
-    render(<HeaderTabs {...headerProps()} />)
-
-    expect(screen.queryByRole("button", { name: "Разделить редактор" })).toBeNull()
-  })
-})
 
 describe("HeaderTabs tab layout and close button visibility", () => {
   it("renders tabs with equal fixed width and shrinking capabilities", () => {
@@ -110,7 +38,7 @@ describe("HeaderTabs tab layout and close button visibility", () => {
 
     const activeTab = screen.getByTitle("Short")
     const inactiveTab = screen.getByTitle("A very long note title that spans many words")
-    expect(activeTab.className).toContain("h-9")
+    expect(activeTab.className).toContain("h-10")
     expect(inactiveTab.className).toContain("h-8")
   })
 
@@ -190,5 +118,88 @@ describe("HeaderTabs tab layout and close button visibility", () => {
     // Mouse leave restores divider
     fireEvent.mouseLeave(tab2)
     expect(tab2.querySelector("span[aria-hidden='true'].bg-border\\/60")).not.toBeNull()
+  })
+})
+
+describe("HeaderTabs window controls and sidebar toggle alignment", () => {
+  it("detects window control placement by runtime and platform", () => {
+    expect(
+      detectWindowControlsSide({ isTauriEnv: false, isSiteDemo: false, platform: "MacIntel" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: false, isSiteDemo: false, platform: "Win32" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: true, platform: "MacIntel" }),
+    ).toBe("none")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "MacIntel" }),
+    ).toBe("left")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "Win32" }),
+    ).toBe("right")
+    expect(
+      detectWindowControlsSide({ isTauriEnv: true, isSiteDemo: false, platform: "Linux x86_64" }),
+    ).toBe("right")
+  })
+
+  it("aligns both sidebar toggles with their docks and omits OS controls in web mode", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="none" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).not.toBeNull()
+  })
+
+  it("shifts only the left toggle on macOS Tauri while keeping the right toggle dock-aligned", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="left" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left-shifted"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).not.toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).toBeNull()
+  })
+
+  it("keeps the left toggle dock-aligned and places the right toggle beside Windows controls", () => {
+    const { container } = render(<HeaderTabs {...headerProps()} windowControlsSide="right" />)
+
+    expect(container.querySelector('[data-window-controls-spacer="left"]')).toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="left"]')).not.toBeNull()
+    expect(container.querySelector('[data-sidebar-toggle-slot="right"]')).toBeNull()
+    expect(container.querySelector('[data-window-controls="right"]')).not.toBeNull()
+  })
+
+  it("does not shift header tabs or view controls when compact overlay panels are open", () => {
+    document.documentElement.style.setProperty("--amby-left-panel-width", "300px")
+    document.documentElement.style.setProperty("--amby-right-panel-width", "300px")
+    try {
+      for (const side of ["left", "right", "none"] as const) {
+        const { container, unmount } = render(
+          <HeaderTabs
+            {...headerProps()}
+            windowControlsSide={side}
+            isLeftSidebarOpen
+            isRightSidebarOpen
+            isLeftDockPinned
+            isRightDockPinned
+            leftTreeWidth={0}
+            rightPanelWidth={0}
+          />,
+        )
+        const header = container.querySelector("header")
+        expect(header).not.toBeNull()
+        const styledChildren = Array.from(header!.querySelectorAll<HTMLElement>("[style]"))
+        for (const el of styledChildren) {
+          expect(el.style.width).not.toContain("--amby-left-panel-width")
+          expect(el.style.width).not.toContain("--amby-right-panel-width")
+          expect(el.style.right).not.toContain("--amby-right-panel-width")
+        }
+        unmount()
+      }
+    } finally {
+      document.documentElement.style.removeProperty("--amby-left-panel-width")
+      document.documentElement.style.removeProperty("--amby-right-panel-width")
+    }
   })
 })

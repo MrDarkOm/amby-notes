@@ -1,0 +1,123 @@
+import { expect, type Page } from "@playwright/test"
+import { localeResources } from "../../src/locales/resources"
+import { seedVault, test } from "./support"
+
+const ru = localeResources.ru.translation
+
+const dock = (page: Page) => page.locator("[data-activity-bar='left']").first()
+const zone = (page: Page, name: "view" | "action") =>
+  dock(page).locator(`div[data-activity-zone='${name}']`)
+const dockButton = (page: Page, id: string) => dock(page).locator(`[data-activity-button='${id}']`)
+const toggle = (page: Page, id: string) => page.locator(`[data-dock-toggle='${id}']`)
+
+/** Opens the submenu of a zone's buttons in the open dock menu. */
+async function openToggles(page: Page, name: "view" | "action") {
+  await page.locator(`[data-dock-zone-buttons='${name}']`).hover()
+}
+
+/** Right click on the empty part of a zone, below its last button, and open its buttons. */
+async function openZoneMenu(page: Page, name: "view" | "action") {
+  const box = (await zone(page, name).boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 3, { button: "right" })
+  await openToggles(page, name)
+}
+
+test("each dock zone switches off only its own buttons, never settings", async ({ page }) => {
+  await seedVault(page, { Note: "Text\n" })
+  await expect(dockButton(page, "tags")).toBeVisible()
+
+  // Both button groups are accessible from the upper zone menu; opening sections lists section buttons only.
+  await openZoneMenu(page, "view")
+  await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
+  await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
+  await expect(
+    page.locator('[data-dock-zone-buttons="view"] .lucide-panels-top-left'),
+  ).toBeVisible()
+  await expect(page.locator('[data-dock-zone-buttons="action"] .lucide-zap')).toBeVisible()
+  await expect(toggle(page, "tags")).toBeVisible()
+  await expect(toggle(page, "settings")).toHaveCount(0)
+  await expect(toggle(page, "search")).toHaveCount(0)
+  await toggle(page, "tags").click()
+  // The menu stays open for the next switch.
+  await expect(toggle(page, "tags")).toHaveAttribute("aria-checked", "false")
+  // The focused item is shown by its background, without the browser's blue ring.
+  expect(await toggle(page, "tags").evaluate((item) => getComputedStyle(item).outlineStyle)).toBe(
+    "none",
+  )
+  await page.keyboard.press("Escape")
+  await expect(dockButton(page, "tags")).toHaveCount(0)
+
+  // Both button groups are accessible from the lower zone menu too; settings cannot be switched off.
+  await openZoneMenu(page, "action")
+  await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
+  await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
+  await expect(toggle(page, "files")).toHaveCount(0)
+  await expect(toggle(page, "search")).toBeVisible()
+  await expect(toggle(page, "settings")).toHaveCount(0)
+  // A press on an item gives way a little, as buttons do.
+  const searchBox = (await toggle(page, "search").boundingBox())!
+  await page.mouse.move(searchBox.x + 40, searchBox.y + searchBox.height / 2)
+  await page.mouse.down()
+  await expect
+    .poll(() => toggle(page, "search").evaluate((item) => getComputedStyle(item).transform))
+    .toMatch(/^matrix\(0\.97/)
+  await page.mouse.up()
+  await page.keyboard.press("Escape")
+  await expect(dockButton(page, "search")).toHaveCount(0)
+  const settings = dockButton(page, "settings")
+  await expect(settings).toBeVisible()
+  // After keyboard input, the Settings button shows the app's focus ring.
+  await settings.focus()
+  await expect(settings).toBeFocused()
+  await expect(settings).toHaveCSS("outline-style", "solid")
+  await expect(settings).toHaveCSS("outline-width", "2px")
+
+  // A button's own menu hides it too and exposes both section and action button submenus.
+  await dockButton(page, "archive").click({ button: "right" })
+  await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
+  await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
+  await openToggles(page, "view")
+  await expect(toggle(page, "files")).toBeVisible()
+  await expect(toggle(page, "search")).toHaveCount(0)
+  await page.getByRole("menuitem", { name: ru.activityBar.hideButton }).click()
+  await expect(dockButton(page, "archive")).toHaveCount(0)
+  await dockButton(page, "settings").click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: ru.activityBar.hideButton })).toHaveCount(0)
+  await page.keyboard.press("Escape")
+
+  // Hidden buttons stay listed in their zone and come back in their place, also after a reload.
+  await page.reload()
+  await expect(dockButton(page, "files")).toBeVisible()
+  await expect(dockButton(page, "tags")).toHaveCount(0)
+  await openZoneMenu(page, "view")
+  await expect(toggle(page, "tags")).toHaveAttribute("aria-checked", "false")
+  await toggle(page, "tags").click()
+  await page.keyboard.press("Escape")
+  const order = await zone(page, "view")
+    .locator("[data-activity-button]")
+    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("data-activity-button")))
+  expect(order.indexOf("tags")).toBe(order.indexOf("files") + 1)
+})
+
+test("refresh shows local status and opens sync settings from its menu", async ({ page }) => {
+  await seedVault(page, { Note: "Text\n" })
+  const refresh = dockButton(page, "refresh")
+  // The browser build has no sync: the button names the reason instead of the refresh action.
+  await expect(refresh).toHaveAttribute("aria-label", ru.sync.inactive.reason.unavailable)
+  await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
+  // A click opens the menu with the reason and still refreshes files from the disk.
+  await refresh.click()
+  await expect(page.getByTestId("sync-inactive-reason")).toHaveText(
+    ru.sync.inactive.reason.unavailable,
+  )
+  await page.getByRole("menuitem", { name: ru.sync.inactive.refreshFiles, exact: true }).click()
+  await expect(refresh).toBeEnabled()
+  await expect(refresh.locator("[data-sync-state='local']")).toBeVisible()
+  await refresh.click({ button: "right" })
+  // The right click starts with the actions of the left-click menu, then the settings.
+  const items = page.getByRole("menuitem")
+  await expect(items.first()).toHaveText(ru.sync.inactive.refreshFiles)
+  await expect(items.nth(1)).toHaveText(ru.activityBar.syncSettings)
+  await page.getByRole("menuitem", { name: ru.activityBar.syncSettings, exact: true }).click()
+  await expect(page.getByText(ru.sync.errors.unavailable, { exact: true })).toBeVisible()
+})

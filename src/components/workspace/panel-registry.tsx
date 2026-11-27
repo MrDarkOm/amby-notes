@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "./file-actions/rename-outcome"
 import * as React from "react"
 import type {
   CustomProperty,
@@ -7,6 +8,7 @@ import type {
 } from "@/lib/storage"
 import type { AttachableLayer, NodeLayers } from "./tree/tree-types"
 import type { SettingsNavigationTarget } from "./settings-navigation"
+import type { DeleteModePref } from "./app-config"
 
 export type Side = "left" | "right"
 
@@ -90,10 +92,11 @@ export interface PanelRenderProps {
   vault: string | null
   onSelect: (id: string) => void
   onOpenVault: () => void
-  onRename?: (id: string, newName: string) => void | Promise<void>
+  onRename?: (id: string, newName: string) => void | Promise<RenameOutcome | void>
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onCreateNoteFromText?: (content: string) => void | Promise<void>
   onNewFolder?: (parentId: string | null) => void
   onNewCanvas?: (parentId: string | null) => void
   onNewSketch?: (parentId: string | null) => void
@@ -101,8 +104,11 @@ export interface PanelRenderProps {
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   /** The tree's own move; a caller that has to go on after it reads how it ended. */
   onMoveItem?: (
@@ -110,6 +116,8 @@ export interface PanelRenderProps {
     targetFolderId: string | null,
   ) => void | Promise<"moved" | "skipped" | "failed">
   onSetIcon?: (id: string, icon: string) => void
+  /** The deletion setting (an AI proposal never deletes for good, whatever it says). */
+  deleteMode?: DeleteModePref
   triggerRenameId?: string | null
   readFile?: (path: string) => Promise<string>
 
@@ -120,11 +128,14 @@ export interface PanelRenderProps {
   // Layer attachment from tree
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
   /** Enabled when the durable beta database creator is available. */
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   databaseRuntimeEnabled?: boolean
   canvasEnabled?: boolean
   sketchEnabled?: boolean
+  /** Shows the bookmarks block above the file tree. */
+  favoritesEnabled?: boolean
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
   /** Opens a creative project's page, optionally on one of its sections. */
   onOpenCreativeProject?: (projectId: string, sectionId?: string) => void
@@ -140,18 +151,26 @@ export interface PanelRenderProps {
   onOpenSettings?: (target?: SettingsNavigationTarget) => void
 
   // Right side
+  propertyError?: string | null
   properties?: DocumentProperties | FolderProperties | null
   attachments?: AttachmentItem[]
   attachmentImages?: AttachmentItem[]
   databaseProperties?: DatabasePanelProperties | null
-  linkGraph?: LinkGraph
   currentDocId?: string | null
   currentDocPath?: string | null
   onSelectLink?: (id: string) => void
   onUpsertCustomProperty?: (property: CustomProperty) => Promise<CustomProperty>
   onDeleteCustomProperty?: (propertyId: string) => Promise<void>
   onReorderCustomProperties?: (propertyIds: string[]) => Promise<void>
-  onHistoryRestored?: () => Promise<void>
+  /** Where the properties are changed by name (З60): one narrow command for each field. */
+  onCreateProperty?: (property: CustomProperty) => Promise<void>
+  onSetPropertyIcon?: (name: string, icon: string) => Promise<void>
+  onSetPropertySettings?: (name: string, settings: string) => Promise<void>
+  onRenameProperty?: (name: string, newName: string) => Promise<void>
+  onChangePropertyType?: (name: string, propertyType: string) => Promise<void>
+  onSetPropertyValue?: (name: string, value: string) => Promise<void>
+  onSetPropertyList?: (name: string, items: string[]) => Promise<void>
+  onHistoryRestored?: (path?: string) => Promise<void>
   workspaceSwitcher?: React.ReactNode
 }
 
@@ -162,6 +181,8 @@ export interface ActionContext {
   openSearch: () => void
   openSettings: (target?: SettingsNavigationTarget) => void
   openHelp?: () => void
+  /** Daily notes: opens today's note, creating it when missing. */
+  openDailyNote?: () => void
 }
 
 export interface PanelDef {
@@ -188,6 +209,8 @@ export interface ActivityButton {
   defId: string // PanelId for view, action id for action
   side: Side
   order: number
+  /** Taken off its dock by the user; it keeps its side and place and can be shown again. */
+  hidden?: boolean
 }
 
 // Re-export panel implementations from panels/

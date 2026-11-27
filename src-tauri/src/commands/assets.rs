@@ -1,3 +1,4 @@
+use crate::lock_util::LockExt;
 use std::fs;
 use std::path::Path;
 
@@ -7,6 +8,7 @@ use crate::model::*;
 use crate::paths;
 use crate::vault_context::VaultContext;
 use crate::watcher::{self, WatcherState};
+use tauri::Manager;
 
 #[tauri::command]
 #[specta::specta]
@@ -26,6 +28,11 @@ pub async fn pick_asset_file(
         let _ = tx.send(path);
     });
     let result = rx.await.map_err(|e| e.to_string())?;
+    // IPC-03: only a file the dialog gave out can be imported later.
+    if let Some(Ok(real)) = result.clone().map(|p| p.into_path()) {
+        app.state::<crate::path_grants::PathGrants>()
+            .grant_sources([real]);
+    }
     Ok(result.map(|p| p.to_string()))
 }
 
@@ -34,13 +41,18 @@ pub async fn pick_asset_file(
 pub fn import_asset(
     context: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
+    grants: tauri::State<'_, crate::path_grants::PathGrants>,
     note_path: String,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let note = paths::guard(&context, &note_path)?;
     let vault = context.root()?;
     let source = Path::new(&source_path);
+    // IPC-03: the webview names the file, but only a file picked or dropped by the person is copied.
+    if !grants.source_granted(source) {
+        return Err(crate::path_grants::ERR_PATH_NOT_GRANTED.to_string());
+    }
     if !source.is_file() {
         return Err(format!("Source is not a file: {source_path}"));
     }
@@ -59,10 +71,10 @@ pub fn import_asset(
     let dir = paths::confine(&vault, &dir)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let stem = source
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "asset".to_string());
+    let original_name = source
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "asset".to_owned());
     let raw_ext = source
         .extension()
         .map(|s| s.to_string_lossy().to_string())
@@ -70,22 +82,27 @@ pub fn import_asset(
     let ext = sanitize_ext(&raw_ext);
 
     for _ in 0..1_000 {
-        let name = unique_name(&dir, &stem, &ext);
+        let name = random_asset_name(&ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
         let expected = watcher::path_fingerprint(source);
-        let prepared = watcher_state.prepare_write([(&dest, expected)]);
+        let prepared = watcher_state.self_writes.prepare_write([(&dest, expected)]);
         match frontmatter::atomic_copy_file_new(source, &dest, MAX_ATTACHMENT_FILE_SIZE) {
             Ok(_) => {
-                watcher_state.confirm_prepared_write(&prepared);
-                return Ok(build_imported_asset(&vault, &note, dest, name));
+                watcher_state.self_writes.confirm_prepared_write(&prepared);
+                return Ok(build_imported_asset(
+                    &vault,
+                    &note,
+                    dest,
+                    original_name.clone(),
+                ));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 continue;
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 return Err(error);
             }
         }
@@ -102,7 +119,7 @@ pub fn import_asset_bytes(
     bytes: Vec<u8>,
     suggested_ext: String,
 ) -> Result<ImportedAsset, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     if bytes.len() > MAX_PASTED_BYTES {
         return Err(format!(
             "Pasted payload ({} MB) exceeds maximum allowed limit ({} MB)",
@@ -123,24 +140,24 @@ pub fn import_asset_bytes(
         &suggested_ext
     };
     let ext = sanitize_ext(raw_ext);
-    let stem = format!("pasted-{}", now_millis());
     for _ in 0..1_000 {
-        let name = unique_name(&dir, &stem, &ext);
+        let name = random_asset_name(&ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
-        let prepared =
-            watcher_state.prepare_write([(&dest, watcher::fingerprint_for_bytes(&bytes))]);
+        let prepared = watcher_state
+            .self_writes
+            .prepare_write([(&dest, watcher::fingerprint_for_bytes(&bytes))]);
         match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
             Ok(()) => {
-                watcher_state.confirm_prepared_write(&prepared);
+                watcher_state.self_writes.confirm_prepared_write(&prepared);
                 return Ok(build_imported_asset(&vault, &note, dest, name));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 continue;
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => {
-                watcher_state.cancel_prepared_write(&prepared);
+                watcher_state.self_writes.cancel_prepared_write(&prepared);
                 return Err(error);
             }
         }
@@ -155,31 +172,7 @@ pub fn open_in_explorer(
     path: String,
 ) -> Result<(), String> {
     let path = paths::guard(&scope, &path)?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        let arg = format!("/select,\"{}\"", path.display());
-        std::process::Command::new("explorer")
-            .raw_arg(&arg)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    crate::system_open::reveal_path(&path).map_err(|code| code.to_string())
 }
 
 #[tauri::command]

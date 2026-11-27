@@ -5,13 +5,15 @@ import {
   type EnsuredPlotLinks,
   type PlotLinksTarget,
   type StorySummary,
+  type TextLinkPart,
   type WorkshopSummary,
 } from "@/lib/storage"
 import { useDatabaseStore } from "../../database/database-store"
-import { linkLabels } from "../project-labels"
+import { linkLabels, sceneLinkLabels } from "../project-labels"
 import { useProjectStore } from "../project-store"
 import { anchorLinksMissing } from "./plot-views"
 import type { EnsurePlot } from "./use-plot-binding"
+import { ShownError } from "@/lib/operation-errors"
 
 export interface PlotEnsurer {
   /** Makes the missing link properties of a story's text or of the anchors (`ensure_plot_links`). */
@@ -39,12 +41,14 @@ export function usePlotEnsurer(onChanged?: () => Promise<void>): PlotEnsurer {
       target: PlotLinksTarget
       workshop: WorkshopSummary
       story?: StorySummary
+      parts?: TextLinkPart[]
     }): Promise<EnsuredPlotLinks> => {
-      if (vaultGeneration === null) throw new Error(t("creative.errors.vaultChanged"))
-      const { target, workshop: owner, story } = request
+      if (vaultGeneration === null) throw new ShownError(t("creative.errors.vaultChanged"))
+      const { target, workshop: owner, story, parts } = request
       const expectedRevision = target === "story" ? story?.fileRevision : owner.fileRevision
-      if (!expectedRevision) throw new Error(t("creative.errors.projectNotFound"))
-      const key = `${target}:${owner.workshopId}:${story?.storyId ?? ""}:${expectedRevision}`
+      if (!expectedRevision) throw new ShownError(t("creative.errors.projectNotFound"))
+      const partsKey = parts ? [...parts].sort().join(",") : ""
+      const key = `${target}:${owner.workshopId}:${story?.storyId ?? ""}:${expectedRevision}:${partsKey}`
       let operationId = operations.current.get(key)
       if (!operationId) {
         operationId = `plot-${crypto.randomUUID()}`
@@ -57,7 +61,8 @@ export function usePlotEnsurer(onChanged?: () => Promise<void>): PlotEnsurer {
         target,
         storyId: story?.storyId ?? null,
         expectedRevision,
-        labels: linkLabels(t),
+        labels: parts ? { ...linkLabels(t), ...sceneLinkLabels(t) } : linkLabels(t),
+        ...(parts ? { parts } : {}),
       })
       if (ensured.changed) {
         await onChanged?.()

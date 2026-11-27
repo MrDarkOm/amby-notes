@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
 import process from "node:process"
+import path from "node:path"
 
 // Build a frozen test page: no dev server, HMR, mock commands, or user's profile.
 // The test-only Rust entry creates and removes its own unique temporary vault.
@@ -34,6 +35,15 @@ try {
     "--config",
     "tests/native/vite.config.ts",
   ])
+  let cliBinary = process.env.AMBY_NATIVE_CLI_BIN
+  if (!cliBinary) {
+    await run("cargo", ["build", "--locked", "-p", "amby-cli"])
+    cliBinary = path.resolve(
+      process.env.CARGO_TARGET_DIR || "target",
+      "debug",
+      process.platform === "win32" ? "amby.exe" : "amby",
+    )
+  }
   await run(
     "cargo",
     [
@@ -45,6 +55,7 @@ try {
     ],
     {
       ...process.env,
+      AMBY_NATIVE_CLI_BIN: cliBinary,
       TAURI_CONFIG: JSON.stringify({
         build: { devUrl: null, frontendDist: "../.release-evidence/native-dist" },
       }),

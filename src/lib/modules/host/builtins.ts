@@ -8,6 +8,11 @@ import { AI_MODULE_DEFINITION } from "@/components/workspace/ai/ai-module"
 import { CANVAS_MODULE_DEFINITION } from "@/components/workspace/canvas/canvas-module"
 import { SKETCH_MODULE_DEFINITION } from "@/components/workspace/sketch/sketch-module"
 import { CREATIVE_MODULE_DEFINITION } from "@/components/workspace/creative/creative-module"
+import {
+  DAILY_MODULE_DEFINITION,
+  TEMPLATES_MODULE_DEFINITION,
+} from "@/components/workspace/note-modules/note-modules"
+import { SUPERNOTES_MODULE_DEFINITION } from "@/components/workspace/supernotes-module"
 import { moduleHost } from "./module-host"
 
 export function registerBuiltinModules(): void {
@@ -21,6 +26,9 @@ export function registerBuiltinModules(): void {
   moduleHost.registerModule(CANVAS_MODULE_DEFINITION)
   moduleHost.registerModule(SKETCH_MODULE_DEFINITION)
   moduleHost.registerModule(CREATIVE_MODULE_DEFINITION)
+  moduleHost.registerModule(SUPERNOTES_MODULE_DEFINITION)
+  moduleHost.registerModule(TEMPLATES_MODULE_DEFINITION)
+  moduleHost.registerModule(DAILY_MODULE_DEFINITION)
 }
 
 // Auto-register built-in module definitions

@@ -44,18 +44,64 @@ describe("TreeItemIcon", () => {
     expect(container.querySelectorAll("svg")).toHaveLength(2)
   })
 
+  it("renders a star for a favorited sketch and canvas and makes them togglable", () => {
+    for (const type of ["sketch", "canvas"] as const) {
+      const onActivate = vi.fn()
+      const { container } = render(
+        <TreeItemStatusIcon
+          item={{ ...databaseItem, id: `${type}-1`, type }}
+          isFavorite
+          onActivate={onActivate}
+          label="Remove"
+        />,
+      )
+      const control = container.querySelector('[data-tree-file-status="favorite"]')
+      expect(control).not.toBeNull()
+      expect(control?.getAttribute("role")).toBe("button")
+      fireEvent.click(control as Element)
+      expect(onActivate).toHaveBeenCalledOnce()
+    }
+  })
+
   it("keeps a custom folder icon without adding a folder glyph", () => {
     const { container } = render(<TreeItemIcon item={folder} />)
 
-    expect(container.textContent).toBe("🌐")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f310.svg")
     expect(container.querySelector("svg")).toBeNull()
   })
 
   it("does not add a folder glyph to custom note icons", () => {
     const { container } = render(<TreeItemIcon item={note} />)
 
-    expect(container.textContent).toBe("😀")
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("emoji_u1f600.svg")
     expect(container.querySelector("svg")).toBeNull()
+  })
+
+  it.each([{ members: [] }, { members: [{ ...databaseItem, type: "canvas" as const }] }])(
+    "uses the bundle icon for a main note without child notes",
+    ({ members }) => {
+      const item = { ...note, icon: "file", bundleMembers: members }
+      const { container } = render(
+        <>
+          <TreeItemIcon item={item} />
+          <TreeItemStatusIcon item={item} isFavorite={false} />
+          <TreeItemStatusIcon item={item} isFavorite />
+        </>,
+      )
+      expect(container.querySelectorAll(".lucide-composite-note")).toHaveLength(3)
+    },
+  )
+
+  it("keeps a custom icon on the bundle and a file icon on its separately shown note layer", () => {
+    const { container } = render(
+      <>
+        <TreeItemIcon item={{ ...note, bundleMembers: [] }} />
+        <TreeItemIcon item={{ ...note, icon: "file", bundleMembers: [], bundleMember: true }} />
+      </>,
+    )
+    expect(container.querySelector("img")).not.toBeNull()
+    expect(container.querySelector(".lucide-file-text")).not.toBeNull()
+    expect(container.querySelector(".lucide-composite-note")).toBeNull()
   })
 
   it("renders a file icon with a star for a favorite note", () => {

@@ -2,18 +2,9 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertCircle,
-  CheckCircle2,
-  Download,
-  HardDrive,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Trash2,
-  Upload,
-} from "lucide-react"
+import { Download, HardDrive, Loader2, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { NoticeLevelIcon, NoticeShell } from "../notices/notice-level"
 import {
   Dialog,
   DialogContent,
@@ -24,13 +15,21 @@ import {
 } from "@/components/ui/dialog"
 import {
   getModuleUsage,
-  installFromRemoteUrl,
   installPackage,
   rollbackModule,
   uninstallModule,
 } from "@/lib/modules/package-manager/installer"
 import { getCatalogModule } from "@/lib/modules/package-manager/catalog"
-import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
+import { installCatalogModule } from "@/lib/modules/package-manager/catalog-install"
+import {
+  InvalidPackageError,
+  reportInstallFailure,
+} from "@/lib/modules/package-manager/install-errors"
+import {
+  installBuiltinModule,
+  isBuiltinModuleId,
+  loadGlobalModulesRegistry,
+} from "@/lib/modules/global-registry"
 import { toCanonicalModuleId } from "@/lib/modules/types"
 
 function formatBytes(bytes: number): string {
@@ -108,13 +107,21 @@ export function ModulePackageManager({
     setIsProcessing(true)
     setStatusMessage(null)
     try {
-      const catalogEntry = await getCatalogModule(canonicalId)
-      const targetVersion = catalogEntry?.latestVersion ?? "1.0.0"
-      const url =
-        catalogEntry?.versions[targetVersion]?.downloadUrl ??
-        `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${canonicalId}-${targetVersion}.amby-pkg`
-
-      const result = await installFromRemoteUrl(url)
+      // A module that ships with the application is installed from the registry alone.
+      if (isBuiltinModuleId(canonicalId)) {
+        await installBuiltinModule(canonicalId)
+        setStatusMessage({
+          type: "success",
+          text: t("settings.modules.packages.installSuccess", {
+            name: moduleName,
+            version: "1.0.0",
+          }),
+        })
+        await refreshModuleInfo()
+        onModuleChange?.()
+        return
+      }
+      const { result, targetVersion } = await installCatalogModule(canonicalId)
 
       if (result.success) {
         setStatusMessage({
@@ -129,18 +136,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: t("settings.modules.packages.installError", {
-            error: result.error ?? result.errorCode ?? "Failed",
-          }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: t("settings.modules.packages.installError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -166,10 +166,7 @@ export function ModulePackageManager({
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsCheckingUpdates(false)
     }
@@ -198,14 +195,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: result.error ?? t("settings.modules.packages.installError", { error: "Unknown" }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -227,14 +221,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: result.error ?? t("settings.modules.packages.installError", { error: "Unknown" }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: String(err),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
     }
@@ -265,7 +256,7 @@ export function ModulePackageManager({
       }
 
       if (!manifest) {
-        throw new Error("Invalid package format: manifest missing")
+        throw new InvalidPackageError()
       }
 
       const result = await installPackage(manifest, files)
@@ -282,18 +273,11 @@ export function ModulePackageManager({
       } else {
         setStatusMessage({
           type: "error",
-          text: t("settings.modules.packages.installError", {
-            error: result.error ?? result.errorCode ?? "Validation failed",
-          }),
+          text: reportInstallFailure(result.errorCode, result.error),
         })
       }
     } catch (err) {
-      setStatusMessage({
-        type: "error",
-        text: t("settings.modules.packages.installError", {
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      })
+      setStatusMessage({ type: "error", text: reportInstallFailure(err) })
     } finally {
       setIsProcessing(false)
       if (fileInputRef.current) {
@@ -303,7 +287,7 @@ export function ModulePackageManager({
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card/40 p-3">
+    <div>
       <input
         ref={fileInputRef}
         type="file"
@@ -370,65 +354,57 @@ export function ModulePackageManager({
           </div>
         </div>
 
-        {/* Rollback button if multiple versions are available */}
-        {installedVersions.length > 1 && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 text-muted-foreground hover:text-foreground"
-            disabled={isProcessing}
-            title={t("settings.modules.packages.rollback")}
-            onClick={() => void handleRollback()}
-          >
-            <RotateCcw className="size-4" />
-          </Button>
-        )}
-      </div>
-
-      {/* Version and update check row */}
-      <div className="mt-3 flex items-center justify-between border-t border-border/50 pt-2.5">
-        <span className="text-xs text-muted-foreground">
-          {isLoading
-            ? "…"
-            : isInstalled
-              ? t("settings.modules.installedVersion", { version: activeVersion })
-              : t("settings.modules.notInstalled")}
-        </span>
-
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isProcessing || isCheckingUpdates || isLoading}
-          onClick={() => void handleCheckUpdates()}
-          className="h-7 text-xs"
-        >
-          {isCheckingUpdates ? (
-            <Loader2 className="mr-1.5 size-3" />
-          ) : (
-            <RefreshCw className="mr-1.5 size-3" />
+        <div className="flex items-center gap-2">
+          {installedVersions.length > 1 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground hover:text-foreground"
+              disabled={isProcessing}
+              title={t("settings.modules.packages.rollback")}
+              onClick={() => void handleRollback()}
+            >
+              <RotateCcw className="size-4" />
+            </Button>
           )}
-          {isCheckingUpdates
-            ? t("settings.modules.checkingUpdates")
-            : t("settings.modules.checkUpdates")}
-        </Button>
+          <span className="text-xs text-muted-foreground">
+            {isLoading
+              ? "…"
+              : isInstalled
+                ? t("settings.modules.installedVersion", { version: activeVersion })
+                : t("settings.modules.notInstalled")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isProcessing || isCheckingUpdates || isLoading}
+            onClick={() => void handleCheckUpdates()}
+            className="h-8 text-xs"
+          >
+            {isCheckingUpdates ? (
+              <Loader2 className="mr-1.5 size-3" />
+            ) : (
+              <RefreshCw className="mr-1.5 size-3" />
+            )}
+            {isCheckingUpdates
+              ? t("settings.modules.checkingUpdates")
+              : t("settings.modules.checkUpdates")}
+          </Button>
+        </div>
       </div>
 
       {/* Status message */}
       {statusMessage && (
-        <div
-          className={`mt-3 flex items-start gap-2 rounded-md p-2 text-xs ${
-            statusMessage.type === "success"
-              ? "border border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400"
-              : "border border-destructive/20 bg-destructive/10 text-destructive"
-          }`}
+        <NoticeShell
+          level={statusMessage.type === "success" ? "success" : "danger"}
+          className="mt-3 flex items-start gap-2 rounded-md border p-2 text-xs"
         >
-          {statusMessage.type === "success" ? (
-            <CheckCircle2 className="size-4 shrink-0" />
-          ) : (
-            <AlertCircle className="size-4 shrink-0" />
-          )}
+          <NoticeLevelIcon
+            level={statusMessage.type === "success" ? "success" : "danger"}
+            className="size-4 shrink-0"
+          />
           <span className="leading-snug">{statusMessage.text}</span>
-        </div>
+        </NoticeShell>
       )}
 
       {/* Update Available Dialog */}

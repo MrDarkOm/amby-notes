@@ -1,56 +1,58 @@
-# Amby X.Y.Z — Д месяца ГГГГ
+# Amby X.Y.Z — Month D, YYYY
 
 <!--
-Шаблон заметок к выпуску. Копируется в updates/upd_X.Y.Z.md при выпуске; из
-накопленного updates/upd_next.md переносится не всё подряд, а сжатое.
+Release notes template. Copied to updates/upd_X.Y.Z.md at release; the
+accumulated updates/upd_next.md is condensed into it, not copied as it is.
 
-Правила:
-- Первая строка — заголовок «# Amby X.Y.Z — дата»: из него берётся название
-  выпуска, в текст выпуска он не попадает.
-- Под заголовком одна-две фразы: о чём эта версия.
-- «Главное» — три-пять пунктов, каждый начинается с короткой жирной мысли.
-- Дальше разделы по областям, а не «Новое / Улучшения»: читатель ищет «что
-  с редактором», а не «что улучшили». Большой раздел делится на подразделы ###.
-- Пункт — одна-две строки о том, что видит пользователь. Без имён файлов,
-  команд, кодов и этапов работы: им место в «Для разработчиков».
-- То, что нужно знать до обновления (данные, совместимость), — цитатой «Важно».
-- Пустые разделы удаляются. Раздел «Для разработчиков» — последний и короткий.
-- Строки не переносить вручную: GitHub превращает каждый перенос в разрыв строки. Пункт или абзац — одна строка (Prettier следит за этим в updates/).
-- Блок «Установка» добавляется к выпуску на GitHub сам, писать его не нужно.
+Rules:
+- Written in English.
+- The first line is the "# Amby X.Y.Z — date" heading: the release title comes
+  from it, and it is not part of the release text.
+- Below the heading, one or two sentences on what this version is about.
+- "Highlights" has three to five bullets, each starting with a short bold idea.
+- Then sections by area, not "New / Improved": a reader looks for "what
+  changed in the editor", not "what was improved". Split a large section with ###.
+- A bullet is one or two lines about what the user sees. No file names,
+  commands, codes or work stages: those belong in "For developers".
+- What a user must know before updating (data, compatibility) goes in an
+  "Important" quote.
+- Remove empty sections. "For developers" is last and short.
+- Do not wrap lines by hand: GitHub turns every line break into a break. A bullet or paragraph is one line (Prettier enforces this in updates/).
+- The "Installation" block is added to the GitHub release automatically; do not write it.
 -->
 
-Главное в этой версии — …
+The main thing in this version is …
 
-## ✨ Главное
+## ✨ Highlights
 
-- **Короткая мысль.** Что изменилось для пользователя.
-- **Короткая мысль.** …
-- **Короткая мысль.** …
+- **Short idea.** What changed for the user.
+- **Short idea.** …
+- **Short idea.** …
 
-> **Важно.** Что нужно знать до обновления: изменения формата, перенос данных, несовместимости. Удалите, если такого нет.
+> **Important.** What to know before updating: format changes, data migration, incompatibilities. Remove if there is none.
 
-## 🪶 Творческая мастерская
+## 🪶 Creative workshop
 
-### Подраздел
-
-- …
-
-## ✏️ Редактор
+### Subsection
 
 - …
 
-## 🗃 Базы данных
+## ✏️ Editor
 
 - …
 
-## 🗂 Интерфейс
+## 🗃 Databases
 
 - …
 
-## 🛠 Исправления
+## 🗂 Interface
 
 - …
 
-## Для разработчиков
+## 🛠 Fixes
 
-- Форматы, команды, замеры — коротко.
+- …
+
+## For developers
+
+- Formats, commands, measurements — briefly.

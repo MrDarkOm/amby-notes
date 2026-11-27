@@ -7,9 +7,15 @@ import { Link2Off } from "lucide-react"
 import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
+import { HeadingHintsContext } from "../editor/heading-hints-context"
+import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
+import { EntityNamesContext } from "../editor/entity-names-context"
+import { entityNamesKey, entityNamesPlugin } from "./entity-names"
+import { NotePageControls, type NotePagesSource } from "./note-page-controls"
+import { appendMissingHeadings, revealNotePageAt } from "./note-pages"
 import { buildExtensions } from "./extensions"
-import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
-import { composeMarkdown, markdownToDoc, restoreSourceFormatting } from "./markdown"
+import { markdownToDoc } from "./markdown"
+import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
 import { clamp, type EditorHandle } from "./constants"
 import {
   docSelectionToMarkdownSelection,
@@ -23,9 +29,17 @@ import {
   type WikiLinkContextDetail,
 } from "./tags-wikilinks"
 import { BubbleToolbar } from "./BubbleToolbar"
+import { ImageToolbar } from "./ImageToolbar"
+import { ImageCropHost, type CropRequest } from "./ImageCropDialog"
+import { ImageLightbox } from "./ImageLightbox"
+import { collectPictures, type LightboxPicture } from "./image-gallery"
+import { CROP_IMAGE_EVENT, OPEN_IMAGE_VIEWER_EVENT } from "./image-commands"
+import { attachmentKind, localFileKind } from "./attachment-kind"
 import { TextSelection } from "@tiptap/pm/state"
 import { selectEndOfNote } from "./line-after-block"
 import { nearestLinePos } from "./nearest-line"
+import { useGapSelection } from "./use-gap-selection"
+import { isImageLinePos } from "./image-line"
 import { BlockHandles } from "./BlockHandles"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { WikiLinkContextMenu } from "./WikiLinkContextMenu"
@@ -33,13 +47,13 @@ import { primeAssetConverter, setAssetContext } from "./asset-resolver"
 import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop, getTauriDropPosForView } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
-import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import { OPEN_LINK_PANEL_EVENT } from "./block-shortcuts"
 import { InlineSuggestPanel } from "./InlineSuggestPanel"
 import { dismissInlineSuggest } from "./inline-suggest"
 import { FindBar } from "./FindBar"
 import { TableControls } from "./TableControls"
 import { OPEN_FIND_EVENT } from "./find-in-note"
+import { REVEAL_ANCHOR_EVENT } from "../anchor-navigation"
 import {
   SLASH_TRIGGER_EVENT,
   dismissSlashMenu,
@@ -53,6 +67,8 @@ interface TiptapEditorProps {
   editorRef?: React.RefObject<EditorHandle>
   placeholder?: string
   editable?: boolean
+  /** Full notes may offer the paged view; embedded editors keep their usual layout. */
+  notePages?: NotePagesSource
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
   resolveWikiLinkTarget?: (target: string) => string | null
@@ -71,8 +87,18 @@ interface TiptapEditorProps {
 
 interface MenuState {
   open: boolean
+  /**
+   * The left and right edge of what the toolbar belongs to (the selection, or the picture): the
+   * toolbar starts at the left edge, or ends at the right edge when it would run out of the
+   * window.
+   */
   left: number
+  right: number
   top: number
+  /** What the toolbar belongs to has scrolled out of sight: the toolbar is kept but not shown. */
+  hidden?: boolean
+  /** The toolbar of a selected picture, not the text toolbar. */
+  image?: boolean
   /** Set when the toolbar was called for its link panel; a new value reopens it. */
   linkRequest?: number
 }
@@ -87,8 +113,39 @@ interface InlineUnlinkState {
   top: number
 }
 
-const MENU_WIDTH = 290
 const MENU_HEIGHT = 44
+
+/** The box of the picture drawn by a node (its wrapper, not the inline box around it). */
+function pictureBox(dom: HTMLElement): DOMRect {
+  return (dom.querySelector(".amby-image-wrap") ?? dom).getBoundingClientRect()
+}
+
+/** Where the toolbar of a picture with this box goes: as for text, under it, or above it with no room. */
+function pictureMenuPlacement(rect: DOMRect) {
+  return { left: rect.left, right: rect.right, top: menuTop(rect.top, rect.bottom, MENU_HEIGHT) }
+}
+
+/** The box in which the note scrolls: what is outside it is not on screen. */
+function visibleBounds(editorDom: HTMLElement): { top: number; bottom: number } {
+  for (let node = editorDom.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY
+    if ((overflow === "auto" || overflow === "scroll") && node.scrollHeight > node.clientHeight) {
+      const rect = node.getBoundingClientRect()
+      return { top: rect.top, bottom: rect.bottom }
+    }
+  }
+  return { top: 0, bottom: window.innerHeight }
+}
+
+/**
+ * Where a toolbar of `height` goes for a selection spanning `selectionTop`..`selectionBottom`:
+ * under it, or above it when there is no room under it (the text is at the bottom of the window).
+ */
+function menuTop(selectionTop: number, selectionBottom: number, height: number): number {
+  const below = selectionBottom + 8
+  if (below + height + 8 <= window.innerHeight) return below
+  return Math.max(8, selectionTop - height - 8)
+}
 
 // Shared rich-text editor used by both Live (editable) and Read (editable=false)
 // modes. Markdown is the source of truth: `value` is parsed on the way in and
@@ -102,6 +159,7 @@ export function TiptapEditor({
   editorRef,
   placeholder = i18n.t("editor.placeholder"),
   editable = true,
+  notePages,
   onTagClick,
   onWikiLinkClick,
   resolveWikiLinkTarget,
@@ -115,11 +173,13 @@ export function TiptapEditor({
   onContentDirty,
   onContentClean,
 }: TiptapEditorProps) {
-  const valueRef = React.useRef(value)
-  const originalValueRef = React.useRef(value)
-  const onChangeRef = React.useRef(onChange)
-  const onContentDirtyRef = React.useRef(onContentDirty)
-  const onContentCleanRef = React.useRef(onContentClean)
+  const serialization = useEditorSerialization({
+    value,
+    noteId,
+    onChange,
+    onContentDirty,
+    onContentClean,
+  })
   const onSelectionChangeRef = React.useRef(onSelectionChange)
   const restoredSelectionRef = React.useRef(false)
   const suppressSelectionMenuRef = React.useRef(false)
@@ -128,63 +188,15 @@ export function TiptapEditor({
     onWikiLinkClick,
     resolveWikiLinkTarget,
   })
-  const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const documentDirtyRef = React.useRef(false)
-  const noteIdRef = React.useRef(noteId)
-  // One request per loaded text: the first save that may rewrite a block's source.
-  const rewriteSnapshotRequestedRef = React.useRef(false)
-  const userInteractedRef = React.useRef(false)
-  const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
+  const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, right: 0, top: 0 })
+  const [cropRequest, setCropRequest] = React.useState<CropRequest | null>(null)
+  const [lightbox, setLightbox] = React.useState<{
+    pictures: LightboxPicture[]
+    start: number
+  } | null>(null)
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
   const [inlineUnlink, setInlineUnlink] = React.useState<InlineUnlinkState | null>(null)
   const unlinkCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Serializing is O(doc size); running it on every keystroke lags large notes.
-  // Debounce it, and flush on blur/unmount so the save path never loses edits.
-  const flushSerialize = React.useCallback((ed: Editor) => {
-    if (serializeTimerRef.current) {
-      clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = null
-    }
-    // Source/Live switches and React Fast Refresh both unmount this component.
-    // Serializing an untouched editor during those transitions can persist a
-    // transient ProseMirror document and repeatedly materialise blank blocks.
-    // Only a real editor update authorises a Markdown write.
-    if (!documentDirtyRef.current) return
-    if (ed.isDestroyed) return
-    const composed = composeMarkdown(ed.state.doc)
-    const markdown = restoreSourceFormatting(composed.markdown, originalValueRef.current)
-    documentDirtyRef.current = false
-    if (markdown === valueRef.current) {
-      onContentCleanRef.current?.()
-      return
-    }
-    // The note holds text the editor would spell differently, and this edit may be the
-    // one that rewrites it: the file being replaced must stay recoverable from history.
-    if (composed.mayRewriteSource && noteIdRef.current && !rewriteSnapshotRequestedRef.current) {
-      rewriteSnapshotRequestedRef.current = true
-      requestSourceRewriteSnapshot(noteIdRef.current)
-    }
-    valueRef.current = markdown
-    originalValueRef.current = markdown
-    onChangeRef.current(markdown)
-  }, [])
-
-  React.useEffect(() => {
-    onChangeRef.current = onChange
-  }, [onChange])
-
-  React.useEffect(() => {
-    noteIdRef.current = noteId
-  }, [noteId])
-
-  React.useEffect(() => {
-    onContentDirtyRef.current = onContentDirty
-  }, [onContentDirty])
-
-  React.useEffect(() => {
-    onContentCleanRef.current = onContentClean
-  }, [onContentClean])
 
   React.useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
@@ -213,46 +225,59 @@ export function TiptapEditor({
   // useEditor compares option references on every React render. An inline
   // editorProps object reapplies DOM props and editor state even when only
   // autosave metadata changed. Leave the focused editor DOM untouched.
-  const editorProps = React.useMemo(() => ({ attributes: { class: "amby-tiptap-prose" } }), [])
+  // tabindex -1: Tab moves between the app's buttons and never lands in the text, where it
+  // would type a tab. The text is entered by a click or from the title (Enter).
+  const editorProps = React.useMemo(
+    () => ({ attributes: { class: "amby-tiptap-prose", tabindex: "-1" } }),
+    [],
+  )
+
+  const pointerSelectingRef = React.useRef(false)
+  const selectionSettleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const closeMenu = React.useCallback(() => {
+    if (selectionSettleTimerRef.current) {
+      clearTimeout(selectionSettleTimerRef.current)
+      selectionSettleTimerRef.current = null
+    }
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
   }, [])
 
-  const editor = useEditor({
-    editable,
-    extensions,
-    content: initialContent,
-    onCreate: ({ editor }) => {
-      // Make the asset context available before image NodeViews paint. The
-      // effect below still handles vault/note changes for a mounted editor.
-      setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "", noteId })
-    },
-    editorProps,
-    onTransaction: ({ transaction }) => {
-      if (transaction.getMeta("uiEvent") || transaction.getMeta("pointer")) {
-        userInteractedRef.current = true
+  const computeSelectionAnchor = React.useCallback((ed: Editor) => {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed && ed.view.dom.contains(sel.anchorNode)) {
+      const rects = Array.from(sel.getRangeAt(0).getClientRects()).filter(
+        (r) => r.width > 0 && r.height > 0,
+      )
+      if (rects.length > 0) {
+        const minLeft = Math.min(...rects.map((r) => r.left))
+        const maxRight = Math.max(...rects.map((r) => r.right))
+        const minTop = Math.min(...rects.map((r) => r.top))
+        const maxBottom = Math.max(...rects.map((r) => r.bottom))
+        return {
+          left: minLeft,
+          right: maxRight,
+          top: minTop,
+          bottom: maxBottom,
+        }
       }
-    },
-    onUpdate: ({ editor, transaction }) => {
-      const isUserAction =
-        userInteractedRef.current ||
-        Boolean(transaction.getMeta("uiEvent") || transaction.getMeta("pointer"))
-      if (!isUserAction) return
-      documentDirtyRef.current = true
-      onContentDirtyRef.current?.()
-      if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
-    },
-    onSelectionUpdate: ({ editor }) => {
-      if (!editor.isEditable) return
-      if (suppressSelectionMenuRef.current) {
-        closeMenu()
-        return
-      }
-      const { from, to, empty } = editor.state.selection
-      const selection = editor.state.selection
-      // A selected database block has no text to format.
+    }
+    const { from, to } = ed.state.selection
+    const start = ed.view.coordsAtPos(from)
+    const end = ed.view.coordsAtPos(to)
+    return {
+      left: Math.min(start.left, end.left),
+      right: Math.max(start.right, end.right),
+      top: Math.min(start.top, end.top),
+      bottom: Math.max(start.bottom, end.bottom),
+    }
+  }, [])
+
+  const openSelectionMenu = React.useCallback(
+    (ed: Editor) => {
+      if (ed.isDestroyed || !ed.isEditable) return
+      const { empty } = ed.state.selection
+      const selection = ed.state.selection
       if (
         empty ||
         (selection instanceof NodeSelection && selection.node.type.name === "ambyBlock")
@@ -262,41 +287,107 @@ export function TiptapEditor({
       }
       window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
       setWikiLinkContext(null)
-      dismissSlashMenu(editor)
-      const start = editor.view.coordsAtPos(from)
-      const end = editor.view.coordsAtPos(to)
-      const left = clamp(
-        (start.left + end.right) / 2 - MENU_WIDTH / 2,
-        8,
-        window.innerWidth - MENU_WIDTH - 8,
-      )
-      const below = Math.max(start.bottom, end.bottom) + 10
-      const above = Math.min(start.top, end.top) - MENU_HEIGHT - 6
-      // Prefer below; fall back to above if there is not enough room
-      const top =
-        below + MENU_HEIGHT < window.innerHeight - 8
-          ? below
-          : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
-      // The same selection reported again keeps a link panel that Mod-K opened.
+      dismissSlashMenu(ed)
+      // A selected picture has its own toolbar, above the picture; a player or a card
+      // drawn from an image node has no text to format and no picture to copy.
+      if (selection instanceof NodeSelection && selection.node.type.name === "image") {
+        const src = selection.node.attrs.src as string | null
+        const dom = ed.view.nodeDOM(selection.from)
+        if (attachmentKind(src) || localFileKind(src) || !(dom instanceof HTMLElement)) {
+          closeMenu()
+          return
+        }
+        setMenu({ open: true, image: true, ...pictureMenuPlacement(pictureBox(dom)) })
+        return
+      }
+      const { left, right, top: selectionTop, bottom } = computeSelectionAnchor(ed)
+      const top = menuTop(selectionTop, bottom, MENU_HEIGHT)
       setMenu((prev) => ({
         open: true,
         left,
+        right,
         top,
-        linkRequest: prev.open ? prev.linkRequest : undefined,
+        linkRequest: prev.open && !prev.image ? prev.linkRequest : undefined,
       }))
     },
+    [closeMenu, computeSelectionAnchor],
+  )
+
+  const headingHints = React.useContext(HeadingHintsContext)
+  const editor = useEditor({
+    // The base rules are in themes/prosemirror-base.css: the same on every system.
+    injectCSS: false,
+    editable,
+    extensions,
+    content: initialContent,
+    onCreate: ({ editor }) => {
+      // Make the asset context available before image NodeViews paint. The
+      // effect below still handles vault/note changes for a mounted editor.
+      setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "", noteId })
+    },
+    editorProps,
+    onTransaction: ({ transaction }) => serialization.handleTransaction(transaction),
+    onUpdate: ({ editor, transaction }) => serialization.handleUpdate(editor, transaction),
+    onSelectionUpdate: ({ editor }) => {
+      if (!editor.isEditable) return
+      if (suppressSelectionMenuRef.current) {
+        closeMenu()
+        return
+      }
+      const { empty } = editor.state.selection
+      const selection = editor.state.selection
+      // A selected database block has no text to format.
+      if (
+        empty ||
+        (selection instanceof NodeSelection && selection.node.type.name === "ambyBlock")
+      ) {
+        closeMenu()
+        return
+      }
+      // While dragging the pointer to select text, wait until pointerup before showing the toolbar.
+      if (pointerSelectingRef.current) {
+        return
+      }
+      if (selectionSettleTimerRef.current) {
+        clearTimeout(selectionSettleTimerRef.current)
+      }
+      selectionSettleTimerRef.current = setTimeout(() => {
+        selectionSettleTimerRef.current = null
+        openSelectionMenu(editor)
+      }, 160)
+    },
     onBlur: ({ editor }) => {
-      flushSerialize(editor)
+      serialization.flush(editor)
       setInlineUnlink(null)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
         // input field for tag / link / wikilink panels).
         const floatingMenu = document.querySelector(".amby-floating-menu")
         if (floatingMenu?.contains(document.activeElement)) return
+        // The focus came back (a field of the toolbar handed it over): the menu stays.
+        if (!editor.isDestroyed && editor.view.hasFocus()) return
         closeMenu()
       }, 180)
     },
   })
+
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !headingHints) return
+    editor.registerPlugin(headingHintsPlugin(headingHints))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(headingHintsKey)
+    }
+  }, [editor, headingHints])
+
+  const entityNames = React.useContext(EntityNamesContext)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !entityNames) return
+    editor.registerPlugin(entityNamesPlugin(entityNames))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(entityNamesKey)
+      entityNames.onHover(null, null)
+    }
+  }, [editor, entityNames])
 
   React.useEffect(() => {
     const onContextMenu = (event: Event) => {
@@ -311,6 +402,81 @@ export function TiptapEditor({
     return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
   }, [closeMenu, editor])
 
+  // The viewer and the crop dialog of a picture are opened by the toolbar of a selected picture
+  // and by the block menu of its line, through events on the editor.
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const dom = editor.view.dom
+    const onViewer = (event: Event) => {
+      const { pos } = (event as CustomEvent<{ pos: number }>).detail
+      const { pictures, index } = collectPictures(editor, pos)
+      closeMenu()
+      if (pictures.length > 0) setLightbox({ pictures, start: index })
+    }
+    const onCrop = (event: Event) => {
+      closeMenu()
+      setCropRequest((event as CustomEvent<CropRequest>).detail)
+    }
+    dom.addEventListener(OPEN_IMAGE_VIEWER_EVENT, onViewer)
+    dom.addEventListener(CROP_IMAGE_EVENT, onCrop)
+    return () => {
+      dom.removeEventListener(OPEN_IMAGE_VIEWER_EVENT, onViewer)
+      dom.removeEventListener(CROP_IMAGE_EVENT, onCrop)
+    }
+  }, [closeMenu, editor])
+
+  // The toolbar is fixed to the window, so it follows what it belongs to when the note scrolls
+  // (or the window changes), and is not shown while that is out of sight.
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !menu.open) return
+    let frame = 0
+    const follow = () => {
+      frame = 0
+      if (editor.isDestroyed) return
+      const selection = editor.state.selection
+      let placement: { left: number; right: number; top: number }
+      let anchorTop: number
+      let anchorBottom: number
+      if (selection instanceof NodeSelection && selection.node.type.name === "image") {
+        const dom = editor.view.nodeDOM(selection.from)
+        if (!(dom instanceof HTMLElement)) return
+        const rect = pictureBox(dom)
+        placement = pictureMenuPlacement(rect)
+        anchorTop = rect.top
+        anchorBottom = rect.bottom
+      } else {
+        const anchor = computeSelectionAnchor(editor)
+        placement = {
+          left: anchor.left,
+          right: anchor.right,
+          top: menuTop(anchor.top, anchor.bottom, MENU_HEIGHT),
+        }
+        anchorTop = anchor.top
+        anchorBottom = anchor.bottom
+      }
+      const bounds = visibleBounds(editor.view.dom)
+      const hidden = anchorBottom < bounds.top || anchorTop > bounds.bottom
+      setMenu((prev) =>
+        prev.left === placement.left &&
+        prev.right === placement.right &&
+        prev.top === placement.top &&
+        Boolean(prev.hidden) === hidden
+          ? prev
+          : { ...prev, ...placement, hidden },
+      )
+    }
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(follow)
+    }
+    window.addEventListener("scroll", schedule, true)
+    window.addEventListener("resize", schedule)
+    return () => {
+      window.removeEventListener("scroll", schedule, true)
+      window.removeEventListener("resize", schedule)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [computeSelectionAnchor, editor, menu.open])
+
   // Mod-K: the toolbar opens on its link panel, also when nothing is selected. The cursor
   // inside a link selects that link, so the panel edits it.
   React.useEffect(() => {
@@ -324,25 +490,36 @@ export function TiptapEditor({
       window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
       setWikiLinkContext(null)
       dismissSlashMenu(editor)
-      const { from, to } = editor.state.selection
-      const start = editor.view.coordsAtPos(from)
-      const end = editor.view.coordsAtPos(to)
-      const left = clamp(
-        (start.left + end.right) / 2 - MENU_WIDTH / 2,
-        8,
-        window.innerWidth - MENU_WIDTH - 8,
-      )
-      const top = clamp(Math.max(start.bottom, end.bottom) + 10, 8, window.innerHeight - 140)
-      setMenu((prev) => ({ open: true, left, top, linkRequest: (prev.linkRequest ?? 0) + 1 }))
+      const { left, right, top: selectionTop, bottom } = computeSelectionAnchor(editor)
+      const top = menuTop(selectionTop, bottom, MENU_HEIGHT)
+      setMenu((prev) => ({
+        open: true,
+        left,
+        right,
+        top,
+        linkRequest: (prev.linkRequest ?? 0) + 1,
+      }))
     }
     editorDom.addEventListener(OPEN_LINK_PANEL_EVENT, openLinkPanel)
     return () => editorDom.removeEventListener(OPEN_LINK_PANEL_EVENT, openLinkPanel)
-  }, [editor])
+  }, [computeSelectionAnchor, editor])
 
   // Find in note (Mod-F), in Live and in Read. The selected text, when it is on one line,
   // is what the bar starts with.
   const [find, setFind] = React.useState<{ request: number; query: string } | null>(null)
   const wrapperRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const dom = editor.view.dom
+    const revealAnchor = (event: Event) => {
+      const target = event.target
+      if (target instanceof HTMLElement && target !== dom) {
+        revealNotePageAt(editor, editor.view.posAtDOM(target, 0))
+      }
+    }
+    dom.addEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+    return () => dom.removeEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+  }, [editor])
   const openFind = React.useCallback(() => {
     if (!editor || editor.isDestroyed) return
     const { from, to } = editor.state.selection
@@ -387,19 +564,10 @@ export function TiptapEditor({
   // (history navigation) or a parent-driven content reset arrives.
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
-    if (value === valueRef.current) return
-    userInteractedRef.current = false
-    documentDirtyRef.current = false
-    if (serializeTimerRef.current) {
-      clearTimeout(serializeTimerRef.current)
-      serializeTimerRef.current = null
-    }
-    valueRef.current = value
-    originalValueRef.current = value
-    rewriteSnapshotRequestedRef.current = false
+    if (!serialization.acceptExternalValue(value)) return
     setInlineUnlink(null)
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
-  }, [value, editor])
+  }, [value, editor, serialization])
 
   // A Source <-> Live transition remounts the editor. Restore the source
   // offset once, after parsing, without feeding a selection transaction back
@@ -409,23 +577,11 @@ export function TiptapEditor({
     restoredSelectionRef.current = true
     const mapped = markdownSelectionToDocSelection(editor.state.doc, value, selection)
     if (!mapped) return
+    revealNotePageAt(editor, mapped.from)
     editor.commands.setTextSelection(mapped)
   }, [editor, selection, value])
 
-  // Flush any pending serialization before this editor instance goes away
-  // (document switch, view-mode toggle, tab close) so the latest edit is saved.
-  React.useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-    return () => flushSerialize(editor)
-  }, [editor, flushSerialize])
-
-  // Lifecycle boundaries (window close, visibility hide, vault switch) happen
-  // before React unmounts this component, so register the same guarded flush
-  // independently of the unmount cleanup above.
-  React.useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-    return registerEditorSerialization({ flush: () => flushSerialize(editor) })
-  }, [editor, flushSerialize])
+  useEditorSerializationLifecycle(editor, serialization)
 
   // Toggle Live <-> Read in place without re-instantiating the editor.
   React.useEffect(() => {
@@ -439,15 +595,40 @@ export function TiptapEditor({
 
   // Where the last press began. A drag across several lines ends in a click on their common
   // parent, which reads as a click in the empty page; a press that moved is a drag, and the text
-  // it selected must stay selected.
+  // it selected must stay selected. Also defers the floating selection toolbar until pointerup.
   const pressRef = React.useRef<{ x: number; y: number } | null>(null)
   React.useEffect(() => {
     const onPress = (event: PointerEvent) => {
       pressRef.current = { x: event.clientX, y: event.clientY }
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.closest(".amby-floating-menu")) return
+      if (wrapperRef.current?.contains(target)) {
+        pointerSelectingRef.current = true
+        closeMenu()
+      }
+    }
+    const onRelease = () => {
+      if (!pointerSelectingRef.current) return
+      pointerSelectingRef.current = false
+      requestAnimationFrame(() => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return
+        if (suppressSelectionMenuRef.current) return
+        if (!editor.state.selection.empty) {
+          openSelectionMenu(editor)
+        }
+      })
     }
     document.addEventListener("pointerdown", onPress, true)
-    return () => document.removeEventListener("pointerdown", onPress, true)
-  }, [])
+    window.addEventListener("pointerup", onRelease, true)
+    window.addEventListener("pointercancel", onRelease, true)
+    return () => {
+      document.removeEventListener("pointerdown", onPress, true)
+      window.removeEventListener("pointerup", onRelease, true)
+      window.removeEventListener("pointercancel", onRelease, true)
+    }
+  }, [closeMenu, editor, openSelectionMenu])
+
+  useGapSelection(editor, wrapperRef)
 
   // Click in the empty page: the cursor goes to the nearest line, or to the end of the note.
   const focusAtPoint = React.useCallback(
@@ -464,7 +645,8 @@ export function TiptapEditor({
         editor.view.dispatch(selectEndOfNote(editor.state))
       } else {
         const pos = nearestLinePos(editor.view, y, x)
-        if (pos === null) return
+        // Beside a picture alone on its line there is nothing to put the cursor on.
+        if (pos === null || isImageLinePos(editor.state, pos)) return
         editor.view.dispatch(
           editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos)),
         )
@@ -477,18 +659,23 @@ export function TiptapEditor({
   // Expose undo/redo to the parent's floating widget.
   React.useEffect(() => {
     if (!editorRef || !editor) return
-    ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
+    const handle: EditorHandle = {
+      appendMissingHeadings: (titles) => appendMissingHeadings(editor, titles),
       undo: () => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
         editor.chain().focus().undo().run()
       },
       redo: () => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
         editor.chain().focus().redo().run()
       },
-      flush: () => flushSerialize(editor),
+      flush: () => serialization.flush(editor),
       getMarkdownSelection: () =>
-        docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
+        docSelectionToMarkdownSelection(
+          editor.state.doc,
+          serialization.currentValue(),
+          editor.state.selection,
+        ),
       focusAtPoint,
       focus: (position?: "start" | "end") => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return
@@ -501,7 +688,11 @@ export function TiptapEditor({
         editor.chain().focus("start").run()
       },
     }
-  }, [editor, editorRef, flushSerialize, focusAtPoint])
+    editorRef.current = handle
+    return () => {
+      if (editorRef.current === handle) editorRef.current = null as never
+    }
+  }, [editor, editorRef, serialization, focusAtPoint])
 
   // Make vault/note paths reachable from inside extensions/node views.
   React.useEffect(() => {
@@ -677,7 +868,7 @@ export function TiptapEditor({
       setInlineUnlink(null)
       return
     }
-    userInteractedRef.current = true
+    serialization.markUserIntent()
     editor.view.dispatch(editor.state.tr.insertText(replacement, from, to))
     editor.view.focus()
     setInlineUnlink(null)
@@ -702,26 +893,32 @@ export function TiptapEditor({
       className="amby-tiptap relative min-h-[360px] pb-24"
       data-editor-readonly={isReadOnly ? "true" : "false"}
       onClick={(event) => {
-        // The empty page inside the editor (under the last block, beside columns): the
-        // cursor goes to the nearest line, or to the end of the note.
+        // The empty page inside the editor (under the last block, beside columns, or in
+        // the inter-line gap between text lines): the cursor goes to the nearest line at X,
+        // or to the end of the note.
         if (!editor || editor.isDestroyed || !editor.isEditable || event.button !== 0) return
-        if (event.target !== event.currentTarget && event.target !== editor.view.dom) return
+        const target = event.target as HTMLElement
+        const isContainerGap =
+          target === event.currentTarget ||
+          target === editor.view.dom ||
+          target.classList.contains("amby-column-content")
+        if (!isContainerGap) return
         focusAtPoint(event.clientX, event.clientY)
       }}
       onKeyDownCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onInputCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onPasteCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onCutCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
       onDropCapture={() => {
-        userInteractedRef.current = true
+        serialization.markUserIntent()
       }}
     >
       {editor && find && (
@@ -732,12 +929,23 @@ export function TiptapEditor({
           onClose={() => setFind(null)}
         />
       )}
-      {editor && editable && menu.open && (
+      {editor && editable && menu.open && menu.image && (
+        <ImageToolbar
+          editor={editor}
+          left={menu.left}
+          right={menu.right}
+          top={menu.top}
+          hidden={menu.hidden}
+        />
+      )}
+      {editor && editable && menu.open && !menu.image && (
         <BubbleToolbar
           key={menu.linkRequest ?? 0}
           editor={editor}
           left={menu.left}
+          right={menu.right}
           top={menu.top}
+          hidden={menu.hidden}
           initialPanel={menu.linkRequest ? "link" : null}
         />
       )}
@@ -762,7 +970,30 @@ export function TiptapEditor({
       {editor && editable && !isReadOnly && (
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}
-      <EditorContent editor={editor} />
+      {notePages ? (
+        <NotePageControls
+          editor={editor}
+          source={notePages}
+          noteId={noteId}
+          notePath={notePath}
+          vaultPath={vaultPath}
+        >
+          <EditorContent editor={editor} />
+        </NotePageControls>
+      ) : (
+        <EditorContent editor={editor} />
+      )}
+      {editor && lightbox && (
+        <ImageLightbox
+          editor={editor}
+          pictures={lightbox.pictures}
+          start={lightbox.start}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+      {editor && editable && (
+        <ImageCropHost editor={editor} request={cropRequest} onClose={() => setCropRequest(null)} />
+      )}
       {editor && (
         <WikiLinkContextMenu
           editor={editor}

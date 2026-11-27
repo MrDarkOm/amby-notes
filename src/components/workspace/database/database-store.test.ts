@@ -62,3 +62,24 @@ describe("database store lifecycle", () => {
     expect(state.hosts[host.key]?.status).toBe("ready")
   })
 })
+
+describe("database view navigation requests", () => {
+  beforeEach(() => useDatabaseStore.getState().reset(null))
+
+  it("does not clear a newer selection when an older request finishes", () => {
+    useDatabaseStore.getState().requestView("db-1", "view-1")
+    const first = useDatabaseStore.getState().requestedView!
+    useDatabaseStore.getState().requestView("db-1", "view-2")
+    useDatabaseStore.getState().clearRequestedView(first)
+    expect(useDatabaseStore.getState().requestedView?.viewId).toBe("view-2")
+    const second = useDatabaseStore.getState().requestedView!
+    useDatabaseStore.getState().clearRequestedView(second)
+    expect(useDatabaseStore.getState().requestedView).toBeNull()
+  })
+
+  it("drops pending navigation when changing vaults", () => {
+    useDatabaseStore.getState().requestView("db-1", "view-1")
+    useDatabaseStore.getState().reset(12)
+    expect(useDatabaseStore.getState().requestedView).toBeNull()
+  })
+})

@@ -1,0 +1,1869 @@
+use crate::frontmatter;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use ulid::Ulid;
+
+const HISTORY_DIR: &str = "history";
+const MANIFEST_FILE: &str = "manifest.json";
+const SNAPSHOT_JOURNAL_FILE: &str = "snapshot-journal.json";
+const CLEANUP_JOURNAL_FILE: &str = "cleanup-journal.json";
+const HISTORY_FORMAT_VERSION: u8 = 1;
+const AUTOSAVE_SNAPSHOT_INTERVAL_MS: u64 = 10 * 60 * 1_000;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SnapshotMetadata {
+    version: u8,
+    id: String,
+    source_path: String,
+    created_at_ms: u64,
+    reason: String,
+    size_bytes: u64,
+    /// Non-cryptographic integrity check for accidental disk corruption. This
+    /// is deliberately stored with the snapshot, not inferred from its file
+    /// name, so a damaged version can never be restored silently.
+    #[serde(default)]
+    content_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct HistoryManifest {
+    version: u8,
+    snapshots: Vec<SnapshotMetadata>,
+}
+
+impl Default for HistoryManifest {
+    fn default() -> Self {
+        Self {
+            version: HISTORY_FORMAT_VERSION,
+            snapshots: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct CleanupJournal {
+    version: u8,
+    snapshot: SnapshotMetadata,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct SnapshotWriteJournal {
+    version: u8,
+    snapshot: SnapshotMetadata,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotEntry {
+    pub id: String,
+    pub created_at_ms: u64,
+    pub reason: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotText {
+    pub source_path: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryStats {
+    pub snapshot_count: u64,
+    pub note_count: u64,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRetention {
+    pub max_snapshots_per_note: u32,
+    pub max_age_days: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCleanupResult {
+    pub removed_count: u64,
+    pub freed_bytes: u64,
+    pub remaining: HistoryStats,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCleanupPreview {
+    pub removed_count: u64,
+    pub freed_bytes: u64,
+    pub remaining: HistoryStats,
+}
+
+pub struct PreparedSnapshotRestore {
+    pub path: PathBuf,
+    pub bytes: Vec<u8>,
+}
+
+impl From<SnapshotMetadata> for SnapshotEntry {
+    fn from(snapshot: SnapshotMetadata) -> Self {
+        Self {
+            id: snapshot.id,
+            created_at_ms: snapshot.created_at_ms,
+            reason: snapshot.reason,
+            size_bytes: snapshot.size_bytes,
+        }
+    }
+}
+
+fn history_root(vault: &Path) -> PathBuf {
+    vault.join(".amby").join(HISTORY_DIR)
+}
+
+fn manifest_path(root: &Path) -> PathBuf {
+    root.join(MANIFEST_FILE)
+}
+
+fn cleanup_journal_path(root: &Path) -> PathBuf {
+    root.join(CLEANUP_JOURNAL_FILE)
+}
+
+fn snapshot_journal_path(root: &Path) -> PathBuf {
+    root.join(SNAPSHOT_JOURNAL_FILE)
+}
+
+fn cleanup_staging_path(root: &Path, id: &str) -> PathBuf {
+    root.join(format!(".{id}.cleanup"))
+}
+
+fn snapshot_data_path(root: &Path, id: &str) -> PathBuf {
+    root.join(format!("{id}.snapshot"))
+}
+
+#[cfg(test)]
+fn snapshot_meta_path(root: &Path, id: &str) -> PathBuf {
+    root.join(format!("{id}.json"))
+}
+
+fn source_relative(vault: &Path, source: &Path) -> Result<String, String> {
+    let vault_real = vault.canonicalize().map_err(|error| error.to_string())?;
+    let source_real = source.canonicalize().map_err(|error| error.to_string())?;
+    source_real
+        .strip_prefix(vault_real)
+        .map_err(|_| format!("Snapshot path is outside the vault: {}", source.display()))
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn read_legacy_metadata(root: &Path) -> Vec<SnapshotMetadata> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|raw| serde_json::from_slice::<SnapshotMetadata>(&raw).ok())
+        .collect()
+}
+
+fn history_lock(vault: &Path) -> Result<fs::File, String> {
+    crate::paths::confine_rel_no_symlinks(vault, ".amby/history")?;
+    crate::paths::lock_vault_file(vault, ".amby/history/.lock")
+}
+
+// A history read on a vault with no history must not create metadata. Use
+// an empty view in that case, even if another process creates the directory
+// after this check.
+fn open_history(vault: &Path) -> Result<(Option<fs::File>, HistoryManifest), String> {
+    let root = history_root(vault);
+    match fs::symlink_metadata(&root) {
+        Ok(metadata) if metadata.is_dir() => {
+            let lock = history_lock(vault)?;
+            Ok((Some(lock), load_manifest(&root)?))
+        }
+        Ok(_) => Err("History path is not a directory".into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok((None, HistoryManifest::default()))
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn now_ms() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn validate_metadata(metadata: &SnapshotMetadata) -> Result<(), String> {
+    metadata
+        .id
+        .parse::<Ulid>()
+        .map_err(|_| "Invalid snapshot identifier in history manifest".to_string())?;
+    if !matches!(metadata.version, 1 | 2) || metadata.source_path.is_empty() {
+        return Err("Invalid snapshot metadata in history manifest".to_string());
+    }
+    Ok(())
+}
+
+fn validate_manifest(manifest: &HistoryManifest) -> Result<(), String> {
+    if manifest.version != HISTORY_FORMAT_VERSION {
+        return Err(format!(
+            "Unsupported history manifest version {}",
+            manifest.version
+        ));
+    }
+    let mut ids = HashSet::new();
+    for metadata in &manifest.snapshots {
+        validate_metadata(metadata)?;
+        if !ids.insert(&metadata.id) {
+            return Err("Duplicate snapshot identifier in history manifest".to_string());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_MANIFEST_WRITE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn write_manifest(root: &Path, manifest: &HistoryManifest) -> Result<(), String> {
+    validate_manifest(manifest)?;
+    #[cfg(test)]
+    if FAIL_MANIFEST_WRITE.with(|fail| fail.get()) {
+        return Err("injected history manifest write failure".to_string());
+    }
+    frontmatter::atomic_write_bytes(
+        &manifest_path(root),
+        &serde_json::to_vec_pretty(manifest).map_err(|error| error.to_string())?,
+    )
+}
+
+fn read_or_migrate_manifest(root: &Path) -> Result<HistoryManifest, String> {
+    match fs::read(manifest_path(root)) {
+        Ok(raw) => {
+            let manifest: HistoryManifest = serde_json::from_slice(&raw)
+                .map_err(|error| format!("History manifest is corrupted: {error}"))?;
+            validate_manifest(&manifest)?;
+            Ok(manifest)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if !root.exists() {
+                return Ok(HistoryManifest::default());
+            }
+            // Versions written before DATA-01 stored one JSON document per
+            // snapshot. Scan it once, then make subsequent reads O(1) with
+            // respect to metadata files.
+            let mut snapshots = read_legacy_metadata(root)
+                .into_iter()
+                .filter(|metadata| {
+                    validate_metadata(metadata).is_ok()
+                        && snapshot_data_path(root, &metadata.id).is_file()
+                })
+                .collect::<Vec<_>>();
+            snapshots.sort_by_key(|snapshot| snapshot.created_at_ms);
+            snapshots.dedup_by(|left, right| left.id == right.id);
+            let manifest = HistoryManifest {
+                version: HISTORY_FORMAT_VERSION,
+                snapshots,
+            };
+            write_manifest(root, &manifest)?;
+            Ok(manifest)
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn recover_interrupted_cleanup(root: &Path, manifest: &HistoryManifest) -> Result<(), String> {
+    let journal_path = cleanup_journal_path(root);
+    let raw = match fs::read(&journal_path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let journal: CleanupJournal = serde_json::from_slice(&raw)
+        .map_err(|error| format!("History cleanup journal is corrupted: {error}"))?;
+    if journal.version != HISTORY_FORMAT_VERSION {
+        return Err("Unsupported history cleanup journal version".to_string());
+    }
+    validate_metadata(&journal.snapshot)?;
+
+    let snapshot_path = snapshot_data_path(root, &journal.snapshot.id);
+    let staging_path = cleanup_staging_path(root, &journal.snapshot.id);
+    let retained = manifest
+        .snapshots
+        .iter()
+        .any(|snapshot| snapshot.id == journal.snapshot.id);
+
+    if retained {
+        if staging_path.exists() && !snapshot_path.exists() {
+            fs::rename(&staging_path, &snapshot_path).map_err(|error| error.to_string())?;
+        } else if !staging_path.exists() && !snapshot_path.exists() {
+            return Err(format!(
+                "Interrupted history cleanup lost snapshot {}",
+                journal.snapshot.id
+            ));
+        } else if staging_path.exists() {
+            fs::remove_file(&staging_path).map_err(|error| error.to_string())?;
+        }
+    } else if staging_path.exists() {
+        fs::remove_file(&staging_path).map_err(|error| error.to_string())?;
+    }
+
+    fs::remove_file(journal_path).map_err(|error| error.to_string())
+}
+
+fn recover_interrupted_snapshot_write(
+    root: &Path,
+    manifest: &HistoryManifest,
+) -> Result<(), String> {
+    let journal_path = snapshot_journal_path(root);
+    let raw = match fs::read(&journal_path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let journal: SnapshotWriteJournal = serde_json::from_slice(&raw)
+        .map_err(|error| format!("History snapshot journal is corrupted: {error}"))?;
+    if journal.version != HISTORY_FORMAT_VERSION {
+        return Err("Unsupported history snapshot journal version".to_string());
+    }
+    validate_metadata(&journal.snapshot)?;
+    let data_path = snapshot_data_path(root, &journal.snapshot.id);
+    let committed = manifest
+        .snapshots
+        .iter()
+        .any(|snapshot| snapshot.id == journal.snapshot.id);
+    if committed {
+        if !data_path.is_file() {
+            return Err(format!(
+                "Committed history snapshot {} is missing its data file",
+                journal.snapshot.id
+            ));
+        }
+    } else if data_path.exists() {
+        fs::remove_file(&data_path).map_err(|error| error.to_string())?;
+    }
+    fs::remove_file(journal_path).map_err(|error| error.to_string())
+}
+
+fn load_manifest(root: &Path) -> Result<HistoryManifest, String> {
+    let manifest = read_or_migrate_manifest(root)?;
+    recover_interrupted_snapshot_write(root, &manifest)?;
+    recover_interrupted_cleanup(root, &manifest)?;
+    Ok(manifest)
+}
+
+fn history_stats(manifest: &HistoryManifest) -> HistoryStats {
+    let notes = manifest
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.source_path.as_str())
+        .collect::<HashSet<_>>();
+    HistoryStats {
+        snapshot_count: manifest.snapshots.len() as u64,
+        note_count: notes.len() as u64,
+        size_bytes: manifest
+            .snapshots
+            .iter()
+            .map(|snapshot| snapshot.size_bytes)
+            .sum(),
+    }
+}
+
+fn content_hash(bytes: &[u8]) -> String {
+    // FNV-1a is compact and stable across platforms. It is not a security
+    // boundary; it detects accidental corruption before a restore operation.
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn validate_snapshot_bytes(metadata: &SnapshotMetadata, bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() as u64 != metadata.size_bytes {
+        return Err(format!(
+            "Historical version {} is incomplete (expected {} bytes, found {})",
+            metadata.id,
+            metadata.size_bytes,
+            bytes.len()
+        ));
+    }
+    if let Some(expected) = &metadata.content_hash {
+        if content_hash(bytes) != *expected {
+            return Err(format!(
+                "Historical version {} failed its integrity check",
+                metadata.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Store the pre-write bytes of an existing vault file. Snapshots use opaque
+/// bytes so a later restore is byte-exact, including any BOM or line endings.
+/// Returns `Ok(None)` when the file is new or already contains the replacement.
+pub fn snapshot_before_write(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    reason: &str,
+) -> Result<Option<String>, String> {
+    // A property edit the AI panel applies leaves an `ai-edit` version, which is kept even when
+    // the vault's history is switched off.
+    let reason = if AI_PROPERTY_EDIT.with(std::cell::Cell::get)
+        && (reason == "cli-property"
+            || reason == "database-value"
+            || reason.starts_with("property-"))
+    {
+        AI_EDIT_REASON
+    } else {
+        reason
+    };
+    snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
+}
+
+/// Keeps the current bytes of `source` as a version, whatever replaces them next (a merge, a
+/// rename that may rewrite a database description). `reason` must be one of the kept reasons, so
+/// the version exists even with the history switched off.
+pub fn snapshot_current(vault: &Path, source: &Path, reason: &str) -> Result<String, String> {
+    if !KEPT_REASONS.contains(&reason) {
+        return Err("Only a kept reason can take an unconditional snapshot".into());
+    }
+    // An empty replacement never equals a non-empty file; an empty file needs no version.
+    snapshot_before_write(vault, source, &[], reason)?
+        .ok_or_else(|| "Nothing to keep: the file is empty or missing".to_string())
+}
+
+/// The validated bytes of a version, for an undo that writes them back to a path it checked.
+pub fn read_snapshot_bytes(vault: &Path, id: &str) -> Result<Vec<u8>, String> {
+    Ok(prepare_snapshot_restore(vault, id)?.bytes)
+}
+
+/// The structural journal retains the snapshot ID across retries.
+pub(crate) fn snapshot_before_structural_write(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    id: Ulid,
+) -> Result<Option<String>, String> {
+    snapshot_before_write_with_id(vault, source, replacement, CLI_EDIT_REASON, now_ms()?, id)
+}
+
+/// The save that may write a block of a note in the editor's own form for the first
+/// time since the note was loaded (see `docs/markdown-compatibility.md`). The file it
+/// replaces is the last one that holds the author's own spelling of those blocks, so
+/// this snapshot is never coalesced with autosaves and is taken even when history is
+/// switched off for the vault.
+pub const SOURCE_REWRITE_REASON: &str = "note-rewrite";
+
+/// A file is replaced by a version that arrived from the server (docs/sync-plan.md, Р8). Like
+/// [`SOURCE_REWRITE_REASON`] it is never coalesced with autosaves and is taken even when history
+/// is switched off for the vault: it is the only copy of what the replacement overwrites.
+pub const SYNC_OVERWRITE_REASON: &str = "sync-overwrite";
+
+/// A version of a note is put back. The text it replaces is kept even when the history is switched
+/// off: restoring is not asked about because nothing is lost by it, and that holds only if the current
+/// text becomes a version first.
+pub const RESTORE_REASON: &str = "restore";
+
+/// The links of a note were rewritten because a note or a folder it links to was renamed or moved.
+/// Kept even when the history is switched off: the undo of the rename or the move puts these exact
+/// bytes back (docs/notices.md, section 9).
+pub const LINK_REFACTOR_REASON: &str = "link-refactor";
+
+/// A renamed page's explicit title followed the new name, or a renamed database folder's
+/// description took the new name. Kept like [`LINK_REFACTOR_REASON`], for the same undo.
+pub const RENAME_REASON: &str = "rename";
+
+/// The text of a note before another note was merged into it. Kept like
+/// [`LINK_REFACTOR_REASON`]: the undo of the merge puts it back.
+pub const MERGE_REASON: &str = "merge";
+
+/// The reasons whose snapshot is the only copy an undo or a promise relies on: taken even when
+/// the history is switched off, and the newest of each kind per note is never cleaned up.
+const KEPT_REASONS: [&str; 6] = [
+    SOURCE_REWRITE_REASON,
+    SYNC_OVERWRITE_REASON,
+    RESTORE_REASON,
+    LINK_REFACTOR_REASON,
+    RENAME_REASON,
+    MERGE_REASON,
+];
+
+pub const CLI_EDIT_REASON: &str = "cli-edit";
+pub const AI_EDIT_REASON: &str = "ai-edit";
+
+thread_local! {
+    static AI_PROPERTY_EDIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, the property engine's versions on this thread are `ai-edit` ones. The panel
+/// applies its property proposals inside this scope, so every write leaves a version that undoes it.
+pub struct AiPropertyEdit(());
+
+impl AiPropertyEdit {
+    pub fn enter() -> Self {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(true));
+        Self(())
+    }
+}
+
+impl Drop for AiPropertyEdit {
+    fn drop(&mut self) {
+        AI_PROPERTY_EDIT.with(|flag| flag.set(false));
+    }
+}
+
+fn is_autosave_snapshot(reason: &str) -> bool {
+    matches!(reason, "note-save" | "file-save")
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct VaultHistoryConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default, rename = "maxCopies")]
+    pub max_copies: Option<u32>,
+    #[serde(default, rename = "maxAgeDays")]
+    pub max_age_days: Option<u32>,
+    #[serde(default, rename = "autoPrune")]
+    pub auto_prune: Option<bool>,
+}
+
+pub fn get_vault_history_config(vault: &Path) -> VaultHistoryConfig {
+    let config_path = vault.join(".amby").join("workspace.json");
+    let raw = match fs::read_to_string(&config_path) {
+        Ok(s) => s,
+        Err(_) => return VaultHistoryConfig::default(),
+    };
+    #[derive(Deserialize)]
+    struct WProfile {
+        id: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct WConfig {
+        #[serde(rename = "enabledModules")]
+        enabled_modules: Option<Vec<String>>,
+        profile: Option<WProfile>,
+        #[serde(rename = "moduleSettings")]
+        module_settings: Option<serde_json::Value>,
+        history: Option<VaultHistoryConfig>,
+    }
+    if let Ok(cfg) = serde_json::from_str::<WConfig>(&raw) {
+        let mut hist_cfg = cfg.history.unwrap_or_default();
+        if let Some(val) = cfg
+            .module_settings
+            .as_ref()
+            .and_then(|ms| ms.get("history"))
+        {
+            if let Ok(m_hist) = serde_json::from_value::<VaultHistoryConfig>(val.clone()) {
+                if m_hist.enabled.is_some() {
+                    hist_cfg.enabled = m_hist.enabled;
+                }
+                if m_hist.max_copies.is_some() {
+                    hist_cfg.max_copies = m_hist.max_copies;
+                }
+                if m_hist.max_age_days.is_some() {
+                    hist_cfg.max_age_days = m_hist.max_age_days;
+                }
+                if m_hist.auto_prune.is_some() {
+                    hist_cfg.auto_prune = m_hist.auto_prune;
+                }
+            }
+        }
+        if let Some(modules) = cfg.enabled_modules {
+            let active = modules
+                .iter()
+                .any(|m| m == "history" || m == "amby.history");
+            if !active {
+                hist_cfg.enabled = Some(false);
+            }
+        } else if let Some(profile) = cfg.profile {
+            if profile.id.as_deref() == Some("minimal") {
+                hist_cfg.enabled = Some(false);
+            }
+        }
+        return hist_cfg;
+    }
+    VaultHistoryConfig::default()
+}
+
+/// Check if history snapshots are enabled for this vault in .amby/workspace.json.
+pub fn is_history_enabled(vault: &Path) -> bool {
+    let cfg = get_vault_history_config(vault);
+    cfg.enabled.unwrap_or(true)
+}
+
+fn snapshot_before_write_at(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    reason: &str,
+    created_at_ms: u64,
+) -> Result<Option<String>, String> {
+    snapshot_before_write_with_id(
+        vault,
+        source,
+        replacement,
+        reason,
+        created_at_ms,
+        Ulid::generate(),
+    )
+}
+
+fn snapshot_before_write_with_id(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    reason: &str,
+    created_at_ms: u64,
+    id: Ulid,
+) -> Result<Option<String>, String> {
+    if !KEPT_REASONS.contains(&reason)
+        && reason != CLI_EDIT_REASON
+        && reason != AI_EDIT_REASON
+        && !is_history_enabled(vault)
+    {
+        return Ok(None);
+    }
+    let current = match fs::read(source) {
+        Ok(current) => current,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    if current == replacement {
+        return Ok(None);
+    }
+    let source_path = source_relative(vault, source)?;
+    let _lock = history_lock(vault)?;
+    let root = history_root(vault);
+    let mut manifest = load_manifest(&root)?;
+
+    // The source file and recovery draft remain frequent and durable. Only
+    // history versions are coalesced: the first autosave in each ten-minute
+    // rolling window preserves its pre-write bytes, while structural/refactor/
+    // restore reasons always create an explicit recovery point. A future-dated
+    // manifest entry must not suppress snapshots after a wall-clock rollback.
+    if is_autosave_snapshot(reason)
+        && manifest.snapshots.iter().rev().any(|snapshot| {
+            snapshot.source_path == source_path
+                && is_autosave_snapshot(&snapshot.reason)
+                && snapshot.created_at_ms <= created_at_ms
+                && created_at_ms.saturating_sub(snapshot.created_at_ms)
+                    < AUTOSAVE_SNAPSHOT_INTERVAL_MS
+        })
+    {
+        return Ok(None);
+    }
+
+    let id = id.to_string();
+    if let Some(snapshot) = manifest.snapshots.iter().find(|snapshot| snapshot.id == id) {
+        if snapshot.source_path != source_path || snapshot.reason != reason {
+            return Err("History snapshot ID already belongs to another operation".into());
+        }
+        let saved = fs::read(snapshot_data_path(&root, &id)).map_err(|error| error.to_string())?;
+        validate_snapshot_bytes(snapshot, &saved)?;
+        if saved != current {
+            return Err("History snapshot bytes differ from the pending rewrite".into());
+        }
+        return Ok(Some(id));
+    }
+    let metadata = SnapshotMetadata {
+        version: 2,
+        id: id.clone(),
+        source_path: source_path.clone(),
+        created_at_ms,
+        reason: reason.to_string(),
+        size_bytes: current.len() as u64,
+        content_hash: Some(content_hash(&current)),
+    };
+
+    let data_path = snapshot_data_path(&root, &id);
+    frontmatter::atomic_write_bytes(
+        &snapshot_journal_path(&root),
+        &serde_json::to_vec_pretty(&SnapshotWriteJournal {
+            version: HISTORY_FORMAT_VERSION,
+            snapshot: metadata.clone(),
+        })
+        .map_err(|error| error.to_string())?,
+    )?;
+    if let Err(error) = frontmatter::atomic_write_bytes(&data_path, &current) {
+        let cleanup = fs::remove_file(snapshot_journal_path(&root));
+        return match cleanup {
+            Ok(()) => Err(error),
+            Err(cleanup_error) => Err(format!(
+                "History snapshot write failed ({error}); recovery journal cleanup failed: {cleanup_error}"
+            )),
+        };
+    }
+    manifest.snapshots.push(metadata);
+    if let Err(error) = write_manifest(&root, &manifest) {
+        // The write journal keeps data-only publication recoverable even if
+        // storage refuses cleanup after a quota or I/O failure.
+        return match recover_interrupted_snapshot_write(&root, &load_manifest(&root)?) {
+            Ok(()) => Err(error),
+            Err(recovery_error) => Err(format!(
+                "History manifest update failed ({error}); snapshot recovery is pending: {recovery_error}"
+            )),
+        };
+    }
+    // A committed snapshot can survive a stale journal; next open simply
+    // removes it. Returning an error makes that otherwise invisible I/O fault
+    // observable without making the snapshot unavailable.
+    fs::remove_file(snapshot_journal_path(&root)).map_err(|error| error.to_string())?;
+
+    // Auto-prune older snapshots for this note when configured
+    let history_cfg = get_vault_history_config(vault);
+    if history_cfg.auto_prune.unwrap_or(false) {
+        let max_copies = history_cfg.max_copies.unwrap_or(20);
+        let retention = HistoryRetention {
+            max_snapshots_per_note: if max_copies == 0 {
+                u32::MAX
+            } else {
+                max_copies
+            },
+            max_age_days: if history_cfg.max_age_days == Some(0) {
+                None
+            } else {
+                history_cfg.max_age_days
+            },
+        };
+        // The newest snapshot of each kind that is promised as the last copy (the author's spelling
+        // before a Live Preview rewrite, what a sync or a restore replaced) is never cleaned up
+        // automatically, nor counted against the limit (CORE-08).
+        let mut protected = HashSet::new();
+        if matches!(reason, CLI_EDIT_REASON | AI_EDIT_REASON) {
+            protected.insert(id.clone());
+        }
+        for reason in KEPT_REASONS {
+            if let Some(newest) = manifest
+                .snapshots
+                .iter()
+                .filter(|s| s.source_path == source_path && s.reason == reason)
+                .max_by_key(|s| s.created_at_ms)
+            {
+                protected.insert(newest.id.clone());
+            }
+        }
+        let prunable = HistoryManifest {
+            version: manifest.version,
+            snapshots: manifest
+                .snapshots
+                .iter()
+                .filter(|s| !protected.contains(&s.id))
+                .cloned()
+                .collect(),
+        };
+        let to_remove = cleanup_candidates(&prunable, &retention, created_at_ms)
+            .into_iter()
+            .filter(|s| s.source_path == source_path)
+            .collect::<Vec<_>>();
+        for candidate in to_remove {
+            // Cleanup is a convenience: a failure keeps the snapshot and must not fail the save.
+            if let Err(error) = cleanup_snapshot(&root, &mut manifest, &candidate) {
+                tracing::warn!(event = "history_autoprune_failed", error = %error);
+            }
+        }
+    }
+
+    Ok(Some(id))
+}
+
+pub fn list_snapshots(vault: &Path, source: &Path) -> Result<Vec<SnapshotEntry>, String> {
+    let relative = source_relative(vault, source)?;
+    let (_lock, manifest) = open_history(vault)?;
+    let mut snapshots = manifest
+        .snapshots
+        .into_iter()
+        .filter(|snapshot| snapshot.source_path == relative)
+        .map(SnapshotEntry::from)
+        .collect::<Vec<_>>();
+    snapshots.sort_by_key(|snapshot| std::cmp::Reverse(snapshot.created_at_ms));
+    Ok(snapshots)
+}
+
+/// Amby renamed or moved these files: their versions follow them (CORE-03). History is kept by the
+/// vault-relative path of the note; without this, a renamed note showed an empty history and a new
+/// note at the old path showed, and could restore, another note's versions. Snapshot data files are
+/// named by id, so only the manifest changes, in one atomic write. Returns the number of versions
+/// that moved; with no history nothing is written.
+pub fn move_snapshot_sources(
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<usize, String> {
+    let root = history_root(vault);
+    if !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let _lock = history_lock(vault)?;
+    let vault_real = vault.canonicalize().map_err(|error| error.to_string())?;
+    let relative = |path: &str| {
+        Path::new(path)
+            .strip_prefix(&vault_real)
+            .or_else(|_| Path::new(path).strip_prefix(vault))
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .filter(|relative| !relative.is_empty())
+    };
+    let renames = changes
+        .iter()
+        .filter_map(|change| Some((relative(&change.old_path)?, relative(&change.new_path)?)))
+        .collect::<BTreeMap<String, String>>();
+    if renames.is_empty() {
+        return Ok(0);
+    }
+    let mut manifest = load_manifest(&root)?;
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
+}
+
+/// A note the index already knew under `old` (by its `amby-id`) is now at `new`, and the old path
+/// is gone: a rename made by sync or outside Amby. Its versions follow it (CORE-03). A pair is
+/// skipped, never merged, when the old path has no versions or the new path already has some (they
+/// belong to another note). Returns the number of versions that moved; one atomic manifest write.
+pub fn relink_moved_sources(vault: &Path, moves: &[(String, String)]) -> Result<usize, String> {
+    let root = history_root(vault);
+    if moves.is_empty() || !manifest_path(&root).exists() {
+        return Ok(0);
+    }
+    let _lock = history_lock(vault)?;
+    let mut manifest = load_manifest(&root)?;
+    let occupied = manifest
+        .snapshots
+        .iter()
+        .map(|snapshot| snapshot.source_path.clone())
+        .collect::<HashSet<_>>();
+    // Two olds to one new, or a chain (a new that is another old), are not a plain rename.
+    let mut targets = HashSet::new();
+    let sources = moves
+        .iter()
+        .map(|(old, _)| old.as_str())
+        .collect::<HashSet<_>>();
+    let renames = moves
+        .iter()
+        .filter(|(old, new)| {
+            old != new
+                && occupied.contains(old)
+                && !occupied.contains(new)
+                && !sources.contains(new.as_str())
+                && targets.insert(new.clone())
+        })
+        .cloned()
+        .collect::<BTreeMap<String, String>>();
+    let mut moved = 0;
+    for snapshot in &mut manifest.snapshots {
+        if let Some(new_path) = renames.get(&snapshot.source_path) {
+            snapshot.source_path = new_path.clone();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_manifest(&root, &manifest)?;
+    }
+    Ok(moved)
+}
+
+pub fn get_history_stats(vault: &Path) -> Result<HistoryStats, String> {
+    let (_lock, manifest) = open_history(vault)?;
+    Ok(history_stats(&manifest))
+}
+
+fn should_remove_snapshot(
+    snapshot: &SnapshotMetadata,
+    retained_for_source: u32,
+    retention: &HistoryRetention,
+    now: u64,
+) -> bool {
+    if retained_for_source >= retention.max_snapshots_per_note {
+        return true;
+    }
+    retention.max_age_days.is_some_and(|days| {
+        snapshot
+            .created_at_ms
+            .saturating_add(u64::from(days) * 86_400_000)
+            < now
+    })
+}
+
+fn cleanup_snapshot(
+    root: &Path,
+    manifest: &mut HistoryManifest,
+    snapshot: &SnapshotMetadata,
+) -> Result<(), String> {
+    let data_path = snapshot_data_path(root, &snapshot.id);
+    if !data_path.is_file() {
+        return Err(format!(
+            "History snapshot {} is missing its data file",
+            snapshot.id
+        ));
+    }
+
+    let journal = CleanupJournal {
+        version: HISTORY_FORMAT_VERSION,
+        snapshot: snapshot.clone(),
+    };
+    frontmatter::atomic_write_bytes(
+        &cleanup_journal_path(root),
+        &serde_json::to_vec_pretty(&journal).map_err(|error| error.to_string())?,
+    )?;
+
+    let staging_path = cleanup_staging_path(root, &snapshot.id);
+    if let Err(error) = fs::rename(&data_path, &staging_path) {
+        let _ = fs::remove_file(cleanup_journal_path(root));
+        return Err(error.to_string());
+    }
+
+    let before = manifest.clone();
+    manifest.snapshots.retain(|entry| entry.id != snapshot.id);
+    if let Err(error) = write_manifest(root, manifest) {
+        *manifest = before;
+        let rollback = fs::rename(&staging_path, &data_path);
+        return match rollback {
+            Ok(()) => {
+                let _ = fs::remove_file(cleanup_journal_path(root));
+                Err(error)
+            }
+            Err(rollback_error) => Err(format!(
+                "History cleanup manifest update failed ({error}); rollback failed: {rollback_error}. Recovery journal was preserved."
+            )),
+        };
+    }
+
+    if let Err(error) = fs::remove_file(&staging_path) {
+        // The manifest has committed, but the journal makes this recoverable:
+        // the next history operation will remove the staged, unreferenced data.
+        return Err(format!(
+            "History cleanup committed metadata but could not remove staged snapshot: {error}"
+        ));
+    }
+    fs::remove_file(cleanup_journal_path(root)).map_err(|error| error.to_string())
+}
+
+fn cleanup_candidates(
+    manifest: &HistoryManifest,
+    retention: &HistoryRetention,
+    now: u64,
+) -> Vec<SnapshotMetadata> {
+    let mut sorted = manifest.snapshots.clone();
+    sorted.sort_by(|left, right| {
+        left.source_path
+            .cmp(&right.source_path)
+            .then_with(|| right.created_at_ms.cmp(&left.created_at_ms))
+    });
+
+    let mut retained = BTreeMap::<String, u32>::new();
+    let mut remove = Vec::new();
+    for snapshot in sorted {
+        let count = retained.entry(snapshot.source_path.clone()).or_default();
+        if should_remove_snapshot(&snapshot, *count, retention, now) {
+            remove.push(snapshot);
+        } else {
+            *count += 1;
+        }
+    }
+    remove
+}
+
+fn cleanup_preview(
+    manifest: &HistoryManifest,
+    remove: &[SnapshotMetadata],
+) -> HistoryCleanupPreview {
+    let removed_ids = remove
+        .iter()
+        .map(|snapshot| snapshot.id.as_str())
+        .collect::<HashSet<_>>();
+    let remaining = HistoryManifest {
+        version: manifest.version,
+        snapshots: manifest
+            .snapshots
+            .iter()
+            .filter(|snapshot| !removed_ids.contains(snapshot.id.as_str()))
+            .cloned()
+            .collect(),
+    };
+    HistoryCleanupPreview {
+        removed_count: remove.len() as u64,
+        freed_bytes: remove.iter().map(|snapshot| snapshot.size_bytes).sum(),
+        remaining: history_stats(&remaining),
+    }
+}
+
+#[cfg(test)]
+pub fn preview_history_cleanup(
+    vault: &Path,
+    retention: HistoryRetention,
+) -> Result<HistoryCleanupPreview, String> {
+    preview_history_cleanup_for_source(vault, retention, None)
+}
+
+pub fn preview_history_cleanup_for_source(
+    vault: &Path,
+    retention: HistoryRetention,
+    source_path: Option<&Path>,
+) -> Result<HistoryCleanupPreview, String> {
+    let (_lock, manifest) = open_history(vault)?;
+    let source_key = source_path
+        .map(|path| source_relative(vault, path))
+        .transpose()?;
+    let remove = cleanup_candidates(&manifest, &retention, now_ms()?)
+        .into_iter()
+        .filter(|snapshot| {
+            source_key
+                .as_deref()
+                .is_none_or(|path| snapshot.source_path == *path)
+        })
+        .collect::<Vec<_>>();
+    Ok(cleanup_preview(&manifest, &remove))
+}
+
+#[cfg(test)]
+pub fn cleanup_history(
+    vault: &Path,
+    retention: HistoryRetention,
+) -> Result<HistoryCleanupResult, String> {
+    cleanup_history_for_source(vault, retention, None)
+}
+
+pub fn cleanup_history_for_source(
+    vault: &Path,
+    retention: HistoryRetention,
+    source_path: Option<&Path>,
+) -> Result<HistoryCleanupResult, String> {
+    let root = history_root(vault);
+    let (_lock, mut manifest) = open_history(vault)?;
+    let source_key = source_path
+        .map(|path| source_relative(vault, path))
+        .transpose()?;
+    let remove = cleanup_candidates(&manifest, &retention, now_ms()?)
+        .into_iter()
+        .filter(|snapshot| {
+            source_key
+                .as_deref()
+                .is_none_or(|path| snapshot.source_path == *path)
+        })
+        .collect::<Vec<_>>();
+
+    let mut freed_bytes = 0_u64;
+    for snapshot in &remove {
+        cleanup_snapshot(&root, &mut manifest, snapshot)?;
+        freed_bytes = freed_bytes.saturating_add(snapshot.size_bytes);
+    }
+    Ok(HistoryCleanupResult {
+        removed_count: remove.len() as u64,
+        freed_bytes,
+        remaining: history_stats(&manifest),
+    })
+}
+
+pub fn delete_snapshot(vault: &Path, id: &str) -> Result<(), String> {
+    let root = history_root(vault);
+    let (_lock, mut manifest) = open_history(vault)?;
+    let snapshot = manifest
+        .snapshots
+        .iter()
+        .find(|snapshot| snapshot.id == id)
+        .cloned()
+        .ok_or_else(|| "History version not found".to_string())?;
+    cleanup_snapshot(&root, &mut manifest, &snapshot)
+}
+
+/// Restore a snapshot as a new file operation. The current version is first
+/// snapshotted too, so users can undo a restore by restoring that newer entry.
+pub fn prepare_snapshot_restore(vault: &Path, id: &str) -> Result<PreparedSnapshotRestore, String> {
+    id.parse::<Ulid>()
+        .map_err(|_| "Invalid snapshot identifier".to_string())?;
+    let root = history_root(vault);
+    let (_lock, manifest) = open_history(vault)?;
+    let metadata = manifest
+        .snapshots
+        .into_iter()
+        .find(|snapshot| snapshot.id == id)
+        .ok_or_else(|| "Snapshot is not present in the history manifest".to_string())?;
+    if metadata.id != id || !matches!(metadata.version, 1 | 2) {
+        return Err("Invalid snapshot metadata".to_string());
+    }
+    let source = crate::paths::confine_rel(vault, &metadata.source_path)?;
+    let bytes = fs::read(snapshot_data_path(&root, id)).map_err(|error| error.to_string())?;
+    validate_snapshot_bytes(&metadata, &bytes)?;
+    Ok(PreparedSnapshotRestore {
+        path: source,
+        bytes,
+    })
+}
+
+pub fn commit_snapshot_restore(
+    vault: &Path,
+    prepared: PreparedSnapshotRestore,
+) -> Result<PathBuf, String> {
+    let _text_write = crate::paths::lock_text_write(vault)?;
+    snapshot_before_write(vault, &prepared.path, &prepared.bytes, RESTORE_REASON)?;
+    frontmatter::atomic_write_bytes(&prepared.path, &prepared.bytes)?;
+    Ok(prepared.path)
+}
+
+#[cfg(test)]
+pub fn restore_snapshot(vault: &Path, id: &str) -> Result<PathBuf, String> {
+    let prepared = prepare_snapshot_restore(vault, id)?;
+    commit_snapshot_restore(vault, prepared)
+}
+
+/// Load a UTF-8 snapshot for the history comparison UI. Binary snapshots stay
+/// preserved byte-for-byte on disk, but are intentionally not rendered as text.
+pub fn read_snapshot_text(vault: &Path, id: &str) -> Result<SnapshotText, String> {
+    id.parse::<Ulid>()
+        .map_err(|_| "Invalid snapshot identifier".to_string())?;
+    let root = history_root(vault);
+    let (_lock, manifest) = open_history(vault)?;
+    let metadata = manifest
+        .snapshots
+        .into_iter()
+        .find(|snapshot| snapshot.id == id)
+        .ok_or_else(|| "Snapshot is not present in the history manifest".to_string())?;
+    if metadata.id != id || !matches!(metadata.version, 1 | 2) {
+        return Err("Invalid snapshot metadata".to_string());
+    }
+    let bytes = fs::read(snapshot_data_path(&root, id)).map_err(|error| error.to_string())?;
+    validate_snapshot_bytes(&metadata, &bytes)?;
+    let content = String::from_utf8(bytes)
+        .map_err(|_| "This historical version is not UTF-8 text".to_string())?;
+    Ok(SnapshotText {
+        source_path: metadata.source_path,
+        content,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_vault() -> PathBuf {
+        let vault = std::env::temp_dir().join(format!("amby-history-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        vault
+    }
+
+    #[test]
+    fn snapshots_original_bytes_and_skips_noop_writes() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, b"\xEF\xBB\xBFbefore\r\n").unwrap();
+
+        let id = snapshot_before_write(&vault, &note, b"after\n", "note-save")
+            .unwrap()
+            .unwrap();
+        let root = history_root(&vault);
+        assert_eq!(
+            fs::read(snapshot_data_path(&root, &id)).unwrap(),
+            b"\xEF\xBB\xBFbefore\r\n"
+        );
+        assert!(
+            snapshot_before_write(&vault, &note, b"\xEF\xBB\xBFbefore\r\n", "note-save")
+                .unwrap()
+                .is_none()
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn coalesces_rapid_autosave_history_without_delaying_file_writes() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "initial").unwrap();
+
+        assert!(snapshot_before_write(&vault, &note, b"first", "note-save")
+            .unwrap()
+            .is_some());
+        fs::write(&note, "first").unwrap();
+        assert!(snapshot_before_write(&vault, &note, b"second", "note-save")
+            .unwrap()
+            .is_none());
+        fs::write(&note, "second").unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "second");
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn autosave_history_opens_a_new_bucket_after_ten_minutes() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        let started_at = 1_000_000;
+        fs::write(&note, "initial").unwrap();
+
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"first", "note-save", started_at,)
+                .unwrap()
+                .is_some()
+        );
+        fs::write(&note, "first").unwrap();
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"second",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
+        )
+        .unwrap()
+        .is_none());
+        fs::write(&note, "second").unwrap();
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"third",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+        )
+        .unwrap()
+        .is_some());
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn future_dated_autosave_does_not_suppress_history_after_clock_rollback() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        let current_time = 1_000_000;
+        fs::write(&note, "initial").unwrap();
+
+        snapshot_before_write_at(
+            &vault,
+            &note,
+            b"future",
+            "note-save",
+            current_time + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+        )
+        .unwrap()
+        .unwrap();
+        fs::write(&note, "future").unwrap();
+
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"after rollback",
+            "note-save",
+            current_time,
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn forced_history_reasons_are_never_coalesced_with_autosave() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "initial").unwrap();
+
+        snapshot_before_write_at(&vault, &note, b"first", "note-save", 10)
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "first").unwrap();
+        snapshot_before_write_at(&vault, &note, b"refactored", "link-refactor", 11)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn source_rewrite_keeps_the_replaced_file_inside_the_autosave_window() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "* * *\r\n").unwrap();
+
+        // An ordinary autosave opens the ten-minute window...
+        snapshot_before_write_at(&vault, &note, b"* * *\r\n\r\ntyped", "note-save", 10)
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "* * *\r\n\r\ntyped").unwrap();
+        // ...and the next one inside it would leave no version of this file.
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"unrelated", "note-save", 11)
+                .unwrap()
+                .is_none()
+        );
+        // The save that rewrites a block keeps it, byte for byte.
+        let id = snapshot_before_write_at(
+            &vault,
+            &note,
+            b"---\r\n\r\ntyped",
+            SOURCE_REWRITE_REASON,
+            12,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &id).unwrap().content,
+            "* * *\r\n\r\ntyped"
+        );
+        // Later autosaves are coalesced as before: the window is the autosave's own.
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"later", "note-save", 13)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn source_rewrite_keeps_the_replaced_file_when_history_is_switched_off() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+        assert!(!is_history_enabled(&vault));
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "1) one\n2) two\n").unwrap();
+        assert!(
+            snapshot_before_write(&vault, &note, b"1) one\n2) two\n\nmore", "note-save")
+                .unwrap()
+                .is_none()
+        );
+        let id = snapshot_before_write(&vault, &note, b"1. one!\n2. two\n", SOURCE_REWRITE_REASON)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &id).unwrap().content,
+            "1) one\n2) two\n"
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn restore_keeps_the_replaced_text_even_when_history_is_switched_off() {
+        // The restore of a version is not asked about because it keeps the current text: that
+        // must hold when the history was switched off after the old version was taken.
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "typed since").unwrap();
+        let amby_dir = vault.join(".amby");
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+        assert!(!is_history_enabled(&vault));
+
+        restore_snapshot(&vault, &id).unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
+        let kept = list_snapshots(&vault, &note).unwrap();
+        assert_eq!(kept.len(), 2, "the replaced text must be a version");
+        let replaced = kept.iter().find(|entry| entry.id != id).unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &replaced.id).unwrap().content,
+            "typed since"
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn restores_a_snapshot_and_snapshots_the_replaced_version() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "after").unwrap();
+
+        restore_snapshot(&vault, &id).unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn rejects_a_corrupted_snapshot_before_restore() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        let root = history_root(&vault);
+        fs::write(snapshot_data_path(&root, &id), "damaged").unwrap();
+
+        assert!(restore_snapshot(&vault, &id).is_err());
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn migrates_legacy_metadata_once_then_reads_the_manifest() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "current").unwrap();
+        let root = history_root(&vault);
+        fs::create_dir_all(&root).unwrap();
+        let id = Ulid::generate().to_string();
+        let bytes = b"legacy";
+        let metadata = SnapshotMetadata {
+            version: 2,
+            id: id.clone(),
+            source_path: source_relative(&vault, &note).unwrap(),
+            created_at_ms: 1,
+            reason: "legacy-save".to_string(),
+            size_bytes: bytes.len() as u64,
+            content_hash: Some(content_hash(bytes)),
+        };
+        fs::write(snapshot_data_path(&root, &id), bytes).unwrap();
+        fs::write(
+            snapshot_meta_path(&root, &id),
+            serde_json::to_vec_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        assert!(manifest_path(&root).is_file());
+        fs::remove_file(snapshot_meta_path(&root, &id)).unwrap();
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        assert_eq!(
+            get_history_stats(&vault).unwrap().size_bytes,
+            bytes.len() as u64
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn manifest_write_failure_rolls_back_the_new_snapshot_data() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        snapshot_before_write(&vault, &note, b"after", "save").unwrap();
+        fs::write(&note, "after").unwrap();
+
+        FAIL_MANIFEST_WRITE.with(|fail| fail.set(true));
+        let result = snapshot_before_write(&vault, &note, b"later", "save");
+        FAIL_MANIFEST_WRITE.with(|fail| fail.set(false));
+
+        assert!(result.is_err());
+        let stats = get_history_stats(&vault).unwrap();
+        assert_eq!(stats.snapshot_count, 1);
+        let root = history_root(&vault);
+        assert_eq!(
+            fs::read_dir(root)
+                .unwrap()
+                .flatten()
+                .filter(|entry| entry
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext == "snapshot"))
+                .count(),
+            1
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn interrupted_cleanup_is_recovered_before_history_is_read() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "save")
+            .unwrap()
+            .unwrap();
+        let root = history_root(&vault);
+        let manifest = load_manifest(&root).unwrap();
+        let snapshot = manifest
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.id == id)
+            .unwrap()
+            .clone();
+        frontmatter::atomic_write_bytes(
+            &cleanup_journal_path(&root),
+            &serde_json::to_vec_pretty(&CleanupJournal {
+                version: HISTORY_FORMAT_VERSION,
+                snapshot,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::rename(
+            snapshot_data_path(&root, &id),
+            cleanup_staging_path(&root, &id),
+        )
+        .unwrap();
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        assert!(snapshot_data_path(&root, &id).is_file());
+        assert!(!cleanup_journal_path(&root).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn interrupted_snapshot_publication_removes_uncommitted_data() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "current").unwrap();
+        let root = history_root(&vault);
+        fs::create_dir_all(&root).unwrap();
+        write_manifest(&root, &HistoryManifest::default()).unwrap();
+        let id = Ulid::generate().to_string();
+        let bytes = b"uncommitted";
+        let snapshot = SnapshotMetadata {
+            version: 2,
+            id: id.clone(),
+            source_path: source_relative(&vault, &note).unwrap(),
+            created_at_ms: now_ms().unwrap(),
+            reason: "save".to_string(),
+            size_bytes: bytes.len() as u64,
+            content_hash: Some(content_hash(bytes)),
+        };
+        frontmatter::atomic_write_bytes(
+            &snapshot_journal_path(&root),
+            &serde_json::to_vec_pretty(&SnapshotWriteJournal {
+                version: HISTORY_FORMAT_VERSION,
+                snapshot,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(snapshot_data_path(&root, &id), bytes).unwrap();
+
+        assert!(list_snapshots(&vault, &note).unwrap().is_empty());
+        assert!(!snapshot_data_path(&root, &id).exists());
+        assert!(!snapshot_journal_path(&root).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn cleanup_keeps_the_requested_number_of_versions_and_updates_stats() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "one").unwrap();
+        snapshot_before_write(&vault, &note, b"two", "save").unwrap();
+        fs::write(&note, "two").unwrap();
+        snapshot_before_write(&vault, &note, b"three", "save").unwrap();
+        fs::write(&note, "three").unwrap();
+        snapshot_before_write(&vault, &note, b"four", "save").unwrap();
+
+        let retention = HistoryRetention {
+            max_snapshots_per_note: 1,
+            max_age_days: None,
+        };
+        let preview = preview_history_cleanup(&vault, retention.clone()).unwrap();
+        assert_eq!(preview.removed_count, 2);
+        assert!(preview.freed_bytes > 0);
+        assert_eq!(preview.remaining.snapshot_count, 1);
+        let result = cleanup_history(&vault, retention).unwrap();
+
+        assert_eq!(result.removed_count, 2);
+        assert_eq!(result.remaining.snapshot_count, 1);
+        assert_eq!(result.remaining.note_count, 1);
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        assert!(!cleanup_journal_path(&history_root(&vault)).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_only_versions_older_than_the_requested_age() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "one").unwrap();
+        let old_id = snapshot_before_write(&vault, &note, b"two", "save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "two").unwrap();
+        let recent_id = snapshot_before_write(&vault, &note, b"three", "save")
+            .unwrap()
+            .unwrap();
+
+        let root = history_root(&vault);
+        let mut manifest = load_manifest(&root).unwrap();
+        let now = now_ms().unwrap();
+        manifest
+            .snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.id == old_id)
+            .unwrap()
+            .created_at_ms = now.saturating_sub(31 * 86_400_000);
+        write_manifest(&root, &manifest).unwrap();
+
+        let retention = HistoryRetention {
+            max_snapshots_per_note: 10,
+            max_age_days: Some(30),
+        };
+        let preview = preview_history_cleanup(&vault, retention.clone()).unwrap();
+        assert_eq!(preview.removed_count, 1);
+        assert_eq!(preview.remaining.snapshot_count, 1);
+
+        let result = cleanup_history(&vault, retention).unwrap();
+        assert_eq!(result.removed_count, 1);
+        assert_eq!(result.remaining.snapshot_count, 1);
+        assert!(!snapshot_data_path(&root, &old_id).exists());
+        assert!(snapshot_data_path(&root, &recent_id).is_file());
+        assert_eq!(list_snapshots(&vault, &note).unwrap()[0].id, recent_id);
+        assert!(!cleanup_journal_path(&root).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn cleanup_refuses_to_hide_a_manifest_entry_with_missing_data() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "save")
+            .unwrap()
+            .unwrap();
+        fs::remove_file(snapshot_data_path(&history_root(&vault), &id)).unwrap();
+
+        assert!(cleanup_history(
+            &vault,
+            HistoryRetention {
+                max_snapshots_per_note: 0,
+                max_age_days: None,
+            },
+        )
+        .is_err());
+        assert_eq!(get_history_stats(&vault).unwrap().snapshot_count, 1);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn cleanup_manifest_failure_restores_the_snapshot_and_keeps_metadata() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "save")
+            .unwrap()
+            .unwrap();
+        let root = history_root(&vault);
+
+        FAIL_MANIFEST_WRITE.with(|fail| fail.set(true));
+        let result = cleanup_history(
+            &vault,
+            HistoryRetention {
+                max_snapshots_per_note: 0,
+                max_age_days: None,
+            },
+        );
+        FAIL_MANIFEST_WRITE.with(|fail| fail.set(false));
+
+        assert!(result.is_err());
+        assert!(snapshot_data_path(&root, &id).is_file());
+        assert_eq!(get_history_stats(&vault).unwrap().snapshot_count, 1);
+        assert!(!cleanup_journal_path(&root).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_disabled_history_skips_snapshot_creation() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"enabledModules": ["amby.tags"]}"#,
+        )
+        .unwrap();
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "original content").unwrap();
+
+        let res = snapshot_before_write(&vault, &note, b"new content", "edit").unwrap();
+        assert!(
+            res.is_none(),
+            "Snapshot must not be created when history is disabled"
+        );
+        assert!(
+            !history_root(&vault).exists(),
+            "History root directory must not exist"
+        );
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_disabled_history_in_minimal_profile_creates_no_snapshots() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+
+        assert!(!is_history_enabled(&vault));
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "original").unwrap();
+        let res = snapshot_before_write(&vault, &note, b"updated", "edit").unwrap();
+        assert!(res.is_none());
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_auto_prune_rotates_old_snapshots() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"moduleSettings": {"history": {"autoPrune": true, "maxCopies": 2}}}"#,
+        )
+        .unwrap();
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", "edit").unwrap();
+        fs::write(&note, "v2").unwrap();
+        snapshot_before_write(&vault, &note, b"v3", "edit").unwrap();
+        fs::write(&note, "v3").unwrap();
+        snapshot_before_write(&vault, &note, b"v4", "edit").unwrap();
+
+        let snapshots = list_snapshots(&vault, &note).unwrap();
+        assert_eq!(
+            snapshots.len(),
+            2,
+            "Auto-prune must keep exactly 2 snapshots"
+        );
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-03: history follows a note when Amby renames or moves it. Before, versions were kept by
+    // path only: the renamed note showed an empty history, and a new note at the old path showed (and
+    // could restore) the versions of another note.
+    fn change(vault: &Path, old: &str, new: &str) -> crate::model::PathChange {
+        crate::model::PathChange {
+            old_path: vault.join(old).to_string_lossy().into_owned(),
+            new_path: vault.join(new).to_string_lossy().into_owned(),
+        }
+    }
+
+    #[test]
+    fn history_follows_a_renamed_note_and_a_new_note_at_the_old_path_has_none() {
+        let vault = temp_vault().canonicalize().unwrap();
+        let old = vault.join("Ideas.md");
+        fs::write(&old, "v1").unwrap();
+        snapshot_before_write(&vault, &old, b"v2", "edit").unwrap();
+        let new = vault.join("Ideas 2026.md");
+        fs::rename(&old, &new).unwrap();
+
+        let moved = move_snapshot_sources(&vault, &[change(&vault, "Ideas.md", "Ideas 2026.md")]);
+        assert_eq!(moved, Ok(1));
+        assert_eq!(list_snapshots(&vault, &new).unwrap().len(), 1);
+        fs::write(&old, "a new note").unwrap();
+        assert!(list_snapshots(&vault, &old).unwrap().is_empty());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn history_follows_every_note_of_a_moved_folder() {
+        let vault = temp_vault().canonicalize().unwrap();
+        fs::create_dir_all(vault.join("Folder")).unwrap();
+        fs::create_dir_all(vault.join("Other")).unwrap();
+        let note = vault.join("Folder/a.md");
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", "edit").unwrap();
+        fs::rename(vault.join("Folder"), vault.join("Other/Folder")).unwrap();
+
+        move_snapshot_sources(
+            &vault,
+            &[change(&vault, "Folder/a.md", "Other/Folder/a.md")],
+        )
+        .unwrap();
+        assert_eq!(
+            list_snapshots(&vault, &vault.join("Other/Folder/a.md"))
+                .unwrap()
+                .len(),
+            1
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn moving_sources_writes_nothing_when_there_is_no_history() {
+        let vault = temp_vault().canonicalize().unwrap();
+        assert_eq!(
+            move_snapshot_sources(&vault, &[change(&vault, "A.md", "B.md")]),
+            Ok(0)
+        );
+        assert!(!history_root(&vault).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    // CORE-08: automatic cleanup must not remove the snapshots that are promised as the last copy:
+    // the author's own spelling before a Live Preview rewrite, what a sync replaced, what a restore
+    // replaced. The newest of each kind stays for every note.
+    #[test]
+    fn auto_prune_keeps_the_newest_safety_snapshot_of_each_kind() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"moduleSettings": {"history": {"autoPrune": true, "maxCopies": 2}}}"#,
+        )
+        .unwrap();
+        let note = vault.join("Note.md");
+        fs::write(&note, "author's spelling").unwrap();
+        snapshot_before_write(&vault, &note, b"v1", SOURCE_REWRITE_REASON).unwrap();
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", SYNC_OVERWRITE_REASON).unwrap();
+        for (current, next) in [("v2", "v3"), ("v3", "v4"), ("v4", "v5")] {
+            fs::write(&note, current).unwrap();
+            snapshot_before_write(&vault, &note, next.as_bytes(), "edit").unwrap();
+        }
+        let reasons = list_snapshots(&vault, &note)
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.reason)
+            .collect::<Vec<_>>();
+        assert!(
+            reasons.iter().any(|reason| reason == SOURCE_REWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert!(
+            reasons.iter().any(|reason| reason == SYNC_OVERWRITE_REASON),
+            "{reasons:?}"
+        );
+        assert_eq!(
+            reasons.iter().filter(|reason| *reason == "edit").count(),
+            2,
+            "{reasons:?}"
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+}

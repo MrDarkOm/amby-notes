@@ -1,5 +1,5 @@
 import type { StoragePort } from "./port"
-import type { ImportedAsset, PageInfo } from "./types"
+import type { ImportedAsset, ImportFilesResult, PageInfo } from "./types"
 
 export class AssetsRepository {
   constructor(private readonly port: () => StoragePort) {}
@@ -14,6 +14,10 @@ export class AssetsRepository {
     sourcePath: string,
   ): Promise<ImportedAsset | null> {
     return this.port().importAsset(vaultPath, notePath, sourcePath)
+  }
+
+  async importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult> {
+    return this.port().importFiles(targetDir, sources)
   }
 
   async importAssetBytes(
@@ -41,6 +45,10 @@ export class AssetsRepository {
     return this.port().openAttachment(notePath, attachmentPath)
   }
 
+  async saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null> {
+    return this.port().saveAttachmentCopy(notePath, attachmentPath)
+  }
+
   async openWebAddress(address: string): Promise<void> {
     return this.port().openWebAddress(address)
   }
@@ -53,11 +61,11 @@ export class AssetsRepository {
     return this.port().openInExplorer(path)
   }
 
-  async confirmAction(message: string): Promise<boolean> {
-    return this.port().confirmAction(message)
+  async revealVaultFolder(id: string): Promise<void> {
+    return this.port().revealVaultFolder(id)
   }
 
-  async showErrorMessage(message: string): Promise<void> {
-    return this.port().showErrorMessage(message)
+  async revealAppDataFolder(): Promise<void> {
+    return this.port().revealAppDataFolder()
   }
 }

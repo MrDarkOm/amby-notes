@@ -1,27 +1,23 @@
 mod ai;
 mod app_data;
-mod bundle;
+mod cli_open;
+mod cli_path;
+mod cli_structural;
 mod commands;
 mod credentials;
-mod database;
-mod durable;
-mod frontmatter;
-mod history;
-pub mod index;
+mod dictation;
+mod keychain_access;
 pub mod logging;
-mod model;
+mod mcp_clients;
 pub mod package_manager;
 mod page_info;
-mod paths;
-mod project;
-mod property_store;
-mod recovery;
-mod recycle_bin;
+mod path_grants;
+mod shadow_check;
 mod state;
-mod system_recycle_bin;
-pub mod vault;
-mod vault_context;
-pub mod vault_index;
+pub mod sync;
+mod system_open;
+mod terminate_gate;
+mod updater;
 mod watcher;
 
 #[cfg(feature = "native-contract")]
@@ -35,20 +31,79 @@ mod security_integration_test;
 #[cfg(test)]
 mod desktop_e2e_tests;
 
+#[cfg(test)]
+mod archive_command_tests;
+
+#[cfg(test)]
+mod index_incremental_tests;
+
+#[cfg(test)]
+mod property_migration_flow_test;
+
+#[cfg(test)]
+mod tree_patch_tests;
+
+#[cfg(test)]
+mod note_modules_tests;
+
+#[cfg(test)]
+mod undo_tests;
+
+use amby_core::{
+    archive, archive_migration, bundle, database, durable, frontmatter, history, lock_util, model,
+    paths, project, property_groups, property_template, recovery, recycle_bin, storage_error,
+    system_recycle_bin, vault_context,
+};
+pub use amby_core::{index, vault, vault_index};
+
 use logging::DebugState;
 use state::*;
 use watcher::WatcherState;
+
+/// IPC-03: the paths of a drag-and-drop are remembered here, before the webview can act on them, so
+/// that `import_asset` and `import_files` accept only what the person really dropped. Tauri's own
+/// handler runs first and only queues the event for the page; this one runs before the page answers.
+fn remember_dropped_paths<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    event: &tauri::WebviewEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        webview
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
+
+/// Same as `remember_dropped_paths` for `WebviewWindow` drops: Tauri 2 delivers drops on a
+/// `WindowContent` webview as `WindowEvent::DragDrop` rather than `WebviewEvent::DragDrop`.
+fn remember_window_dropped_paths<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    event: &tauri::WindowEvent,
+) {
+    use tauri::Manager;
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+        window
+            .state::<path_grants::PathGrants>()
+            .grant_sources(paths);
+    }
+}
 
 /// Single source of truth for the command set — drives both the runtime
 /// invoke handler and the generated TypeScript bindings (so the frontend IPC
 /// types can't drift from the Rust signatures).
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        updater::app_release_version,
+        updater::check_app_update,
+        cli_open::take_cli_open,
         commands::vault::load_vault,
         commands::vault::load_active_vault,
+        commands::vault::refresh_vault_paths,
         commands::vault::reindex_vault,
         commands::vault::preflight_vault,
         commands::vault::apply_id_migration,
+        commands::vault::apply_note_id_migration,
         commands::vault::inspect_id_migrations,
         commands::vault::recover_id_migration,
         commands::vault::list_files,
@@ -68,22 +123,74 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::delete_recovery,
         commands::history::list_recovery,
         commands::history::list_trash,
+        commands::history::read_trash_preview,
         commands::history::restore_trash,
         commands::history::purge_trash,
+        commands::history::list_archive,
+        commands::history::read_archive_preview,
+        commands::history::restore_archive,
+        commands::history::purge_archive,
+        commands::history::rollback_archive_migration,
+        commands::ai_chats::ai_list_chats,
+        commands::ai_chats::ai_load_chat,
+        commands::ai_chats::ai_save_chat,
+        commands::ai_chats::ai_trash_chat,
+        commands::ai_chats::ai_search_consent,
+        commands::ai_chats::ai_set_search_consent,
+        ai::turn::ai_run_turn,
+        ai::proposals::ai_apply_proposal,
+        ai::proposals::ai_reject_proposal,
+        ai::proposals::ai_undo_proposal,
+        dictation::start_system_dictation,
+        ai::local_apps::ai_local_app_installed,
+        ai::codex::launch::ai_codex_status,
+        ai::codex::launch::ai_codex_login,
+        ai::codex::launch::ai_codex_login_cancel,
+        ai::codex::launch::ai_codex_logout,
+        ai::claude_code::launch::ai_claude_status,
+        ai::claude_code::launch::ai_claude_login,
+        ai::claude_code::launch::ai_claude_login_cancel,
+        ai::claude_code::launch::ai_claude_logout,
         commands::notes::read_note,
         commands::notes::write_note,
         commands::notes::restore_deleted_note,
         commands::notes::get_note_metadata,
         commands::notes::get_note_properties,
-        commands::notes::upsert_custom_property,
-        commands::notes::delete_custom_property,
-        commands::notes::reorder_custom_properties,
         commands::notes::backup_custom_properties,
+        commands::properties::list_property_template,
+        commands::properties::get_property_panel,
+        commands::properties::restore_dormant_property,
+        commands::properties::purge_dormant_property,
+        commands::properties::accept_property_rename_hint,
+        commands::properties::dismiss_property_rename_hint,
+        commands::properties::property_storage_status,
+        commands::properties::open_vault_properties,
+        commands::properties::take_property_file_value,
+        commands::properties::create_note_property,
+        commands::properties::rename_note_property,
+        commands::properties::change_note_property_type,
+        commands::properties::set_note_property_appearance,
+        commands::properties::set_note_property_value,
+        commands::properties::set_note_pages_flag,
+        commands::properties::set_note_property_list,
+        commands::properties::reorder_note_properties,
+        commands::properties::delete_note_property,
+        commands::properties::rollback_properties_migration,
+        commands::properties::check_old_version_property_edits,
+        commands::properties::resolve_old_version_property_conflict,
+        commands::properties::inspect_properties,
+        commands::properties::list_property_rebind_offers,
+        commands::properties::rebind_note_properties,
+        commands::properties::delete_orphan_properties,
         commands::notes::list_tags,
         commands::notes::search_notes,
         commands::notes::get_link_graph,
         commands::mutations::ensure_bundle,
         commands::mutations::create_note,
+        commands::note_templates::list_note_templates,
+        commands::note_templates::create_note_from_template,
+        commands::note_templates::open_daily_note,
+        commands::note_templates::create_note_template,
         commands::mutations::create_layer,
         commands::mutations::create_canvas,
         commands::mutations::attach_canvas_to_note,
@@ -93,18 +200,21 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::mutations::delete_layer,
         commands::mutations::note_layers,
         commands::mutations::move_item,
-        commands::history::preview_move_refactor,
         commands::mutations::create_file,
         commands::mutations::create_folder,
         commands::mutations::rename_item,
-        commands::history::preview_rename_refactor,
         commands::mutations::delete_item,
         commands::mutations::archive_item,
+        commands::undo::undo_mutation,
+        commands::undo::begin_merge,
+        commands::undo::finish_merge,
         commands::notes::get_file_metadata,
         commands::vault::open_vault,
         commands::vault::start_vault_watcher,
         commands::vault::stop_vault_watcher,
         commands::database::get_database_module_state,
+        commands::database::database_layout_status,
+        commands::database::upgrade_database_layout,
         commands::database::set_database_module_enabled,
         commands::database::rebuild_database_projection,
         commands::database::refresh_database_change,
@@ -140,10 +250,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::delete_database_view,
         commands::database::reorder_database_views,
         commands::database::set_default_database_view,
-        commands::database::detect_database_migrations,
-        commands::database::preflight_database_migration,
-        commands::database::execute_database_migration,
-        commands::database::rollback_database_migration,
         commands::database::undo_database_mutation,
         commands::database::redo_database_mutation,
         commands::database::get_database_history_status,
@@ -159,6 +265,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::list_note_references,
         commands::project::list_text_stats,
         commands::project::list_notebooks,
+        commands::project::workshop_import,
         commands::project::update_workshop,
         commands::project::remove_workshop_section,
         commands::project::reorder_workshop_sections,
@@ -166,25 +273,78 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::add_text_status,
         commands::project::add_story_links,
         commands::project::ensure_plot_links,
+        commands::project::get_dossier_template,
+        commands::project::update_dossier_template,
         commands::project::create_workshop_entity,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
+        commands::external::reveal_vault_folder,
+        commands::external::reveal_app_data_folder,
+        commands::external::save_attachment_copy,
         commands::external::open_web_address,
+        commands::cli_path::cli_path_status,
+        commands::cli_path::cli_path_install,
+        commands::cli_path::cli_path_remove,
+        commands::mcp_clients::mcp_clients_status,
+        commands::mcp_clients::mcp_client_connect,
+        commands::mcp_clients::mcp_client_disconnect,
         commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
+        commands::import_files::import_files,
         commands::assets::pick_asset_file,
         commands::assets::export_text_file,
         commands::assets::import_text_file,
         app_data::read_app_data,
         app_data::write_app_data,
+        app_data::compare_write_app_data,
         app_data::read_vault_meta,
         app_data::write_vault_meta,
         app_data::delete_vault_meta,
         credentials::store_ai_credential,
         credentials::delete_ai_credential,
+        credentials::delete_unreferenced_ai_credential,
         credentials::inspect_ai_credential,
+        commands::backups::list_vault_backups,
+        commands::backups::verify_vault_backup,
+        commands::backups::restore_vault_backup,
+        commands::backups::delete_vault_backup,
+        commands::backups::reveal_vault_backup,
+        commands::sync::sync_check_server,
+        commands::sync::sync_check_password,
+        commands::sync::sync_prepare_account,
+        commands::sync::sync_confirm_recovery_code,
+        commands::sync::sync_set_enroll_code,
+        commands::sync::sync_cancel_pending,
+        commands::sync::sync_sign_in,
+        commands::sync::sync_recover,
+        commands::sync::sync_status,
+        commands::sync::sync_list_devices,
+        commands::sync::sync_disconnect_device,
+        commands::sync::sync_sign_out,
+        commands::sync::sync_change_password,
+        commands::sync::sync_rename_account,
+        commands::sync::sync_rename_device,
+        commands::sync::sync_vault_status,
+        commands::sync::sync_list_spaces,
+        commands::sync::sync_account_overview,
+        commands::sync::sync_delete_space,
+        commands::sync::sync_enable_vault,
+        commands::sync::sync_disable_vault,
+        commands::sync::sync_run_now,
+        commands::sync::sync_approve,
+        commands::sync::sync_resolve_conflict,
+        commands::sync::sync_read_conflict_versions,
+        commands::sync::sync_resolve_conflict_with_text,
+        commands::sync::sync_read_group_conflict,
+        commands::sync::sync_resolve_group_conflict,
+        commands::sync::sync_note_versions,
+        commands::sync::sync_read_server_version,
+        commands::sync::sync_restore_server_version,
+        commands::sync::sync_deleted_files,
+        commands::sync::sync_restore_deleted,
         ai::cancel_ai_request,
+        ai::ai_model_catalog,
         ai::ai_chat,
         commands::modules::stage_module_package,
         commands::modules::download_and_stage_module_package,
@@ -194,17 +354,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::modules::list_installed_module_packages,
         commands::modules::get_module_entry_path,
         commands::modules::verify_module_signature,
-        commands::debug::get_log_dir_path,
-        commands::debug::get_log_file_path,
         commands::debug::open_log_folder,
-        commands::debug::read_log_file,
-        commands::debug::clear_log_file,
-        commands::debug::append_log,
-        commands::debug::get_recent_logs,
-        commands::debug::set_debug_mode_enabled,
-        commands::debug::open_devtools,
         commands::debug::toggle_devtools,
-        commands::debug::is_devtools_open,
         commands::debug::configure_debug,
         commands::debug::get_debug_status,
         commands::debug::append_debug_events,
@@ -234,32 +385,81 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            cli_open::enqueue(app, args.into_iter().skip(1).map(std::ffi::OsString::from));
             if let Err(error) = show_and_focus_main_window(app) {
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
         }))
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
+        .manage(path_grants::PathGrants::default())
+        .manage(cli_open::PendingCliOpens::default())
         .manage(ai::AiStreamState::default())
+        .manage(ai::proposals::ProposalStore::default())
+        .manage(ai::codex::launch::LoginSlot::default())
+        .manage(ai::claude_code::launch::ClaudeLoginSlot::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())
         .manage(database::mutation_state::DatabaseMutationState::default())
         .manage(database::history::DatabaseHistoryState::default())
         .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
+        .on_menu_event(handle_menu_event)
+        .on_window_event(remember_window_dropped_paths)
+        .on_webview_event(remember_dropped_paths)
         .setup(|app| {
+            cli_open::enqueue(app.handle(), std::env::args_os().skip(1));
             let debug = logging::global_runtime();
             debug.set_app(app.handle().clone());
             // Merely remember the path; the opt-in writer creates files only
             // after the user enables persistent diagnostics.
             match commands::debug::log_file_path(app.handle()) {
                 Ok(log_path) => {
+                    // Development builds compare every point update with a full read of the
+                    // vault and write the differences beside the debug log.
+                    #[cfg(debug_assertions)]
+                    shadow_check::enable(log_path.with_file_name("shadow-mismatch.log"));
                     if let Err(error) = debug.configure_path(log_path) {
                         debug.set_file_error(error);
                     }
                 }
                 Err(_) => debug.set_file_error("AppDataUnavailable"),
             }
+
+            {
+                // Encrypted sync (stage Э4): the key store holds AK and the token, the app data
+                // holds the address and the name (docs/sync-plan.md, Р5).
+                use tauri::Manager;
+                let root = app_data::app_root(app.handle())?;
+                // Pre-sync copies of vaults live here, never beside a vault.
+                sync::backup::set_home(root.join("backups"));
+                let secrets: std::sync::Arc<dyn sync::secrets::SecretStore> = std::sync::Arc::new(
+                    sync::secrets::BundledSecrets::new(sync::secrets::KeyringStore),
+                );
+                let connection: std::sync::Arc<dyn sync::connection::ConnectionStore> =
+                    std::sync::Arc::new(sync::connection::FileConnectionStore::new(
+                        root.join(sync::connection::CONNECTION_FILE),
+                    ));
+                app.manage(sync::service::SyncService::new(
+                    secrets.clone(),
+                    connection.clone(),
+                ));
+                // The sync of the open vault (stage Э4): the engine, its session and the hooks
+                // that tell the windows.
+                let batch = app.state::<WatcherState>().batch.clone();
+                app.manage(sync::runtime::SyncRuntime::new(
+                    secrets,
+                    connection,
+                    tauri::async_runtime::handle().inner().clone(),
+                    sync::session::Schedule::production(),
+                    std::sync::Arc::new(sync::app_hooks::AppHooks::new(
+                        app.handle().clone(),
+                        batch,
+                    )),
+                ));
+            }
+
+            cli_structural::start(app.handle());
 
             #[cfg(target_os = "macos")]
             set_macos_application_icon();
@@ -275,13 +475,21 @@ pub fn run() {
             // Tauri creates this window from the configuration before calling
             // `setup`. Keeping creation declarative avoids a dev-only window
             // lifecycle and guarantees exactly one `main` window per process.
+            // SAVE-04: Cmd+Q must reach the close handlers that save the last edits.
+            #[cfg(target_os = "macos")]
+            app.set_menu(app_menu(app.handle())?)?;
             show_and_focus_main_window(app.handle())
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(error) = result {
-        report_startup_error(&error);
-    }
+    let app = match result {
+        Ok(app) => app,
+        Err(error) => {
+            report_startup_error(&error);
+            return;
+        }
+    };
+    app.run(handle_run_event);
 }
 
 #[cfg(test)]

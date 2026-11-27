@@ -9,6 +9,14 @@ deleting the index must not delete or change notes.
 Amby never writes `.obsidian/`, `.git/`, `.trash/`, or `assets/` while indexing.
 Those directories, along with `.amby/`, are excluded from the note index.
 
+## Attachments
+
+New attachments of notes and databases get random names with a type prefix:
+`img_<ULID>.png`, `pdf_<ULID>.pdf`, `audio_…`, `video_…` or `file_…`.
+Import returns the original name for display; the file contents are not changed.
+A super note uses its own `assets/`; an ordinary note uses the vault's
+`assets/`. Existing attachments are not renamed on transition.
+
 ## `.amby/`
 
 `.amby/` is Amby's per-vault metadata directory. It may contain:
@@ -16,8 +24,42 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `notes.db` — rebuildable SQLite index for note metadata, links, tags, and
   search. It is never the only copy of note content.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
-- `properties.json` — versioned custom-property metadata keyed by stable note ID;
-  SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
+- `ai/chats/<ULID>.json` — versioned, device-local AI conversations. Unsupported or
+  damaged files are retained without rewriting; removing a conversation moves its file
+  to the vault-local trash. Conversations are not synchronised.
+- `ai/consents.json` — versioned per-provider decisions on sending search results to
+  cloud services; provider endpoints are represented by hashes. It stays on this device.
+- `graph-layout.json` — version-1 layout of a locked link graph: `locked`, node
+  positions keyed by node ID (`nodes: { id: [x, y] }`) and the view (`camera`).
+  It is user state, not a cache; a missing, unlocked or unknown-version file only
+  means the graph lays itself out freely.
+- `properties/` — the look of note properties (sync plan, appendix З). The **value** of a
+  property lives only in the YAML header of the note. Type, icon and options come from the
+  template of basic properties in the application; a note's record keeps only the
+  **differences** from it, by property name, and an `order` only after the user reordered.
+  - `layout.json` — `{"groups":16,"hash":"blake3-first-hex","template":N,"version":1}`,
+    read before the groups; another number of groups or version makes the properties
+    read-only. It is written last by the migration and marks its end.
+  - `prop_<x>.jsonl` — `<x>` is the first lowercase hexadecimal digit of BLAKE3 of the
+    note's `amby-id`; at most 16 files, a file exists only if it has lines. JSON Lines: the
+    first line `{"version":1}` (unknown fields are kept), then one line per note sorted by
+    `id`: `{"hint":{"path":…},"id":…,"props":{"<name>":{"icon":…,"propertyType":…,
+"settings":…}},"order":[…],"dismissedRenames":[[…,…]],"edited":…}` in compact JSON with keys in
+    ascending byte order. `edited` (optional) is the Unix time in milliseconds of the last edit
+    of the line; when sync meets a note edited differently on two devices, the later edit
+    wins. An edit replaces, inserts or removes only its own line; every
+    other line is copied byte for byte. A line that cannot be read is shown as read-only,
+    the file is never written while it is there, and nothing is repaired automatically.
+    `hint` is a hint for people and for rebinding, not a key.
+  - `legacy_<x>.jsonl` — marks of edits made by an old version: `{"entry":…,"id":…,
+"record":…}` (BLAKE3 hashes), same digit and same rules as `prop_<x>.jsonl`.
+- `properties.json` — the first format of the same data (a list of properties with values
+  per note). After the migration it is neither changed nor deleted so that old versions on
+  other devices keep working; the new version reads it only to carry over their edits and
+  never writes it. SQLite mirrors the properties for queries and can be rebuilt from the files.
+- `property-ops/<operation-id>.json` — journal of an edit that touches both the header and
+  the group (rename, create, delete, change of type). It exists only while the operation
+  does; on opening the vault the device that began it finishes it. It stays on this device.
 - `property-backups/<note-id>/<operation-id>.json` — immutable versioned backups
   created when standalone note properties are removed while the note enters a
   database. Each file records the destination note ID, creation time, complete
@@ -39,7 +81,70 @@ Those directories, along with `.amby/`, are excluded from the note index.
   restore. Completed IDs replay the original property IDs without another write.
   Configuration changes may affect up to three manifests and preserve the old
   inverse property when disconnecting a pair. Version-1 remains readable.
+- `sync/` — the state of encrypted synchronisation **of this device** (see
+  the sync plan, Р10): `state.db` (SQLite with a schema number in `PRAGMA user_version`),
+  `lock` (held by one pass of the engine) and `session.lock` (held while the sync of this vault runs, so
+  that two programs never synchronise one vault). `state.db` is not a cache and not the only copy of
+  the data: when it is lost or damaged (a damaged file is moved aside as `state.db.broken-<time>`), the
+  device reconciles every file again by content hash, links what is equal, makes conflict copies of
+  what differs and deletes nothing. A `state.db` written by a newer Amby (a newer schema number) is
+  left untouched. It also keeps the identity of the device and of the space: a vault copied to another
+  computer is noticed by that and starts from a full reconcile instead of posing as the old device.
+  It is never synchronised. `sync/bases/` holds the **base** of each synchronised Markdown note: the
+  bytes of the last version the device knew to be equal on disk and on the server, kept under the
+  content hash (`<item id>/<hash>`), so that edits of two computers in different places of a note can be
+  merged (sync plan, appendix Г, Г6–Г9). A base is rebuildable in the sense that losing it only turns the
+  next merge into a conflict; it is checked against its hash before it is used, and it never leaves the
+  device.
+- `conflicts/<id>/` — the **second version of a conflicted file**, kept by synchronisation instead of a
+  copy beside the file (sync plan, appendix Г, Г20–Г30). `<id>` is twelve lowercase hex characters.
+  A set holds `other<ext>` (the bytes of the version that did not keep the name, byte for byte, with the
+  extension of the original), `base<ext>` (the common base, only for a text conflict that had one) and
+  `meta.json` (compact UTF-8 JSON, written last: `v`, `id`, `kind`, `item_id`, `path`, `other`,
+  `other_hash`, `other_size`, `base`, `base_hash`; no time and nothing that depends on the device, so two
+  devices that make the same set write the same bytes). A set exists only when `meta.json` and an `other`
+  file with the hash from `meta.json` are both there. The files are ordinary synchronised files: the
+  conflict is listed and resolved from any device, and resolving it moves the set to the vault trash
+  (`.amby/trash/`). Conflict marks (`<<<<<<<` and the like) are never written into a note. Conflict copies
+  made before this layout (`Name.<id>-conflict.md` beside the file) stay where they are and are still
+  listed as conflicts. The indexer does not read this folder.
+- `migrations/database-layout-v2/<ULID>/` — the log and immutable source copies of the explicit upgrade of databases to a single JSON and a shared `assets/` folder. They are kept after completion, are not a cache, and are not synchronised.
 - future versioned, documented metadata files.
+
+### Which files of `.amby/` are synchronised
+
+Every file or folder in `.amby/` states here whether it travels to the other devices. **A new file
+that does not say so is not synchronised** (sync plan, Р4): an unknown file neither leaves the
+computer nor gets lost. The engine enforces the same list (`sync/core/src/engine/rules.rs`), and a
+test holds the two together.
+
+| Entry                      | Synchronised | Why                                                                    |
+| -------------------------- | ------------ | ---------------------------------------------------------------------- |
+| `properties.json`          | yes          | user data of the notes, for the old versions                           |
+| `properties/`              | yes          | the look of note properties: groups, marks, layout                     |
+| `property-ops/`            | no           | journal of unfinished edits of this device                             |
+| `blocks/`                  | yes          | per-note UI sidecars                                                   |
+| `graph-layout.json`        | yes          | user state                                                             |
+| `property-backups/`        | yes          | immutable backups of removed properties                                |
+| `conflicts/`               | yes          | second versions of conflicts, listed and resolved from any device      |
+| `notes.db`, `-wal`, `-shm` | no           | rebuildable index                                                      |
+| `operation.lock`           | no           | exclusive local lease for desktop and CLI structural writes            |
+| `text-write.lock`          | no           | advisory lock for simple local Markdown writes                         |
+| `history/`                 | no           | each device keeps its own snapshots                                    |
+| `ai/`                      | no           | conversations remain on this device                                    |
+| `recovery/`                | no           | drafts and journals of this device                                     |
+| `archive/`                 | yes          | the archive (К1): files repeat their vault paths; `.meta/` has records |
+| `trash/`                   | no           | service trash of this device (closed conflicts, refused system trash)  |
+| `migrations/`              | no           | journals of this device                                                |
+| `sync/`                    | no           | state of synchronisation of this device                                |
+| `workspace.json`, others   | no           | not named: the default is "no"                                         |
+
+Files written by synchronisation itself follow the rules of the vault: a file that arrives from another
+device replaces the local one only after a history snapshot with the reason `sync-overwrite` (taken
+even when the history is switched off), and a file deleted on another device goes to the system
+trash of this computer, or to `.amby/trash/` when the system trash refuses it or the path is inside
+`.amby/` (sync plan, К3, К11 (б); never destroyed). The writes of synchronisation are not registered as
+writes of the application, so the watcher reports them like changes made by another program.
 
 The directory is application metadata, not an Obsidian configuration directory.
 Amby must not change `.obsidian` settings or plugin data.
@@ -57,19 +162,24 @@ The optional Amby-owned `amby-title` field is a non-empty display-title
 override. Readers resolve titles as `amby-title`, then the first Markdown H1,
 then the filename. It does not replace the generic `title` field and does not
 require a filesystem rename.
-New notes are published with their `amby-id` in the first atomic no-replace
-write, so there is no temporary on-disk state that requires a second ID write.
 
-For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
-identity candidate, never a trusted identity. Normal indexing leaves its bytes
-unchanged and uses a disposable path-scoped conflict key: the note is visible,
-openable and searchable, but body/property writes require explicit migration.
-A ULID alone cannot prove Amby ownership: migration is
-separately confirmed with a read-only file preview, raw backups, journal, and
-rollback. It adds `amby-id` with the same value and leaves the entire generic
-`id` property untouched. Duplicate candidates are reported, not migrated.
-Existing durable sidecar keys remain unchanged in this migration; candidate cache
-keys are replaced by the confirmed namespaced identity after refreshing the vault.
+The optional Amby-owned `amby-pages` boolean asks for the paged view of a note:
+its first-level headings become tabs. It only matters when the editor setting
+"Note pages" is "Only in marked notes"; `amby-pages: false` turns pages off for
+that note in every mode. The view never rewrites the file: pages are a display of
+ordinary headings, so other Markdown tools show a normal note. Amby writes or
+removes the field only when the person uses "Pages in this note" in the note
+menu, and then writes the smallest value for the current setting.
+
+A generic `id`, whatever it holds (a canonical ULID included), belongs to the
+user or to another app. Amby never reads it as identity, never copies it into
+`amby-id`, and never changes or removes it: its bytes stay exact. A note with such
+an `id` and no `amby-id` is treated like any note without `amby-id`: it gets a
+freshly generated one by the same path (index or the ID migration, with journal,
+backup and atomic writes). It is not a conflict, saves are not refused, and notes
+sharing the same foreign `id` are not duplicates. Version-1 migration journals
+written by older builds, which may carry a ULID taken from `id`, are still
+validated, resumed and rolled back.
 
 Both notes with a duplicate ID remain visible in the tree and searchable.
 The existing primary path (or first deterministic path on a rebuild) retains
@@ -82,9 +192,20 @@ custom-property mutations are refused until the identity is unique again.
 The editor and properties panel show a localized read-only warning. Malformed
 YAML uses the separate body-editing policy below; it is not an ID conflict.
 
+A **conflict copy made by synchronisation before the layout of `.amby/conflicts/`** (`Name.<12 hex>-conflict.md`, next to
+the file, listed in the list of conflicts of the sync screen) carries the same
+`amby-id` as the file it was copied from. It is the one duplicate that never takes
+the identity and never blocks the other: the file under its real name keeps the
+stable ID and stays editable whatever the order of paths, and the copy is a
+visible, searchable, read-only duplicate until the person resolves the conflict
+(keep the file, replace it with the copy, or keep both). Nothing is written into
+either file for this. Any other file with the same ID still blocks both, as above.
+A copy never holds the identity, even when its file is missing: then it has only its path-scoped conflict
+key. Once "keep both" gives the copy an `amby-id` of its own, it is an ordinary note.
+
 The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
-rebuilding it neither migrates legacy IDs nor deletes durable property data.
+rebuilding it neither migrates IDs nor deletes durable property data.
 
 Version 3 invalidates the disposable metadata cache only; it never migrates
 Markdown or sidecars. Reverting to version 2 would trust ambiguous generic IDs
@@ -129,10 +250,12 @@ automatic link replacement because their YAML boundary is unknown. Invalid YAML
 is never a reason to discard the source, apply a frontmatter migration, or hide
 its text from the tree/search.
 
-Recoverable YAML warnings acknowledge completed watcher events. Filesystem or
-UTF-8 read failures abort the scan before index changes, keeping the previous
-cache and pending events available for retry instead of treating unreadable notes
-as deleted.
+Recoverable YAML warnings acknowledge completed watcher events. A note that
+cannot be read (not UTF-8, no access) is never treated as deleted: the scan
+reports it in a warning, leaves it out and keeps its indexed row, if it had one.
+One such note does not stop the vault from loading or other notes from being
+read; the ID preflight lists it in `unreadableNotes` and never writes it. Once
+the file can be read again, its next watcher event or a rescan indexes it.
 
 ### Lossless ID insertion
 
@@ -231,8 +354,26 @@ rename. Attachment imports enforce product limits (100MB disk files, 25MB
 clipboard payloads), sanitize stems and extensions (ASCII alphanumeric only,
 preventing directory traversal), and classify SVGs as non-inline file attachments.
 
+Matching versions of Amby coordinate CLI edits, desktop text saves, history restores,
+and incoming Markdown replacements with the local `.amby/text-write.lock` advisory
+lock. History operations share `.amby/history/.lock` across processes. These empty
+coordination files stay in place so processes lock the same filesystem entry. A CLI
+edit compares the prepared source bytes again immediately before publication.
+External editors and older Amby versions can still write without this lock.
+
 Autosave work is serialized per file. A completed older write cannot clear the
 unsaved state of a newer in-memory buffer, and a stale queued buffer is skipped.
+
+Desktop activation and structural CLI writes acquire the same local advisory
+lock, `.amby/operation.lock`. If the active desktop owns the lease, it handles
+the CLI request under its mutation gate. Structural publication uses
+`.amby/text-write.lock` to coordinate with the CLI, desktop saves and sync
+publication. A pending structural journal also defers sync passes and text
+saves for that vault. Amby records planned moves and rewrites in
+`.amby/recovery/cli/structural.json` with a version. A small sidecar tracks the current step. Recovery
+recognizes a published step by its expected bytes or tree fingerprint and
+continues from the cursor. If actual contents match neither recorded state,
+recovery keeps the journal and the current files for inspection.
 
 ## External changes
 
@@ -308,7 +449,27 @@ coalesces versions only: the Markdown/text file is still saved after the normal
 short editor debounce, recovery drafts remain durable, and no existing history
 entry is deleted. ID assignment, link refactor, restore, and other explicitly
 forced snapshots keep their recovery points regardless of the autosave interval;
-rename and move retain their existing rollback/recovery contracts.
+rename and move retain their existing rollback/recovery contracts. Versions are
+kept by the note's vault-relative path, and a rename or move made in Amby carries
+them to the new path (one atomic manifest write), so a renamed note keeps its
+history and a new note at the old path starts with none. A failure to move them
+is logged and leaves them at the old path; the files are not affected. Archive
+keeps them at the original path, where the note returns on restore.
+
+A rename that Amby did not make (arrived through sync, or done in Finder or
+another app) is recognised by the index when it next reads the vault: a note
+under a new path whose `amby-id` the index held for an old path that no longer
+exists. The versions of the old path move to the new one in the same atomic
+manifest write, before the index commit; an interrupted or failed move leaves
+them at the old path, never lost. Nothing moves when identity is ambiguous: the
+id is claimed by more than one file, the note is keyed by its path (broken or
+unusable header), the old path still exists (a copy, a swap of names), the new
+path already has versions of its own, or two moves meet. A note the index never
+saw with an `amby-id` (renamed before its first indexing) keeps its versions at
+the old path. The same rules apply to the point update for changed paths and to the
+full scan; the point update sees only the files under the changed paths, so a
+second, not yet indexed claimant of the id elsewhere is seen by the next full
+scan only.
 
 Live Preview keeps the source text of a block until the block is edited (see
 `markdown-compatibility.md`). The save that may write a block in the editor's
@@ -321,10 +482,27 @@ loaded text; the request stays pending until a write that started after it has
 succeeded, and a restored recovery draft asks for it as well. The browser
 development adapter has no history and takes no such snapshot.
 
-History is append-only and is **not automatically pruned**. The History panel
+A rename or a move that rewrites links in other notes keeps every rewritten
+note as a `link-refactor` snapshot first, a page title that follows the new name
+or a database folder description the rename changes as a `rename` snapshot, and a
+merge keeps the target's text as a `merge` snapshot. Like `note-rewrite`, these are
+taken even when history is switched off: the exact undo of the operation writes
+these bytes back (docs/notices.md, section 9). The undo record the interface keeps
+holds only paths, snapshot ids and SHA-256 digests; nothing new is written to the
+vault for it. A merged note goes to `.amby/archive/`, from where the undo brings it
+back to its exact path.
+
+History is append-only unless the person turns on automatic cleanup in the
+History settings (keep N copies and/or N days per note). Automatic cleanup never
+removes the newest `note-rewrite`, `sync-overwrite`, `restore`, `link-refactor`,
+`rename` or `merge` snapshot of a note, does not count them against the limit, and logs a failed removal instead of
+failing the save. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
-cleanup action previews the number of versions and bytes to remove, requires
-confirmation, and currently retains the 20 latest snapshots of every note.
+cleanup action ("clear all") previews the number of versions and bytes to
+remove, requires confirmation, and then removes every snapshot of the vault (or
+of the one note it was started from): it keeps none, not even the newest
+`note-rewrite`, `sync-overwrite` or `restore` one that automatic cleanup
+protects.
 Cleanup moves a snapshot into a staged location, atomically updates the
 manifest, and only then deletes the staged data. A versioned cleanup journal
 restores or completes an interrupted operation before history is used again.
@@ -334,16 +512,32 @@ truth.
 The explicit Delete action follows the application setting `files.deleteMode`
 (`delete_item` takes the mode explicitly). The default `system` moves a note,
 folder, or complete bundle to the operating system's trash; restoration uses
-that system's trash interface and Amby keeps no vault-local copy. `vault` moves
-the item to `.amby/trash/` like Archive. `permanent` removes it with no copy and
-is always confirmed in the UI. A failed system or vault move is reported rather
+that system's trash interface and Amby keeps no vault-local copy. `archive` does what
+Archive does (the old value `vault` is read as `archive`). `permanent` removes it with no copy and
+is always confirmed in the UI. A failed system or archive move is reported rather
 than falling back to permanent deletion.
 
-Archive remains a separate action that moves items to `.amby/trash/`, including
-Canvas, Excalidraw, and database layers, and can be restored inside Amby. After
-a successful delete/archive, queued saves for affected open documents are
-discarded so they cannot recreate the removed files. Unsaved editor text is
+Archive (sync plan, appendix К) moves items to `.amby/archive/<path in the vault>` by renaming:
+the path inside repeats the path of the vault, so "Restore" puts the file back, to a free name
+(`Name 2.md`) when its place is taken. Restore requires the workspace shown when the archive
+entry was selected to still be active. The archive is synchronised like ordinary files. Each file
+has a record `.amby/archive/.meta/<id>.json` `{path, archivedAtMs}` (unknown fields are kept; no
+record means the time of the file). After a successful delete/archive, queued saves for affected
+open documents are discarded so they cannot recreate the removed files. Unsaved editor text is
 retained in recovery drafts when the chosen resolution requires it.
+
+The old `.amby/trash/` is moved into the archive once per vault, when the vault is opened and
+before a synchronisation session: `.amby/migrations/trash-to-archive-v1/` holds `plan.json`
+(the journal: the plan, written before the first rename), `steps/` (one file per finished entry), `manifests/`
+(the old descriptions of the moved entries), `completed.json` (marker and outcome) and, after a
+rollback, `rolled-back-<ms>/`. Entries whose path is inside `.amby/`, without content or with a
+damaged description stay in `.amby/trash/` with a reason code. Nothing is deleted; a rollback by the
+journal is the developer command `rollback_archive_migration`.
+
+Archive preview reads the selected archived file by its archive path. It never
+restores, indexes, or rewrites content. Manifest, payload and child paths reject symlinks and
+traversal; text is capped at 256 KiB and directory listings at 500 entries, with truncation
+reported to the UI. Unsupported or binary files remain restorable without being decoded.
 
 ## Recovery journal
 
@@ -373,15 +567,116 @@ next durable checkpoint forever. There is at most one write in flight and one
 latest pending snapshot per document. Close, visibility, vault-switch, restore,
 rename, and move boundaries flush the queue before releasing the document owner;
 an explicit durable save still waits for its write to finish. A process crash can
-therefore lose only the stated pending window plus an in-flight write, while a
-recovery write error is reported and never treated as a successful filesystem
-save.
+therefore lose only the stated pending window plus an in-flight write. When a
+filesystem save and its recovery write both fail (for example on a full disk), the
+window does not close and the vault does not switch unless the person explicitly
+chooses to lose the text. A recovery write error is never treated as a successful filesystem
+save. A failed draft write is logged (`recovery.write_failed`) and shown once as a `warning` card of the
+note, which goes away with the next successful write; a draft that cannot be read is logged
+(`recovery.read_failed`) and shown as a `warning` card too, never taken for a missing draft.
 
 ## Backup and Git policy
 
 Local history protects against accidental application actions and failed saves;
 it is not a substitute for a second physical copy. A protected vault should be
 backed up by the operating system or a sync service with version history.
+
+Before enabling sync, Amby creates a full copy in its own app data, never in or
+beside the vault: `<app data>/backups/<vault key>/<ULID>/`. The vault key is the
+first 16 bytes (hex) of the SHA-256 of the canonical vault path, so a vault at
+another path (a copy, or a folder synced between computers by Dropbox or Google
+Drive) never uses another machine's receipt and gets its own copy. The native UI
+harness uses its isolated app-data root. `vault/` contains all files and empty
+directories, including unknown metadata and durable `.amby/` data. Known
+`.amby/notes.db` and `.amby/sync/state.db` use consistent SQLite online snapshots
+(`VACUUM INTO`, `quick_check`); their WAL/SHM files are not copied separately.
+Symlinks, special entries, unsupported names, unreadable files and changes detected
+while copying block completion instead of being silently skipped. A copy that fails
+for lack of disk space reports `backup_failed`; sync does not start.
+
+A directory with `INCOMPLETE`, or without a valid version-1 `manifest.json`, is
+not a completed backup. File hashes and the source inventory are checked before
+publishing the immutable manifest; only then is the receipt written.
+
+**Receipt.** The receipt lives in app data, next to the copies:
+`<app data>/backups/<vault key>/receipt.json` (version 1: canonical source path,
+absolute backup root, SHA-256 of the manifest, `first_sync_ms`, `removed_ms`,
+`superseded`; no credentials). It is app-data, not vault, state on purpose: an
+absolute path from another computer must never travel with a vault folder. It
+names only a copy directly inside its own `<vault key>/` folder; anything else is
+refused. It is replaced atomically.
+
+**One copy per vault.** A second enable reuses the recorded copy after
+re-verifying it. A copy that is missing, incomplete or damaged is never repaired or
+overwritten and is not a dead end: enabling makes a new copy in a new ULID folder
+and the receipt is replaced atomically so that it names the new one. A damaged copy
+stays on disk, listed in `superseded`, and can be deleted from Settings. An
+unreadable receipt is renamed aside (`receipt.unreadable-<ULID>.json`), not
+deleted. The status carries `backupMissing` while a recorded copy is gone, so
+Settings explains that a new one is made the next time sync is switched on.
+Automatic resumption validates the receipt and manifest without rehashing every
+file and never makes a copy for a vault that has a record (only for a vault with
+none); this is a snapshot of files on disk, not an ongoing backup.
+
+**Retention.** The copy is deleted 14 days after the first successful sync of the
+vault: the first completed (`Done`) pass of a session whose receipt has no
+`first_sync_ms` records it; the next vault activation (app start or opening the
+vault) at or after that time removes the copy and writes `removed_ms`. The record
+is kept, so a synced vault whose copy expired (or was deleted in Settings) is not
+copied again when sync is switched off and on or the app restarts; a copy deleted
+_before_ the first sync is made again when sync is switched on. Deletion goes
+through a single function that accepts only a ULID folder directly inside the
+vault's own backups folder (no symlinks, canonical path), never the vault, and is
+the only code that removes a copy besides discarding an unpublished partial copy.
+
+**Legacy copies.** Versions before this one wrote `<vault-name>.amby-backups/<ULID>/`
+beside the vault and a receipt `.amby/sync/pre-sync-backup.json` inside it. That
+receipt is still read (an app-data receipt wins when both exist) and its copy stays
+valid as long as it exists, but it is never written, deleted or moved and the copy
+is never removed automatically; the file is still omitted from new copies. If the
+sibling folder was deleted, the stale receipt is ignored and a new copy is made in
+app data. Settings offers "Show" and "Delete old copy" only for the legacy copy
+that the in-vault receipt names; other `*.amby-backups` folders are only listed
+(restorable) and never touched.
+
+Settings → General → Backups lists the open vault's completed, incomplete,
+missing and damaged copies ("Copy before sync: created <date>", with Show, which
+reveals the folder in the file manager, and Delete behind the in-app confirmation
+dialog, plus the date of the automatic deletion). Metadata alone is never labeled verified: explicit
+verification hashes every copied file against the version-1 manifest and, for
+the recorded pre-sync copy, verifies the receipt's manifest digest. The same
+manager is available from the sync vault's backup disclosure. It does not read
+credentials and works without a sync account. Existing `RESTORE.txt` files remain
+unchanged as an emergency manual procedure.
+
+Restoring asks for a parent folder through the native picker. Backup IDs are
+resolved by Rust under the active vault's backup family (or its recorded receipt),
+not from renderer-supplied filesystem paths. Catalogs carry the backend vault
+generation; stale verification/restore requests are refused, including a vault
+switch while the folder picker is open. The destination must be outside the
+active vault and backup directory.
+
+Each restore exclusively reserves `<vault-name>-restored-<operation-id>/` with
+an `INCOMPLETE` marker and a version-1 `operation.json` journal. Its `vault/`
+subfolder receives the files byte for byte. Only `.amby/sync` is mapped to a new,
+unused `.amby/sync-before-restore-<ULID>` path **in the new copy**, preserving the
+old durable state and preventing automatic sync. No note IDs, unknown sidecars,
+BOMs or line endings are rewritten. The backup is verified before copying and
+again after it; the output is checked against the manifest with this sole path
+mapping. Directory and file durability precede the completed journal and removal
+of `INCOMPLETE`. A completed operation replays only if the output is unchanged;
+it never overwrites later edits. On failure the partial folder and journal remain,
+and a retry can create a new operation. The UI reports success only after the
+completion boundary and offers an explicit "Open in Amby" action using the normal
+save/close/profile-selection path. The source vault and immutable backup remain
+unchanged and can keep working while a separate copy is restored.
+
+Rollback is to keep using the original vault; no original data was replaced.
+After verifying the restored notes, the owner may remove an unwanted partial
+restore folder through the operating system. Amby does not silently delete it.
+Automatic schedules, retention pruning and discovery of moved external backups
+are outside this first recovery UI; the backup still does not protect against
+failure of its physical disk.
 
 Git is a useful optional third layer for Markdown-first vaults: initialise it
 only with the user's explicit choice, commit the user-visible note and asset
@@ -390,14 +685,57 @@ local recovery data. Amby must not silently initialise repositories, create
 commits, rewrite history, or push to a remote: each can conflict with a user's
 existing workflow and is itself a data-changing operation.
 
+## Templates and daily notes
+
+Two workspace modules: Templates is on in the Standard set, Daily notes is opt-in. Their settings live in
+`.amby/workspace.json` under `moduleSettings`: `templates.folder` (default
+`Templates`) and `daily.folder` (default `Daily`, `.` for the vault root) and
+`daily.template` (a template name, none by default). A folder must be vault-relative,
+without `..`, hidden or service folders; an unacceptable value means the default. A
+module list saved before the catalogue revision `2026-11-20` gets Templates once (Daily
+notes only when the list names it); after the next save of the list a switched-off module
+stays off. The rule is shared by
+the app (`readWorkspaceModuleConfig`) and the CLI (`vault_tools::modules`).
+
+A template is any Markdown note in the templates folder. A note made from it is a new
+note made through the regular creation path: the template's own `amby-id` is dropped
+and a fresh one assigned, `{{title}}` (the new name), `{{date}}` (`YYYY-MM-DD`) and
+`{{time}}` (`HH:MM`, local time) are replaced everywhere, header included, and every
+other byte, other apps' metadata included, is copied as written. The template is never
+written. A new template made from the app goes into the templates folder (made when
+missing), starts with `# {{title}}` and `{{date}}`, and never replaces an existing note. The note for a day is `<daily folder>/YYYY-MM-DD.md`, made once from the daily
+template when it is missing (its `{{title}}` is the date); an existing note is only
+opened. The rules live in `crates/amby-core/src/note_templates.rs`.
+
 ## Rename and move
 
 For notes that Amby renames or moves, resolved inbound wikilinks are rewritten
-to the new vault-relative target. Aliases and heading/block anchors are kept.
+in the form they were written in. A link by path (`[[Folder/Note]]`) gets the new
+vault-relative path. A link by name (`[[Note]]`) gets the new file name when, after the
+change, that name belongs to the moved note alone, and the full path otherwise; a move
+leaves a still-unique name, or a title link (titles do not change on a move), as
+written. Aliases and heading/block anchors are kept.
 Only links resolved by the SQLite index to the moved note are changed, avoiding
 unsafe rewrites of ambiguous text. Each changed source note is snapshotted
 before the refactor; if a link rewrite fails, already rewritten source notes
 are restored to their pre-refactor text.
+
+Wikilinks and embeds in archived notes (not in the index) are found with the index's
+own parser, so code, comments and frontmatter are skipped, and are rewritten only when
+the name (title, path or file name) belongs to the moved note alone; a name that another
+note also has is left as written. Alias, heading and block parts are kept.
+In every file it rewrites, a wikilink inside code or a `%%` comment is left as
+written; the same link in frontmatter (for example a relation property) is updated.
+
+Exact textual references (Markdown links and embeds, Canvas and Excalidraw file
+references) are updated only in normal vault notes and in the archive
+(`.amby/archive`, so links work after a restore). Only Canvas and Excalidraw
+files also have quoted paths rewritten; a quoted path in Markdown is ordinary
+text and is left alone. The trash (`.trash/`), backups, history, recovery and
+every other part of `.amby/`, `.obsidian/`, `.git/`, other hidden or reserved
+folders and symlinks are never entered or changed. The preview counts exactly
+the files that will be written. The rule lives in `refactor_may_enter`
+(`crates/amby-core/src/index/refactor.rs`) and reuses `RESERVED_DIRECTORIES`.
 
 A rename that changes only letter case is a real filesystem mutation. Amby
 first verifies that the requested spelling resolves to the same filesystem

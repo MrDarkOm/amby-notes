@@ -13,23 +13,35 @@ describe("Tauri window capabilities", () => {
     expect(defaultCapability.permissions).toContain("core:window:allow-unminimize")
     expect(defaultCapability.permissions).toContain("core:webview:allow-print")
     expect(noteWindowCapability.permissions).toContain("core:webview:allow-print")
-    expect(settingsWindowCapability.permissions).not.toContain("core:webview:allow-print")
+    // The settings window prints one thing: the recovery code of the sync connect screen (О3).
+    expect(settingsWindowCapability.permissions).toContain("core:webview:allow-print")
     expect(settingsWindowCapability.permissions).toContain(
       "core:window:allow-internal-toggle-maximize",
     )
-    expect(defaultCapability.permissions).toContain("updater:default")
-    expect(settingsWindowCapability.permissions).toContain("updater:default")
+    for (const capability of [defaultCapability, settingsWindowCapability]) {
+      expect(capability.permissions).toContain("core:resources:allow-close")
+    }
     expect(defaultCapability.permissions).toContain("process:allow-restart")
     expect(settingsWindowCapability.permissions).toContain("process:allow-restart")
     expect(defaultCapability.permissions).toContain("core:app:allow-version")
     expect(settingsWindowCapability.permissions).toContain("core:app:allow-version")
-    expect(noteWindowCapability.permissions).not.toContain("updater:default")
     expect(noteWindowCapability.permissions).not.toContain("process:allow-restart")
 
     for (const capability of [defaultCapability, noteWindowCapability, settingsWindowCapability]) {
       expect(capability.permissions).toContain("core:window:allow-close")
       expect(capability.permissions).toContain("core:window:allow-destroy")
     }
+  })
+
+  it("allows the two updater steps only in the main and settings windows", () => {
+    for (const capability of [defaultCapability, settingsWindowCapability]) {
+      expect(
+        capability.permissions.filter((permission) => permission.startsWith("updater:")),
+      ).toEqual(["updater:allow-download", "updater:allow-install"])
+    }
+    expect(
+      noteWindowCapability.permissions.some((permission) => permission.startsWith("updater:")),
+    ).toBe(false)
   })
 
   // Opening a note's attachment or a web address is done by Amby's own commands

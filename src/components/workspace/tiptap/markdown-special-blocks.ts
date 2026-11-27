@@ -1,6 +1,7 @@
-import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
-import type Token from "markdown-it/lib/token.mjs"
+import type { StateCore } from "markdown-it"
+import type { Token } from "markdown-it"
 import { CALLOUT_DEFAULTS } from "./callout-node"
+import { leadingEmoji as readLeadingEmoji } from "@/lib/emoji/emoji-resolver"
 
 const CALLOUT_FIRST_LINE_RE = /^\[!([A-Z0-9_-]+)\]([+-])?([ \t]+[^\n]*)?/i
 
@@ -86,10 +87,7 @@ export function detectCallouts(state: StateCore) {
     // A plain callout title is not an emoji. Keeping the entire suffix in the
     // emoji button is what caused every letter of a title to become a vertical
     // column. Only accept a real leading emoji; the NodeView renders any title.
-    const leadingEmoji =
-      /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(
-        possibleEmoji,
-      )?.[0]
+    const leadingEmoji = readLeadingEmoji(possibleEmoji)
     if (leadingEmoji) {
       headerContentOffset += leadingEmoji.length
       while (/[ \t]/u.test(rawHeaderSuffix[headerContentOffset] ?? "")) headerContentOffset++

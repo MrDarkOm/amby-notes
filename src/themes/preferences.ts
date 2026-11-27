@@ -1,15 +1,16 @@
 /** Appearance preference values consumed by runtime components. */
-export const EDITOR_FONT_SIZE = {
-  sm: "calc(1.02rem * var(--app-font-scale, 1))",
-  md: "calc(1.02rem * var(--app-font-scale, 1))",
-  lg: "calc(1.02rem * var(--app-font-scale, 1))",
-} as const
+export const EDITOR_FONT_SIZE = "calc(1.02rem * var(--app-font-scale, 1))"
 
-export const APP_FONT_SCALE = {
-  sm: "0.875",
-  md: "1",
-  lg: "1.125",
-} as const
+/** The interface font size, in percent of the default. */
+export const FONT_SIZE = { min: 80, max: 130, default: 100 } as const
+
+/** The percent each of the earlier three sizes stood for. */
+export const FONT_SIZE_OF_SCALE = { sm: 88, md: 100, lg: 113 } as const
+
+/** The earlier three-size value nearest to a percent, kept for older builds reading settings. */
+export function fontScaleOf(size: number): keyof typeof FONT_SIZE_OF_SCALE {
+  return size < 94 ? "sm" : size > 106 ? "lg" : "md"
+}
 
 export const APP_FONT_FAMILY = {
   system: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

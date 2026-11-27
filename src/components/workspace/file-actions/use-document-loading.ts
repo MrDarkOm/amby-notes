@@ -1,15 +1,16 @@
+import { naturalDocumentLayer } from "../layer-documents"
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, readRecoveryDraft } from "@/lib/recovery-drafts"
 import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
 import {
-  confirmAction,
   createNote,
   getNoteMetadata,
   getNoteProperties,
   readFile,
   readNote,
   writeNote,
+  type NoteProperties,
 } from "@/lib/storage"
 import {
   formatModified,
@@ -18,14 +19,16 @@ import {
   canvasLayerPath,
   sketchLayerPath,
 } from "../workspace-tree-utils"
-import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
+import { splitWebFrontmatter } from "@/lib/storage/web-frontmatter"
 import { findTabTreeItem, treeItemTabTarget } from "../tab-target"
 import {
   InFlightDocumentLoads,
   resolveMarkdownRecoveryLoad,
   StaleDocumentLoadError,
 } from "../markdown-recovery-load"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore, type Document } from "../use-doc-store"
+import { findLayerItem } from "../use-layers"
 import { useTabsStore, type Tab } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
 import { useViewStateStore, type EditorLayer } from "../use-view-state-store"
@@ -33,11 +36,24 @@ import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 import { moduleHost } from "@/lib/modules/host"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
+import { LayerUnreadableError } from "../orchestration/layer-draft"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { reportTreeActionFailure } from "./action-failure"
+
+/** The layer has no ID or revision from the backend: the text is shown, nothing is written. */
+const LAYER_UNRESOLVED_PROPERTIES: NoteProperties = {
+  hasFrontmatter: false,
+  bodyReadOnly: true,
+  properties: [],
+  customProperties: [],
+}
 
 type Params = Pick<
   UseFileActionsParams,
   | "vault"
   | "treeItems"
+  | "findNavigationFallback"
   | "loadCanvas"
   | "loadSketch"
   | "setPendingRenameId"
@@ -49,6 +65,7 @@ type Params = Pick<
 export function useDocumentLoading({
   vault,
   treeItems,
+  findNavigationFallback,
   loadCanvas,
   loadSketch,
   setPendingRenameId,
@@ -85,7 +102,7 @@ export function useDocumentLoading({
             current.backendGeneration === expectedBackendGeneration
           )
         }
-        const item = findTabTreeItem(treeItems, fileId)
+        const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
         const effectivePath = item?.path ?? fileId.replace(/^(canvas|sketch|database):/u, "")
         const dotIdx = effectivePath.lastIndexOf(".")
         const fileExt = dotIdx !== -1 ? effectivePath.slice(dotIdx) : ""
@@ -122,30 +139,35 @@ export function useDocumentLoading({
           let noteSource = ""
           let noteId: string | undefined
           let revision = ""
+          let noteProperties: NoteProperties | undefined
           const mdPath = noteLayerPath(path)
-          try {
-            const source = await readFile(mdPath)
-            noteSource = source
-            const idMatch = source.match(/^(?:amby-id|id):\s*([^\s]+)/m)
-            if (idMatch) noteId = idMatch[1]
-            if (noteId && vault) {
-              try {
-                const note = await readNote(vault, noteId)
-                noteContent = note.content
-                noteSource = note.source
-                revision = note.revision
-              } catch {
-                // The note layer can exist briefly before the index sees it.
-                // Keep it read-only until a stable revision is available.
-              }
+          // The ID and the revision of the note layer come from the backend only: the ID is the one
+          // its tree gives to that file, the revision the one `read_note` returns. A pattern over the
+          // text finds ordinary `id:` properties and body lines, and a revision of our own is not one
+          // the backend accepts. Until the backend has answered, the layer is read only.
+          const layerItem = vault ? findLayerItem(treeItems, mdPath) : null
+          if (vault && layerItem) {
+            try {
+              const note = await readNote(vault, layerItem.id)
+              noteId = layerItem.id
+              noteContent = note.content
+              noteSource = note.source
+              revision = note.revision
+            } catch {
+              // The layer can exist briefly before the index sees it; it stays read only.
             }
-            if (!revision) {
-              const split = splitWebFrontmatter(source)
-              noteContent = split ? split.body : source
-              revision = webRevision(noteContent)
+          }
+          if (!revision) {
+            try {
+              const source = await readFile(mdPath)
+              noteSource = source
+              noteContent = splitWebFrontmatter(source)?.body ?? source
+            } catch {
+              // No markdown layer yet
             }
-          } catch {
-            // No markdown layer yet
+            // Saving needs the backend's revision; without it nothing is written. The browser
+            // adapter has no vault and writes the file itself.
+            if (vault) noteProperties = LAYER_UNRESOLVED_PROPERTIES
           }
           const document: Document = {
             id: fileId,
@@ -158,6 +180,7 @@ export function useDocumentLoading({
             revision,
             source: noteSource,
             noteId,
+            ...(noteProperties ? { noteProperties } : {}),
           }
           setDoc(fileId, document)
           if (path && path !== fileId) {
@@ -206,7 +229,6 @@ export function useDocumentLoading({
           path,
           diskContent: note.content,
           readDraft: (id) => readRecoveryDraft(id, recoveryScope),
-          confirmRestore: () => confirmAction(t("recovery.restorePrompt")),
           isCurrent,
         })
         if (recovery.status === "stale") throw new StaleDocumentLoadError()
@@ -225,17 +247,43 @@ export function useDocumentLoading({
           noteId: fileId,
         }
         setDoc(fileId, document)
-        if (recovery.restored) {
-          // A restored draft may hold blocks the editor rewrote before the crash; the
-          // request made then is gone, so the file it replaces is kept in history.
-          requestSourceRewriteSnapshot(fileId)
-          markUnsaved(fileId)
-          autosave.enqueueImmediate(autosaveKey(fileId), {
-            fileId,
-            path,
-            content: recovery.content,
-            backendGeneration,
-            expectedRevision: note.revision,
+        // A new load starts from a clean slate of notices.
+        useNoteNoticesStore.getState().setSaveFailed(fileId, false)
+        useNoteNoticesStore.getState().clearDraftOffer(fileId)
+        if (recovery.offer !== null) {
+          // A draft that differs from the disk is offered in the notices of the note; the note is read
+          // only until the person answers, and the journal keeps the draft until then.
+          const draft = recovery.offer
+          const clearOffer = () => useNoteNoticesStore.getState().clearDraftOffer(fileId)
+          useNoteNoticesStore.getState().offerDraft(fileId, {
+            accept: () => {
+              clearOffer()
+              const current = useDocStore.getState().openDocs[fileId]
+              if (!current) return
+              // A restored draft may hold blocks the editor rewrote before the crash; the request made
+              // then is gone, so the file it replaces is kept in history.
+              requestSourceRewriteSnapshot(fileId)
+              for (const key of new Set([fileId, path])) {
+                if (useDocStore.getState().openDocs[key]) {
+                  useDocStore.getState().patchDoc(key, { content: draft })
+                }
+              }
+              markUnsaved(fileId)
+              autosave.enqueueImmediate(autosaveKey(fileId), {
+                fileId,
+                path,
+                content: draft,
+                backendGeneration,
+                expectedRevision: current.revision ?? note.revision,
+              })
+            },
+            reject: () => {
+              clearOffer()
+              void Promise.all([
+                discardRecoveryDraft(fileId, recoveryScope),
+                discardRecoveryDraft(path, recoveryScope),
+              ])
+            },
           })
         } else if (recovery.discardDraft) {
           await Promise.all([
@@ -264,24 +312,25 @@ export function useDocumentLoading({
       markUnsaved,
       recoveryScope,
       setDoc,
-      t,
       treeItems,
+      findNavigationFallback,
       vault,
     ],
   )
   const openTreeItem = React.useCallback(
     async (fileId: string, inNewTab = false, displayTitle?: string) => {
       flushEditorSerializations()
-      const item = findTabTreeItem(treeItems, fileId)
+      const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
       if (!item) return
       const request = ++selectionRequestRef.current
       const initial = useTabsStore.getState()
       const initialTab = initial.tabs.find((tab) => tab.key === initial.activeTabKey)
       const target = { ...treeItemTabTarget(item), title: displayTitle ?? item.name }
-      const primary =
-        useViewStateStore.getState().primaryLayers[target.fileId] ??
-        useViewStateStore.getState().primaryLayers[item.id] ??
-        (item.path ? useViewStateStore.getState().primaryLayers[item.path] : undefined)
+      const primary = item.bundleMember
+        ? naturalDocumentLayer(target, item.path)
+        : (useViewStateStore.getState().primaryLayers[target.fileId] ??
+          useViewStateStore.getState().primaryLayers[item.id] ??
+          (item.path ? useViewStateStore.getState().primaryLayers[item.path] : undefined))
       if (primary) {
         useViewStateStore.getState().setActiveLayer(target.fileId, primary)
         useViewStateStore.getState().setActiveLayer(item.id, primary)
@@ -352,7 +401,17 @@ export function useDocumentLoading({
           await loadDoc(target.fileId, target.title)
         }
       } catch (error) {
-        console.error("Failed to load file:", error)
+        if (error instanceof LayerUnreadableError) {
+          // An unreadable canvas or sketch is not opened; the answer goes under the tree (SAVE-01).
+          useTreeMessageStore.getState().show({
+            id: `layer-unreadable:${error.path}`,
+            level: "warning",
+            titleKey: "workspace.layerUnreadable",
+            params: { name: target.title },
+            lineKey: "workspace.layerUnreadableLine",
+          })
+        }
+        logger.warn("document.open_failed", { failureCode: operationErrorCode(error) })
         return
       }
       const currentVault = useVaultStore.getState()
@@ -369,7 +428,15 @@ export function useDocumentLoading({
       openItem(target, inNewTab)
       void releaseUnusedDocumentBuffers()
     },
-    [backendGeneration, loadDoc, openItem, releaseUnusedDocumentBuffers, treeItems, vault],
+    [
+      backendGeneration,
+      findNavigationFallback,
+      loadDoc,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      treeItems,
+      vault,
+    ],
   )
   const handleSelect = React.useCallback(
     (fileId: string, displayTitle?: string) => {
@@ -421,7 +488,8 @@ export function useDocumentLoading({
         setPendingRenameId(id)
         setTimeout(() => setPendingRenameId((current) => (current === id ? null : current)), 500)
       } catch (error) {
-        console.error("Failed to clone file:", error)
+        logger.warn("file.clone_failed", { failureCode: operationErrorCode(error) })
+        reportTreeActionFailure("cloneNote")
       }
     },
     [
@@ -439,7 +507,7 @@ export function useDocumentLoading({
   )
   const navigateToFile = React.useCallback(
     async (fileId: string) => {
-      const item = findTabTreeItem(treeItems, fileId)
+      const item = findTabTreeItem(treeItems, fileId) ?? findNavigationFallback?.(fileId)
       if (!item) return
       try {
         if (item.type === "file") await loadDoc(item.id, item.name)
@@ -450,7 +518,7 @@ export function useDocumentLoading({
         /* navigation is best-effort */
       }
     },
-    [loadDoc, treeItems],
+    [loadDoc, treeItems, findNavigationFallback],
   )
   return { loadDoc, handleSelect, handleOpenInNewTab, handleCloneFile, navigateToFile }
 }

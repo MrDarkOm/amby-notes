@@ -76,6 +76,8 @@ export type InstallErrorCode =
   | "INVALID_SIGNATURE"
   | "STAGING_FAILED"
   | "PUBLISH_FAILED"
+  | "UNINSTALL_FAILED"
+  | "INVALID_PACKAGE"
 
 export interface InstallResult {
   success: boolean

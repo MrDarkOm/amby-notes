@@ -1,4 +1,6 @@
 import { globalFileMissing, loadGlobalJSON, saveGlobalJSON } from "@/lib/storage"
+import { MODULE_PACKAGE_CONTROLS_ENABLED } from "./package-manager/controls"
+import { errorType, logger } from "@/lib/logger"
 import {
   MODULES_REGISTRY_FILE,
   MODULES_REGISTRY_VERSION,
@@ -57,14 +59,6 @@ const BUILTIN_MODULES: InstalledModule[] = [
     installedAt: 0,
   },
   {
-    id: "amby.sync",
-    version: "1.0.0",
-    activeVersion: "1.0.0",
-    signatureStatus: "signed",
-    source: "builtin",
-    installedAt: 0,
-  },
-  {
     id: "amby.ai",
     version: "1.0.0",
     activeVersion: "1.0.0",
@@ -82,6 +76,30 @@ const BUILTIN_MODULES: InstalledModule[] = [
   },
   {
     id: "amby.canvas",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
+  {
+    id: "amby.supernotes",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
+  {
+    id: "amby.templates",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
+  {
+    id: "amby.daily",
     version: "1.0.0",
     activeVersion: "1.0.0",
     signatureStatus: "signed",
@@ -152,10 +170,11 @@ export async function loadGlobalModulesRegistry(): Promise<GlobalModulesRegistry
     : []
   const uninstalledSet = new Set(uninstalled)
 
-  // Ensure built-in modules are registered unless explicitly uninstalled
+  // Ensure built-in modules are registered unless explicitly uninstalled (when that is possible)
   let missingBuiltinAdded = false
   for (const builtin of BUILTIN_MODULES) {
-    if (!installed[builtin.id] && !uninstalledSet.has(builtin.id)) {
+    const keptOut = MODULE_PACKAGE_CONTROLS_ENABLED && uninstalledSet.has(builtin.id)
+    if (!installed[builtin.id] && !keptOut) {
       installed[builtin.id] = { ...builtin, installedAt: Date.now() }
       missingBuiltinAdded = true
     }
@@ -169,7 +188,11 @@ export async function loadGlobalModulesRegistry(): Promise<GlobalModulesRegistry
   }
 
   if (missingBuiltinAdded) {
-    void saveGlobalModulesRegistry(registry).catch(() => {})
+    void saveGlobalModulesRegistry(registry).catch((error: unknown) => {
+      // Only the built-in modules that were missing from the file are added back; the next read
+      // adds them again, so nothing the person chose is lost.
+      logger.warn("modules.registry_save_failed", { errorType: errorType(error) })
+    })
   }
 
   return registry
@@ -188,6 +211,28 @@ export function saveGlobalModulesRegistry(registry: GlobalModulesRegistry): Prom
     console.error("Failed to save global modules registry:", err)
   })
   return next
+}
+
+/** Whether the module ships inside the application, so it needs no download to be installed. */
+export function isBuiltinModuleId(id: string): boolean {
+  const canonicalId = toCanonicalModuleId(id)
+  return BUILTIN_MODULES.some((builtin) => builtin.id === canonicalId)
+}
+
+/**
+ * Installs a module that ships with the application: its code is already bundled, so only the
+ * registry changes and nothing is downloaded. Returns false for any other module.
+ */
+export async function installBuiltinModule(id: string): Promise<boolean> {
+  const canonicalId = toCanonicalModuleId(id)
+  const builtin = BUILTIN_MODULES.find((module) => module.id === canonicalId)
+  if (!builtin) return false
+  const registry = await loadGlobalModulesRegistry()
+  if (registry.installed[canonicalId]) return true
+  registry.installed[canonicalId] = { ...builtin, installedAt: Date.now() }
+  registry.uninstalled = (registry.uninstalled ?? []).filter((entry) => entry !== canonicalId)
+  await saveGlobalModulesRegistry(registry)
+  return true
 }
 
 export async function isModuleInstalled(id: string): Promise<boolean> {

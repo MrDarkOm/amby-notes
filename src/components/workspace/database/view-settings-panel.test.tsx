@@ -167,7 +167,12 @@ describe("ViewSettingsPanel", () => {
 
   it("changes the view icon from the icon beside the name", () => {
     render(<ViewSettingsPanel {...props({ viewIcon: "🚀" })} />)
-    expect(screen.getByRole("button", { name: "Сменить иконку вида" }).textContent).toBe("🚀")
+    expect(
+      screen
+        .getByRole("button", { name: "Сменить иконку вида" })
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toContain("emoji_u1f680.svg")
   })
 
   it("chooses the board columns and the way a record opens", async () => {

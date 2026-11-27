@@ -80,6 +80,23 @@ describe("TooltipProvider", () => {
     expect(named.getAttribute("aria-label")).toBe("Own name")
   })
 
+  it("shows the lines after the first one smaller and muted", () => {
+    vi.useFakeTimers()
+    const { container } = render(
+      <>
+        <button title={"Обновить\nОбновлено: вчера"}>x</button>
+        <TooltipProvider />
+      </>,
+    )
+    fireEvent.pointerOver(container.querySelector("button") as HTMLButtonElement)
+    act(() => vi.advanceTimersByTime(1000))
+    const tooltip = screen.getByRole("tooltip")
+    const second = tooltip.querySelector("span.block") as HTMLElement
+    expect(second.textContent).toBe("Обновлено: вчера")
+    expect(second.className).toContain("text-[11px]")
+    expect(tooltip.textContent).toContain("Обновить")
+  })
+
   it("dismisses a tooltip when its trigger starts an interaction", () => {
     vi.useFakeTimers()
     const { container } = render(
@@ -116,6 +133,28 @@ describe("TooltipProvider", () => {
     fireEvent(window, new Event("blur"))
     act(() => vi.advanceTimersByTime(300))
     expect(screen.getByRole("tooltip").style.opacity).toBe("0")
+  })
+
+  it("does not reopen a tooltip when a click focuses the trigger, but allows keyboard focus", () => {
+    vi.useFakeTimers()
+    const { container } = render(
+      <>
+        <button title="Настройки">Настройки</button>
+        <TooltipProvider />
+      </>,
+    )
+    const trigger = container.querySelector("button") as HTMLButtonElement
+    vi.spyOn(trigger, "matches").mockImplementation((selector) => selector === ":focus-visible")
+
+    fireEvent.pointerDown(trigger)
+    fireEvent.focusIn(trigger)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.queryByRole("tooltip")).toBeNull()
+
+    fireEvent.keyDown(document, { key: "Tab" })
+    fireEvent.focusIn(trigger)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByRole("tooltip").textContent).toBe("Настройки")
   })
 
   it("positions tooltips at bottom by default", () => {

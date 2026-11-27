@@ -1,10 +1,13 @@
+import * as React from "react"
 import { useTranslation } from "react-i18next"
-import type { WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
-import { useDatabaseStore } from "../database/database-store"
+import type { DatabaseRow, WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
+import { SectionGallery } from "./pages/section-gallery"
+import { OutsideStoryLink } from "./workshop/outside-story-link"
+import { sharedInUniverse } from "./pages/scope-model"
 import { useCreateInScope } from "./workshop/use-create-in-scope"
 import type { ScopeData } from "./workshop/use-scope-data"
-import { WorldCards, type WorldCard } from "./workshop/world-cards"
-import type { PanelFilter } from "./workshop/workshop-model"
+import { storyLabels, type PanelFilter } from "./workshop/workshop-model"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface ScopedSectionProps {
   workshop: WorkshopSummary
@@ -15,12 +18,16 @@ interface ScopedSectionProps {
   onOpenNote: (noteId: string) => void
   /** Opens the whole database of the section (every story's pages), on the workshop's page. */
   onOpenWhole: (sectionId: string) => void
+  /** Read mode: no page is made from here. */
+  locked?: boolean
 }
+
+const NO_ROWS: DatabaseRow[] = []
 
 /**
  * One section as a page of a story, a universe or the standalone stories shows it: only the pages
- * that belong here (the panel's rule), not the whole shared database. The whole database is one
- * button away, on the page of the workshop.
+ * that belong here (the panel's rule), as a gallery with categories, not the whole shared
+ * database. The whole database is one button away, on the page of the workshop.
  */
 export function ScopedSection({
   workshop,
@@ -29,41 +36,63 @@ export function ScopedSection({
   data,
   onOpenNote,
   onOpenWhole,
+  locked = false,
 }: ScopedSectionProps) {
   const { t } = useTranslation()
-  const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
   const createFor = useCreateInScope(workshop, scope)
   const list = data.lists.find((candidate) => candidate.section.id === section.id)
-  const cards: WorldCard[] = [
-    { owner: workshop, section, rows: list?.shown ?? [] },
-    ...(list && list.withoutStory.length > 0
-      ? [
-          {
-            owner: workshop,
-            section,
-            rows: list.withoutStory,
-            title: t("creative.workshop.noStory"),
-          },
-        ]
-      : []),
-  ]
+  const storyLabelsOf = React.useCallback(
+    (noteId: string) =>
+      storyLabels(
+        data.membership.storiesOf(noteId),
+        (storyId) => data.stories.find((story) => story.storyId === storyId)?.name,
+      ),
+    [data.membership, data.stories],
+  )
+  const shownRows = list?.shown ?? NO_ROWS
+  const sharedNoteIds = React.useMemo(
+    () =>
+      scope.kind === "universe"
+        ? sharedInUniverse(
+            shownRows,
+            data.membership,
+            data.stories.map((story) => story.storyId),
+          )
+        : undefined,
+    [data.membership, data.stories, scope.kind, shownRows],
+  )
+  const hidden =
+    scope.kind === "story" ? (data.rows[section.databaseId]?.length ?? 0) - shownRows.length : 0
+  // A page of a story names no other story: its card would only repeat the page's own place.
+  const chips = scope.kind === "story" ? undefined : storyLabelsOf
   return (
-    <div className="mb-8 flex w-full min-w-0 max-w-3xl flex-col gap-3">
-      {data.failed && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("creative.workshop.loadFailed")}
-        </p>
-      )}
-      <WorldCards
-        cards={cards}
+    <div className="mb-8 flex w-full min-w-0 flex-col gap-6">
+      {data.failed && <NoticeLine role="alert" text={t("creative.workshop.loadFailed")} />}
+      <SectionGallery
+        section={section}
+        workshop={workshop}
+        locked={locked}
+        rows={shownRows}
+        sharedNoteIds={sharedNoteIds}
         loading={data.loading}
-        vaultGeneration={vaultGeneration}
+        storyLabelsOf={chips}
         onOpenNote={onOpenNote}
-        onOpenSection={(_ownerId, sectionId) => onOpenWhole(sectionId)}
+        onOpenAsBase={() => onOpenWhole(section.id)}
         openLabel={t("creative.page.openWhole")}
-        limit={Infinity}
-        createFor={(card) => (card.title ? null : createFor(card.section))}
+        createFor={locked ? null : createFor(section)}
+        footnote={<OutsideStoryLink count={hidden} onShow={() => onOpenWhole(section.id)} />}
       />
+      {list && list.withoutStory.length > 0 && (
+        <SectionGallery
+          section={section}
+          workshop={workshop}
+          locked={locked}
+          rows={list.withoutStory}
+          title={t("creative.workshop.noStory")}
+          loading={data.loading}
+          onOpenNote={onOpenNote}
+        />
+      )}
     </div>
   )
 }

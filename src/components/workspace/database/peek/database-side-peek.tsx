@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, ExternalLink, RefreshCw, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
+import { useDialogFocus } from "@/lib/use-dialog-focus"
 import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { cardSpring } from "../database-motion"
 import type {
@@ -14,6 +15,7 @@ import type {
   DatabaseYamlResolution,
   DatabaseYamlSyncResult,
 } from "@/lib/storage"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface DatabaseSidePeekProps {
   row: DatabaseRow
@@ -55,6 +57,8 @@ export function DatabaseSidePeek({
   onClose,
 }: DatabaseSidePeekProps) {
   const { t } = useTranslation()
+  const panelRef = React.useRef<HTMLElement>(null)
+  useDialogFocus(panelRef, variant === "center")
   const [manualValues, setManualValues] = React.useState<Record<string, string>>({})
   React.useEffect(() => {
     if (variant !== "center") return
@@ -66,6 +70,8 @@ export function DatabaseSidePeek({
   }, [onClose, variant])
   const panel = (
     <motion.aside
+      ref={panelRef}
+      tabIndex={variant === "center" ? -1 : undefined}
       role={variant === "center" ? "dialog" : undefined}
       // The big window rises and fades in; the side panel slides in from the edge.
       initial={variant === "center" ? { opacity: 0, y: 24, scale: 0.97 } : { opacity: 0, x: 40 }}
@@ -156,11 +162,7 @@ export function DatabaseSidePeek({
         ) : (
           <p className="text-sm text-muted-foreground">{t("databasePeek.bodyPlaceholder")}</p>
         )}
-        {yamlSync?.error && (
-          <p role="alert" className="m-4 text-xs text-destructive">
-            {yamlSync.error}
-          </p>
-        )}
+        {yamlSync?.error && <NoticeLine role="alert" text={yamlSync.error} className="m-4" />}
         {yamlSync?.result && yamlSync.result.conflicts.length > 0 && (
           <section className="m-4 max-h-64 space-y-2 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3">
             <h3 className="text-xs font-semibold">

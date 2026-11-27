@@ -1,4 +1,26 @@
+import type { DeskItem } from "./desk/desk-layout-model"
+
+export const WHOLE_WORKSHOP = "all-workshop"
+
 const WORKSHOP_STORAGE_KEY = "amby:creative-workshop"
+const subscribers = new Set<() => void>()
+
+export function subscribeWorkshopPrefs(listener: () => void) {
+  subscribers.add(listener)
+  window.addEventListener("storage", listener)
+  return () => {
+    subscribers.delete(listener)
+    window.removeEventListener("storage", listener)
+  }
+}
+
+export function workshopPrefsSnapshot(): string {
+  try {
+    return localStorage.getItem(WORKSHOP_STORAGE_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
 
 /** What the lists remember per vault: the story and the universe chosen and the parts unfolded. */
 export interface WorkshopPrefs {
@@ -10,14 +32,44 @@ export interface WorkshopPrefs {
    * saves hold "books" and "arcs", which are read as "text" (`worksSectionsFromPrefs`).
    */
   works?: string[]
+  /** The filter of the story cards on the workshop's page (`parseStoryFilter` reads it). */
+  storyFilter?: string
+  /** The sort of the story cards on the workshop's page (`parseStorySort` reads it). */
+  storySort?: string
+  /** The default desk layout for stories without their own layout. */
+  deskLayout?: DeskItem[]
+  deskLayoutsByStory?: Record<string, DeskItem[]>
+  /** Fold the page plot throughout this vault. */
+  plotFolded?: boolean
+  /** The daily word goal of each story and the counts seen by day (`word-goal-model.ts`). */
+  wordGoals?: Record<
+    string,
+    { goal?: number; log?: Record<string, { start: number; last: number }> }
+  >
+  /** The choices on the page of a universe and on that of the standalone stories. */
+  scopes?: Partial<Record<ScopePrefsKind, ScopePrefs>>
 }
 
-export function readWorkshopPrefs(vault: string): WorkshopPrefs {
+/** What the page of a universe or of the standalone stories remembers (each kept apart). */
+export interface ScopePrefs {
+  /** The filter of the story cards (`parseStoryFilter` reads it). */
+  filter?: string
+  /** The sort of the story cards (`parseStorySort` reads it). */
+  sort?: string
+  /** `cards` or `timeline`. */
+  view?: string
+  /** The section ID of the tab of the world that was open. */
+  tab?: string
+}
+
+export type ScopePrefsKind = "universe" | "standalone"
+
+export function readWorkshopPrefs(
+  vault: string,
+  snapshot = workshopPrefsSnapshot(),
+): WorkshopPrefs {
   try {
-    const saved = JSON.parse(localStorage.getItem(WORKSHOP_STORAGE_KEY) ?? "{}") as Record<
-      string,
-      WorkshopPrefs
-    >
+    const saved = JSON.parse(snapshot || "{}") as Record<string, WorkshopPrefs>
     const prefs = saved[vault]
     return prefs && typeof prefs === "object" ? prefs : {}
   } catch {
@@ -35,7 +87,17 @@ export function writeWorkshopPrefs(vault: string, patch: WorkshopPrefs) {
       WORKSHOP_STORAGE_KEY,
       JSON.stringify({ ...saved, [vault]: { ...saved[vault], ...patch } }),
     )
+    subscribers.forEach((listener) => listener())
   } catch {
     // Remembering is a convenience: the lists work without it.
   }
+}
+
+export function readScopePrefs(vault: string, kind: ScopePrefsKind): ScopePrefs {
+  return readWorkshopPrefs(vault).scopes?.[kind] ?? {}
+}
+
+export function writeScopePrefs(vault: string, kind: ScopePrefsKind, patch: ScopePrefs) {
+  const scopes = readWorkshopPrefs(vault).scopes ?? {}
+  writeWorkshopPrefs(vault, { scopes: { ...scopes, [kind]: { ...scopes[kind], ...patch } } })
 }

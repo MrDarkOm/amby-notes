@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { formatShortcut } from "../keyboard-shortcuts"
 import type { Editor } from "@tiptap/react"
 import { useTranslation } from "react-i18next"
 import { MotionSpinner } from "@/lib/motion"
@@ -29,6 +30,7 @@ import { CALLOUT_DEFAULTS } from "./callout-node"
 import { wrapSelectionInCallout } from "./block-insert-items"
 import { aiChat, aiErrorMessage } from "@/lib/ai"
 import { activeModel, loadSettings, resolveAiConfig } from "../app-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | "ai" | null
 
@@ -73,8 +75,12 @@ const AI_ACTIONS: AiAction[] = [
 
 interface BubbleToolbarProps {
   editor: Editor
+  /** The left and right edge of the selection the toolbar belongs to. */
   left: number
+  right: number
   top: number
+  /** Out of sight with what it belongs to: kept, not shown. */
+  hidden?: boolean
   /** The panel the toolbar opens with; Mod-K opens it on the link panel. */
   initialPanel?: "link" | null
 }
@@ -121,8 +127,17 @@ const HEADINGS: Array<{
   { label: "H6", level: 6 },
 ]
 
-export function BubbleToolbar({ editor, left, top, initialPanel = null }: BubbleToolbarProps) {
+export function BubbleToolbar({
+  editor,
+  left,
+  right,
+  top,
+  hidden = false,
+  initialPanel = null,
+}: BubbleToolbarProps) {
   const { t } = useTranslation()
+  const toolbarRef = React.useRef<HTMLDivElement>(null)
+  const [measuredWidth, setMeasuredWidth] = React.useState(480)
   const [panel, setPanel] = React.useState<Panel>(initialPanel)
   // Opened on the link panel (Mod-K): the address of the link under the selection is shown.
   const [inputValue, setInputValue] = React.useState(() =>
@@ -143,6 +158,11 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
   const [aiBusy, setAiBusy] = React.useState(false)
   const [aiError, setAiError] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
+  React.useLayoutEffect(() => {
+    if (toolbarRef.current && toolbarRef.current.offsetWidth > 0) {
+      setMeasuredWidth(toolbarRef.current.offsetWidth)
+    }
+  }, [left, right, top, panel])
   React.useEffect(
     () => () => {
       mountedRef.current = false
@@ -317,7 +337,7 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
 
   // Shared input key handler
   function handleInputKey(e: React.KeyboardEvent<HTMLInputElement>, onEnter: () => void) {
-    if (e.key === "Enter") {
+    if (isEnterKey(e)) {
       e.preventDefault()
       onEnter()
       closePanel()
@@ -325,10 +345,19 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
     if (e.key === "Escape") closePanel()
   }
 
+  // It starts at the left edge of the selection; where that would run it out of the window it
+  // ends at the right edge of the selection instead.
+  const overflows = left + measuredWidth > window.innerWidth - 8
+  const resolvedLeft = Math.max(
+    8,
+    Math.min(overflows ? right - measuredWidth : left, window.innerWidth - measuredWidth - 8),
+  )
+
   return (
     <div
+      ref={toolbarRef}
       className="amby-floating-menu fixed z-50 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-xl backdrop-blur"
-      style={{ left, top }}
+      style={{ left: resolvedLeft, top, visibility: hidden ? "hidden" : undefined }}
       onMouseDown={(e) => {
         // Prevent editor blur when clicking toolbar buttons; allow it for
         // <input> elements so they can receive focus naturally.
@@ -409,7 +438,7 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
         <span className="text-[10px] font-semibold">[[</span>
       </ToolbarButton>
       <ToolbarButton
-        title={t("editorToolbar.urlLink")}
+        title={t("editorToolbar.urlLink", { shortcut: formatShortcut("Mod+K") })}
         active={panel === "link"}
         onClick={openLinkPanel}
       >
@@ -583,7 +612,7 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
                   {t("ai.generating")}
                 </div>
               )}
-              {aiError && <div className="px-2 py-1.5 text-[11px] text-red-400">{aiError}</div>}
+              {aiError && <div className="px-2 py-1.5 text-[11px] text-destructive">{aiError}</div>}
             </div>
           )}
 

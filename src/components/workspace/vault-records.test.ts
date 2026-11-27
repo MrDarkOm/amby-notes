@@ -18,6 +18,12 @@ describe("Windows workspace path identity", () => {
     vi.unstubAllGlobals()
   })
 
+  it("reconnects a recent vault without duplicating it or losing its custom name", () => {
+    const record = { id: "kept", name: "My notes", path: "/vault", detached: true }
+    expect(reconcileVaultRecord([record], "/vault")).toEqual([{ ...record, detached: false }])
+    expect(record.detached).toBe(true)
+  })
+
   it("repairs already persisted duplicates and preserves POSIX case", () => {
     const records = [
       { id: "old", name: "Old", path: "D:\\Vault" },

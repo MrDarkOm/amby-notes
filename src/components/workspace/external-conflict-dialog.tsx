@@ -4,17 +4,16 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
+import { discardRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
   NoteRevisionConflictError,
   readNote,
-  restoreDeletedNote,
   saveConflictCopy,
   writeFile,
   writeNote,
@@ -27,6 +26,7 @@ import {
   pendingSourceRewriteSnapshot,
   settleSourceRewriteSnapshot,
 } from "./autosave/source-rewrite"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * Prevents an external editor from being silently overwritten by a dirty
@@ -53,7 +53,8 @@ export function ExternalConflictDialog() {
     setError(null)
   }, [conflict?.fileId])
 
-  if (!conflict || !currentDocument) return null
+  // A file that is gone has no window (К12): its card is in the notices of the note.
+  if (!conflict || !currentDocument || conflict.externalContent === null) return null
   const document = currentDocument
   const activeConflict = conflict
   const { patchDoc, markSaved, markUnsaved, clearExternalConflict } = useDocStore.getState()
@@ -66,22 +67,7 @@ export function ExternalConflictDialog() {
       const content =
         useDocStore.getState().openDocs[activeConflict.fileId]?.content ??
         activeConflict.localContent
-      if (vault && activeConflict.externalContent === null) {
-        const outcome = await restoreDeletedNote(
-          vault,
-          document.noteId ?? activeConflict.fileId,
-          activeConflict.path,
-          content,
-          activeConflict.sourceTemplate ?? document.source,
-          backendGeneration,
-          originWindow,
-        )
-        patchDoc(activeConflict.fileId, {
-          revision: outcome.revision,
-          source: activeConflict.sourceTemplate ?? document.source,
-          externallyDeleted: false,
-        })
-      } else if (vault) {
+      if (vault) {
         const rewriteSnapshot = pendingSourceRewriteSnapshot(activeConflict.fileId)
         const outcome = await writeNote(
           vault,
@@ -136,6 +122,10 @@ export function ExternalConflictDialog() {
         source: activeConflict.sourceTemplate ?? document.source,
       })
       markSaved(activeConflict.fileId)
+      // The dirty local text is given up: its recovery draft would be offered again on the next open.
+      const scope = { vault, generation: backendGeneration }
+      void discardRecoveryDraft(activeConflict.fileId, scope)
+      void discardRecoveryDraft(document.path, scope)
     }
     clearExternalConflict(activeConflict.fileId)
     emitAutosaveConflictResolution(activeConflict.fileId, "discard")
@@ -170,7 +160,6 @@ export function ExternalConflictDialog() {
     }
   }
 
-  const deleted = activeConflict.externalContent === null
   return (
     <Dialog
       open
@@ -183,12 +172,10 @@ export function ExternalConflictDialog() {
         className="max-h-[calc(100vh-3rem)] overflow-y-auto sm:max-w-3xl"
       >
         <DialogHeader>
-          <DialogTitle>{deleted ? t("conflict.deletedTitle") : t("conflict.title")}</DialogTitle>
-          <DialogDescription>
-            {deleted ? t("conflict.deletedDescription") : t("conflict.description")}
-          </DialogDescription>
+          <DialogTitle>{t("conflict.title")}</DialogTitle>
+          <DialogDescription>{t("conflict.description")}</DialogDescription>
         </DialogHeader>
-        {!deleted && (
+        {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <section className="flex min-w-0 flex-col rounded-md border">
               <h3 className="border-b px-3 py-2 text-sm font-medium">
@@ -224,8 +211,8 @@ export function ExternalConflictDialog() {
               </div>
             </section>
           </div>
-        )}
-        {!deleted && (
+        }
+        {
           <details className="rounded-md border p-3">
             <summary className="cursor-pointer text-sm font-medium">
               {t("conflict.otherOptions")}
@@ -255,27 +242,13 @@ export function ExternalConflictDialog() {
               </div>
             </div>
           </details>
-        )}
+        }
         {copyPath && (
           <p role="status" className="text-sm text-muted-foreground">
             {t("conflict.localCopySaved", { path: copyPath })}
           </p>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {deleted && (
-          <DialogFooter>
-            <Button variant="outline" onClick={acceptExternal} disabled={saving}>
-              {t("conflict.keepOpen")}
-            </Button>
-            <Button onClick={keepLocal} disabled={saving}>
-              {saving ? t("conflict.saving") : t("conflict.restoreLocal")}
-            </Button>
-          </DialogFooter>
-        )}
+        {error && <NoticeLine role="alert" text={error} />}
         <p className="text-xs text-muted-foreground">{t("conflict.dismissHint")}</p>
       </DialogContent>
     </Dialog>

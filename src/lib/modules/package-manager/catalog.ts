@@ -1,9 +1,27 @@
 import { globalFileMissing, loadGlobalJSON, saveGlobalJSON } from "@/lib/storage"
 import { toCanonicalModuleId } from "../types"
+import { OFFICIAL_ED25519_KEY_ID } from "./validator"
 import type { CatalogModuleEntry, ModuleCatalog } from "./types"
 
 export const MODULE_CATALOG_FILE = "module-catalog.json"
-export const CATALOG_REVISION = "2026-09-24"
+export const CATALOG_REVISION = "2026-11-21"
+/** The release whose assets hold the official module packages. */
+export const CATALOG_RELEASE_TAG = "v0.1.4"
+
+/**
+ * Where a module package is fetched from: the address its catalog entry names for that version, or
+ * the official release asset when the catalog does not know the module.
+ */
+export function catalogDownloadUrl(
+  id: string,
+  version: string,
+  entry?: CatalogModuleEntry | null,
+): string {
+  return (
+    entry?.versions[version]?.downloadUrl ??
+    `https://github.com/MrDarkOm/amby-notes/releases/download/${CATALOG_RELEASE_TAG}/${id}-${version}.amby-pkg`
+  )
+}
 
 function createOfficialEntry(
   id: string,
@@ -30,7 +48,7 @@ function createOfficialEntry(
     versions: {
       [version]: {
         version,
-        downloadUrl: `https://github.com/MrDarkOm/amby-notes/releases/download/v0.1.4/${id}-${version}.amby-pkg`,
+        downloadUrl: catalogDownloadUrl(id, version),
         downloadSize,
         installedSize,
         checksum: "sha256:official-verified",
@@ -55,7 +73,7 @@ function createOfficialEntry(
         [entry]: "sha256:entry-checksum-placeholder",
       },
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: `ed25519:${id}-sig`,
       },
     },
@@ -108,6 +126,18 @@ export const OFFICIAL_BUILTIN_CATALOG: ModuleCatalog = {
       "vault.read",
       "vault.write",
       "workspace.tabs",
+    ]),
+    "amby.supernotes": createOfficialEntry("amby.supernotes", "Bundles", "1.0.0", 0, 0, [
+      "vault.read",
+      "vault.write",
+    ]),
+    "amby.templates": createOfficialEntry("amby.templates", "Templates", "1.0.0", 20_000, 30_000, [
+      "vault.read",
+      "vault.write",
+    ]),
+    "amby.daily": createOfficialEntry("amby.daily", "Daily notes", "1.0.0", 15_000, 20_000, [
+      "vault.read",
+      "vault.write",
     ]),
     "amby.creative": createOfficialEntry(
       "amby.creative",

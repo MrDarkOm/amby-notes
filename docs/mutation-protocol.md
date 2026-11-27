@@ -90,7 +90,7 @@ by file; a finished old operation must not clear newer dirty state.
 | journal read with revision, CAS write (`check_revision`)    | `database/relation_recovery.rs`                            |
 | preflight **all** pending journals before the first restore | `prepare_pending_relations` / `restore_prepared_relations` |
 | reciprocal-schema journal (v1 create, v2 configure/convert) | `database/relation_schema_recovery.rs`                     |
-| batch recovery                                              | `database/mutations.rs` (`recover_pending_batches`)        |
+| batch recovery                                              | `database/mutations/` (`recover_pending_batches`)          |
 | ID-migration journals with path checks                      | `vault/migration.rs`                                       |
 | module publish journal                                      | `package_manager.rs` (`pending-publish.json`)              |
 | note CAS + `IndexState` outcome                             | `commands/notes.rs` (`write_note`), `model.rs`             |

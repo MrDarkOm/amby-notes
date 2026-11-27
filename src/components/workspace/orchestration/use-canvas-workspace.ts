@@ -1,206 +1,32 @@
-import * as React from "react"
 import type { TFunction } from "i18next"
 import { serializeCanvas, validateAndSerializeCanvas } from "@/lib/canvas-format"
-import {
-  discardRecoveryDraft,
-  migrateLegacyRecoveryDrafts,
-  readRecoveryDraft,
-  scheduleRecoveryDraft,
-  type RecoveryScope,
-} from "@/lib/recovery-drafts"
-import { confirmAction, readFile } from "@/lib/storage"
-import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
-import { logger, errorType } from "@/lib/logger"
-import { useDocStore } from "../use-doc-store"
-import { canvasLayerPath } from "../workspace-tree-utils"
-import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
-import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
-import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
-import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
+import type { RecoveryScope } from "@/lib/recovery-drafts"
+import { useLayerWorkspace, type LayerWorkspaceConfig } from "./use-layer-workspace"
 
-type CanvasAutosavePayload = { path: string; json: string }
+const CANVAS_CONFIG: LayerWorkspaceConfig = {
+  kind: "canvas",
+  validate: validateAndSerializeCanvas,
+  emptyJson: () => serializeCanvas({ nodes: [], edges: [] }),
+  // The vault-wide legacy recovery drafts are moved once, by the canvas hook.
+  migrateLegacyDrafts: true,
+}
 
 /** Owns Obsidian .canvas buffers and their recovery/autosave lifecycle. */
-export function useCanvasWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
-  // Canvas editing already owns a React Flow buffer below. Keep the latest
-  // serialized values in a ref so each drag/text checkpoint does not re-render
-  // WorkspaceOrchestration and every cached document editor. Explicit buffer
-  // lifecycle operations still bump a tiny revision for load/remap changes.
-  const openCanvasesRef = React.useRef<Record<string, string>>({})
-  const [, setCanvasRevision] = React.useState(0)
-  const setOpenCanvases = React.useCallback(
-    (
-      update:
-        Record<string, string> | ((previous: Record<string, string>) => Record<string, string>),
-    ) => {
-      const previous = openCanvasesRef.current
-      openCanvasesRef.current = typeof update === "function" ? update(previous) : update
-      setCanvasRevision((revision) => revision + 1)
-    },
-    [],
-  )
-  const openCanvases = openCanvasesRef.current
-  const canvasLoadsRef = React.useRef(new CanvasLoadDeduplicator())
-  const revisionsRef = React.useRef(new FileRevisionTracker())
-  const vaultGenerationRef = React.useRef({ generation })
-  vaultGenerationRef.current.generation = generation
-
-  const autosaveRef = React.useRef<{
-    generation: number
-    coordinator: AutosaveCoordinator<CanvasAutosavePayload>
-  } | null>(null)
-  if (autosaveRef.current?.generation !== generation) {
-    autosaveRef.current?.coordinator.cancelGeneration(autosaveRef.current.generation)
-    autosaveRef.current = {
-      generation,
-      coordinator: new AutosaveCoordinator<CanvasAutosavePayload>({
-        delayMs: 500,
-        onDiagnostic: recordAutosaveDiagnostic,
-        save: ({ key, value, operationId }) =>
-          revisionsRef.current.save(value.path, value.json, operationId, () =>
-            autosaveRef.current?.coordinator.pause(key),
-          ),
-        onSaveSuccess: ({ key, value }) => {
-          const pending = autosaveRef.current?.coordinator.inspect(key)
-          if (
-            vaultGenerationRef.current.generation === key.generation &&
-            pending &&
-            !pending.dirty
-          ) {
-            void discardRecoveryDraft(value.path, recoveryScope)
-            const docStore = useDocStore.getState()
-            docStore.markSaved(value.path)
-            for (const [docId, doc] of Object.entries(docStore.openDocs)) {
-              if (
-                doc.path === value.path ||
-                canvasLayerPath(doc.path) === value.path ||
-                doc.id === value.path
-              ) {
-                docStore.markSaved(docId)
-              }
-            }
-          }
-        },
-        onSaveFailure: (_snapshot, error) =>
-          error instanceof FileConflictPausedError
-            ? undefined
-            : logger.error("canvas.save_failed", { errorType: errorType(error) }),
-      }),
-    }
-  }
-  const autosave = autosaveRef.current.coordinator
-  const autosaveKey = React.useCallback(
-    (path: string): AutosaveKey => ({ generation, kind: "canvas", documentId: path }),
-    [generation],
-  )
-
-  const loadCanvasBuffer = React.useCallback(
-    (path: string): Promise<string> =>
-      canvasLoadsRef.current.run(generation, path, async () => {
-        let diskContent: string
-        try {
-          await revisionsRef.current.baseline(path)
-          diskContent = validateAndSerializeCanvas(await readFile(path))
-        } catch {
-          diskContent = serializeCanvas({ nodes: [], edges: [] })
-        }
-        const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
-        let recoveredContent: string | undefined
-        if (recovery !== undefined) {
-          try {
-            recoveredContent = validateAndSerializeCanvas(recovery)
-          } catch (error) {
-            console.error("Ignoring invalid canvas recovery draft:", error)
-          }
-        }
-        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-          ? await confirmAction(t("recovery.restorePrompt"))
-          : false
-        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-        if (resolved.discardDraft) void discardRecoveryDraft(path, recoveryScope)
-        if (resolved.restored) {
-          scheduleRecoveryDraft(path, resolved.content, "canvas", path, recoveryScope)
-          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-        }
-        setOpenCanvases((prev) => ({ ...prev, [path]: resolved.content }))
-        return resolved.content
-      }),
-    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases, t],
-  )
-
-  const handleCanvasSave = React.useCallback(
-    (path: string, json: string) => {
-      let normalized: string
-      try {
-        normalized = validateAndSerializeCanvas(json)
-      } catch (error) {
-        console.error("Refusing to save invalid canvas:", error)
-        return
-      }
-      if (openCanvasesRef.current[path] === normalized) return
-      openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
-      scheduleRecoveryDraft(path, normalized, "canvas", path, recoveryScope)
-      autosave.schedule(autosaveKey(path), { path, json: normalized })
-    },
-    [autosave, autosaveKey, recoveryScope],
-  )
-
-  const reloadExternalCanvas = React.useCallback(
-    async (path: string): Promise<boolean> => {
-      if (openCanvasesRef.current[path] === undefined) return false
-      const pending = autosave.inspect(autosaveKey(path))
-      if (pending?.dirty) {
-        return false
-      }
-      try {
-        // Capture first, commit only for an accepted reload: a file that fails
-        // validation, or a buffer edited during the awaits, must keep its old
-        // baseline so the next save conflicts instead of overwriting.
-        const revision = await revisionsRef.current.capture(path)
-        const diskContent = await readFile(path)
-        const normalized = validateAndSerializeCanvas(diskContent)
-        if (autosave.inspect(autosaveKey(path))?.dirty) return false
-        revisionsRef.current.commit(path, revision)
-        if (openCanvasesRef.current[path] === normalized) return false
-        openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
-        setCanvasRevision((revision) => revision + 1)
-        void discardRecoveryDraft(path, recoveryScope)
-        return true
-      } catch (error) {
-        console.error("Failed to reload external canvas:", error)
-        return false
-      }
-    },
-    [autosave, autosaveKey, recoveryScope],
-  )
-
-  React.useEffect(
-    () =>
-      registerAutosaveLifecycle({
-        generation,
-        recoveryScope,
-        flush: () => autosave.flushAll(),
-        cancel: () => autosave.cancelGeneration(generation),
-        hasDirtyBuffers: () =>
-          autosave.inspectAll().some((state) => state.key.generation === generation && state.dirty),
-        inspect: () => autosave.inspectAll(),
-      }),
-    [autosave, generation, recoveryScope],
-  )
-  React.useEffect(() => setOpenCanvases({}), [generation, setOpenCanvases])
-  React.useEffect(() => {
-    void migrateLegacyRecoveryDrafts(recoveryScope)
-  }, [recoveryScope])
-
+export function useCanvasWorkspace(
+  generation: number,
+  _t: TFunction,
+  recoveryScope: RecoveryScope,
+) {
+  const layer = useLayerWorkspace(CANVAS_CONFIG, generation, recoveryScope)
   return {
-    autosave,
-    autosaveKey,
-    fileRevisions: revisionsRef.current,
-    handleCanvasSave,
-    loadCanvasBuffer,
-    openCanvases,
-    reloadExternalCanvas,
-    setOpenCanvases,
+    autosave: layer.autosave,
+    autosaveKey: layer.autosaveKey,
+    discardDeleted: layer.discardDeleted,
+    fileRevisions: layer.fileRevisions,
+    handleCanvasSave: layer.handleSave,
+    loadCanvasBuffer: layer.loadBuffer,
+    openCanvases: layer.openBuffers,
+    reloadExternalCanvas: layer.reloadExternal,
+    setOpenCanvases: layer.setOpenBuffers,
   }
 }

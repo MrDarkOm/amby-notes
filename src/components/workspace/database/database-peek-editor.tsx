@@ -4,6 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { DatabaseRow } from "@/lib/storage"
 import { useDocStore, type Document } from "../use-doc-store"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const PeekDocumentEditor = React.lazy(() =>
   import("../document-editor").then((module) => ({ default: module.DocumentEditor })),
@@ -32,7 +33,7 @@ export function PeekRowEditor({ row, vault, onLoad, onContentChange }: PeekRowEd
     let cancelled = false
     setError(null)
     void onLoadRef.current(rowRef.current).catch((loadError) => {
-      if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
+      if (!cancelled) setError(reportOperationError(loadError))
     })
     return () => {
       cancelled = true

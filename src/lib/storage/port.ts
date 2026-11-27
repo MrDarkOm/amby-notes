@@ -10,19 +10,22 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
@@ -31,6 +34,8 @@ import type {
 } from "./types"
 import type { DatabasePort } from "./database-port"
 import type { ProjectPort } from "./project-port"
+import type { NoteModulesPort } from "./note-modules-port"
+import type { UndoPort } from "./undo-port"
 
 export interface WriteNoteOptions {
   /**
@@ -40,7 +45,7 @@ export interface WriteNoteOptions {
   rewritesSource?: boolean
 }
 
-export interface StoragePort extends DatabasePort, ProjectPort {
+export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort, UndoPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>
@@ -48,6 +53,11 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   loadVaultData(vaultPath: string): Promise<LoadVaultResult>
   loadActiveVaultData(): Promise<LoadVaultResult>
   reindexActiveVaultData(): Promise<LoadVaultResult>
+  /**
+   * Index and tree update for the given paths only. `null`: not expressible as a point update,
+   * so the caller has to run `loadActiveVaultData`.
+   */
+  refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null>
   preflightVault(vaultPath: string): Promise<VaultPreflight>
   applyIdMigration(vaultPath: string): Promise<void>
   inspectIdMigrations(vaultPath: string): Promise<IdMigrationRecovery[]>
@@ -106,6 +116,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata>
   getFileMetadata(path: string): Promise<FileMetadata>
   getNoteProperties(vaultPath: string, noteId: string): Promise<NoteProperties>
+  /** Writes the app-owned `amby-pages` flag, or removes it for `null`. */
+  setNotePagesFlag(vaultPath: string, noteId: string, flag: boolean | null): Promise<void>
   upsertCustomProperty(
     vaultPath: string,
     noteId: string,
@@ -129,20 +141,28 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   restoreSnapshot(snapshotId: string): Promise<string>
   deleteSnapshot(snapshotId: string): Promise<void>
   readSnapshotText(snapshotId: string): Promise<SnapshotText>
+  readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview>
   listTrash(): Promise<TrashEntry[]>
   restoreTrash(trashId: string): Promise<FsMutationResult>
   purgeTrash(trashId: string): Promise<void>
-  previewRenameRefactor(vaultPath: string, path: string, newName: string): Promise<RefactorPreview>
-  previewMoveRefactor(
-    vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview>
+  /** The files of the archive `.amby/archive/` (К6). */
+  listArchive(vaultPath: string): Promise<ArchiveEntry[]>
+  readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview>
+  /** Without replacing: the final path is `primaryPath` of the result (К6). */
+  restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult>
+  /** «Удалить из архива» by the setting of К4; `archive` here means the system trash. */
+  purgeArchive(archiveId: string, mode: DeleteMode): Promise<void>
 
   // System & Assets
   openInExplorer(path: string): Promise<void>
+  /** Shows the folder of a known vault (by its id in the list of vaults) in the file manager. */
+  revealVaultFolder(id: string): Promise<void>
+  /** Shows the app's own data folder in the file manager. */
+  revealAppDataFolder(): Promise<void>
   /** Opens an attachment of a note with the system program; the backend decides if it may be. */
   openAttachment(notePath: string, attachmentPath: string): Promise<void>
+  /** Asks where to save a copy of a note's attachment; the chosen path, or `null` when cancelled. */
+  saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null>
   /** Opens an http(s) address in the system browser; the backend decides if it may be. */
   openWebAddress(address: string): Promise<void>
   /** Asks one web page for its title and description; the backend decides if it may be asked. */
@@ -153,6 +173,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
     notePath: string,
     sourcePath: string,
   ): Promise<ImportedAsset | null>
+  /** Copies files and folders from outside into a vault folder (the root when `null`); never replaces. */
+  importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult>
   importAssetBytes(
     vaultPath: string,
     notePath: string,
@@ -162,18 +184,18 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   toAssetUrl(absPath: string): Promise<string>
   exportTextFile(contents: string, defaultName: string): Promise<string | null>
   importTextFile(): Promise<string | null>
-  confirmAction(message: string): Promise<boolean>
-  showErrorMessage(message: string): Promise<void>
 
   // Tiered Settings & App Data
   readGlobalRaw(file: string): Promise<string | null>
   writeGlobalRaw(file: string, contents: string): Promise<void>
+  compareWriteGlobalRaw(file: string, expected: string | null, contents: string): Promise<boolean>
   readVaultRaw(rel: string): Promise<string | null>
-  writeVaultRaw(rel: string, contents: string): Promise<void>
+  writeVaultRaw(rel: string, contents: string, expectedGeneration?: number | null): Promise<void>
   deleteVaultMeta(rel: string): Promise<void>
 
   // AI Credentials
   storeAiCredential(credentialId: string, secret: string): Promise<void>
   deleteAiCredential(credentialId: string): Promise<void>
+  deleteUnreferencedAiCredential(credentialId: string): Promise<boolean>
   inspectAiCredential(credentialId: string): Promise<CredentialInfo>
 }

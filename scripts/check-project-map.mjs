@@ -9,12 +9,12 @@ const root = fileURLToPath(new URL("../", import.meta.url))
 
 // The code maps and agent guides live only in local working copies (they are not published),
 // so a clean checkout such as CI has nothing to check.
-if (!existsSync(path.join(root, "MAP.md")) && !existsSync(path.join(root, "AGENTS.md"))) {
+if (!existsSync(path.join(root, "docs/ai/MAP.md")) && !existsSync(path.join(root, "AGENTS.md"))) {
   console.log("Project navigation: no local maps in this checkout, nothing to check.")
   process.exit(0)
 }
 const skipped = new Set(["node_modules", "target", "dist", ".git"])
-const maps = ["MAP.md"]
+const maps = []
 const errors = []
 
 function discover(directory) {
@@ -25,7 +25,7 @@ function discover(directory) {
   }
 }
 
-for (const directory of ["src", "src-tauri", "docs", "scripts", "tests"]) {
+for (const directory of ["src", "src-tauri", "crates", "docs", "scripts", "tests", "site"]) {
   discover(directory)
 }
 
@@ -33,8 +33,8 @@ const guides = [
   "AGENTS.md",
   "CLAUDE.md",
   "GEMINI.md",
-  "docs/agent-context.md",
-  "docs/agent-guidelines.md",
+  "docs/ai/agent-context.md",
+  "docs/ai/agent-guidelines.md",
 ]
 const edges = new Map()
 for (const file of [...guides, ...maps]) {
@@ -42,7 +42,8 @@ for (const file of [...guides, ...maps]) {
     errors.push(`${file}: missing navigation document`)
     continue
   }
-  const content = readFileSync(path.join(root, file), "utf8")
+  // Count checkout-independent content; Windows may expand LF to CRLF.
+  const content = readFileSync(path.join(root, file), "utf8").replace(/\r\n/g, "\n")
   const budget = file === "AGENTS.md" ? 6500 : maps.includes(file) ? 12000 : Infinity
   if (Buffer.byteLength(content) > budget)
     errors.push(`${file}: exceeds ${budget}-byte context budget`)
@@ -78,9 +79,9 @@ function visit(file) {
   reachable.add(file)
   for (const target of edges.get(file) ?? []) visit(target)
 }
-visit("MAP.md")
+visit("docs/ai/MAP.md")
 for (const file of maps) {
-  if (!reachable.has(file)) errors.push(`${file}: not reachable from MAP.md`)
+  if (!reachable.has(file)) errors.push(`${file}: not reachable from docs/ai/MAP.md`)
 }
 
 if (errors.length) {

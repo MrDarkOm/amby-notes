@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest"
 
 import { setAssetContext } from "./asset-resolver"
 import { editorSchema } from "./schema"
+import { docToMarkdown, markdownToDoc } from "./markdown"
+import { sameDocument } from "./markdown-block-source"
 import {
   getImportContextForView,
   getTauriDropPosForView,
@@ -32,105 +34,66 @@ describe("media insertion context", () => {
     ).resolves.toBeNull()
   })
 
-  it("inserts completed mixed media in one mapped transaction", () => {
-    const operations: Array<unknown> = []
-    let insertedSize = 0
-    const tr = {
-      docChanged: false,
-      insert(pos: number, node: { nodeSize: number }) {
-        operations.push(["image", pos])
-        insertedSize += node.nodeSize
-        this.docChanged = true
-        return this
-      },
-      insertText(text: string, pos: number) {
-        operations.push(["file", pos, text])
-        insertedSize += text.length
-        this.docChanged = true
-        return this
-      },
-      addMark(from: number, to: number, mark: unknown) {
-        operations.push(["mark", from, to, mark])
-        return this
-      },
-      mapping: { map: (pos: number) => pos + insertedSize },
-    }
-    const dispatched: unknown[] = []
+  it("inserts completed mixed media as separate blocks in one transaction", () => {
+    let state = EditorState.create({
+      schema: editorSchema,
+      doc: editorSchema.node("doc", null, [
+        editorSchema.node("paragraph", null, editorSchema.text("beforeafter")),
+      ]),
+    })
+    let dispatches = 0
     const view = {
-      state: {
-        doc: {
-          content: { size: 50 },
-          resolve: () => ({ parent: { inlineContent: true } }),
-        },
-        tr,
-        schema: {
-          nodes: { image: { create: () => ({ nodeSize: 1 }) } },
-          marks: { link: { create: ({ href }: { href: string }) => ({ href }) } },
-        },
+      get state() {
+        return state
       },
-      dispatch: (transaction: unknown) => dispatched.push(transaction),
+      dispatch(tr: typeof state.tr) {
+        state = state.apply(tr)
+        dispatches++
+      },
     } as unknown as EditorView
-
     expect(
-      insertImportedAssets(view, 5, [
+      insertImportedAssets(view, 7, [
         { relPath: "assets/photo.png", fileName: "photo.png", kind: "image", absPath: "" },
         { relPath: "assets/notes.zip", fileName: "notes.zip", kind: "file", absPath: "" },
         { relPath: "assets/diagram.webp", fileName: "diagram.webp", kind: "image", absPath: "" },
       ]),
     ).toBe(true)
-
-    expect(operations).toEqual([
-      ["image", 5],
-      ["file", 6, "notes.zip"],
-      ["mark", 6, 15, { href: "assets/notes.zip" }],
-      ["image", 15],
-    ])
-    expect(dispatched).toEqual([tr])
+    expect(dispatches).toBe(1)
+    expect(
+      state.doc.children.map((block) => block.textContent || block.firstChild?.attrs.src),
+    ).toEqual(["before", "assets/photo.png", "notes.zip", "assets/diagram.webp", "after"])
+    expect(state.doc.child(2).firstChild?.marks[0]?.attrs.href).toBe("assets/notes.zip")
+    state.doc.check()
+    const reopened = editorSchema.nodeFromJSON(markdownToDoc(docToMarkdown(state.doc)))
+    expect(sameDocument(state.doc, reopened)).toBe(true)
   })
 
-  it("inserts an audio, video or PDF file as an image node named after the file", () => {
-    const created: unknown[] = []
-    const tr = {
-      docChanged: false,
-      insert() {
-        this.docChanged = true
-        return this
-      },
-      mapping: { map: (pos: number) => pos },
-    }
+  it("inserts audio, PDF and images as separate named media blocks", () => {
+    let state = EditorState.create({ schema: editorSchema })
     const view = {
-      state: {
-        doc: {
-          content: { size: 50 },
-          resolve: () => ({ parent: { inlineContent: true } }),
-        },
-        tr,
-        schema: {
-          nodes: {
-            image: {
-              create: (attrs: unknown) => {
-                created.push(attrs)
-                return { nodeSize: 1 }
-              },
-            },
-          },
-          marks: {},
-        },
+      get state() {
+        return state
       },
-      dispatch: () => undefined,
+      dispatch(tr: typeof state.tr) {
+        state = state.apply(tr)
+      },
     } as unknown as EditorView
-
-    insertImportedAssets(view, 5, [
+    insertImportedAssets(view, 1, [
       { relPath: "assets/song.mp3", fileName: "song.mp3", kind: "file", absPath: "" },
       { relPath: "assets/report.pdf", fileName: "report.pdf", kind: "file", absPath: "" },
       { relPath: "assets/photo.png", fileName: "photo.png", kind: "image", absPath: "" },
     ])
-
-    expect(created).toEqual([
+    expect(
+      state.doc.children.map((block) => ({
+        src: block.firstChild?.attrs.src,
+        alt: block.firstChild?.attrs.alt,
+      })),
+    ).toEqual([
       { src: "assets/song.mp3", alt: "song.mp3" },
       { src: "assets/report.pdf", alt: "report.pdf" },
       { src: "assets/photo.png", alt: null },
     ])
+    state.doc.check()
   })
 
   it("does not dispatch an imported batch after its session is aborted", () => {
@@ -215,9 +178,9 @@ describe("media insertion context", () => {
       ]),
     ).toBe(true)
     expect(state.doc.textContent).toBe("beforea.md")
-    expect(state.doc.firstChild?.childCount).toBe(4)
-    expect(state.doc.firstChild?.child(2).attrs.src).toBe("assets/b.png")
-    expect(state.doc.firstChild?.child(3).attrs.src).toBe("assets/c.png")
+    expect(state.doc.childCount).toBe(3)
+    expect(state.doc.child(1).firstChild?.attrs.src).toBe("assets/b.png")
+    expect(state.doc.child(2).firstChild?.attrs.src).toBe("assets/c.png")
   })
 
   it("keeps successful dropped imports ordered when one source fails", async () => {

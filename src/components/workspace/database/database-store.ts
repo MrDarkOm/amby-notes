@@ -26,6 +26,11 @@ export interface DatabaseHostSession {
   totalCount: number | null
 }
 
+export interface DatabaseViewRequest {
+  databaseId: string
+  viewId: string
+}
+
 export interface DatabaseStoreState {
   vaultGeneration: number | null
   runtime: DatabaseModuleState | null
@@ -35,6 +40,9 @@ export interface DatabaseStoreState {
   error: string | null
   invalidationSeq: number
   hosts: Record<string, DatabaseHostSession>
+  requestedView: DatabaseViewRequest | null
+  requestView: (databaseId: string, viewId: string) => void
+  clearRequestedView: (request: DatabaseViewRequest) => void
   reset: (vaultGeneration: number | null) => void
   setRuntime: (runtime: DatabaseModuleState | null) => void
   setCatalogLoading: () => void
@@ -110,6 +118,10 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
   error: null,
   invalidationSeq: 0,
   hosts: {},
+  requestedView: null,
+  requestView: (databaseId, viewId) => set({ requestedView: { databaseId, viewId } }),
+  clearRequestedView: (request) =>
+    set((state) => (state.requestedView === request ? { requestedView: null } : {})),
   reset: (vaultGeneration) =>
     set({
       vaultGeneration,
@@ -120,6 +132,7 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
       error: null,
       invalidationSeq: 0,
       hosts: {},
+      requestedView: null,
     }),
   setRuntime: (runtime) => set({ runtime }),
   setCatalogLoading: () => set({ catalogStatus: "loading", error: null }),

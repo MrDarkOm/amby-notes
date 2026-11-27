@@ -5,33 +5,36 @@
 use crate::database::history::DatabaseHistoryState;
 use crate::database::model::ProjectionVersion;
 use crate::database::runtime_state::DatabaseRuntimeState;
+use crate::lock_util::LockExt;
 use crate::project::complete;
 use crate::project::create::{self, Env};
+use crate::project::dossier_template;
 use crate::project::index;
 use crate::project::links;
 use crate::project::model::{
     AddStoryLinksRequest, AddTextStatusRequest, AddedStoryLinks, AddedTextStatus,
     CompleteWorkshopRequest, CompletedWorkshop, CreateStoryRequest, CreateTextPageRequest,
     CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage,
-    CreatedWorkshop, CreatedWorkshopEntity, CreatedWorkshopSectionResult, EnsurePlotLinksRequest,
-    EnsuredPlotLinks, InitWorkshopRequest, MoveTextPageRequest, MovedTextPage, NotebookCatalog,
-    ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
-    ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
-    UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
+    CreatedWorkshop, CreatedWorkshopEntity, CreatedWorkshopSectionResult, DossierTemplate,
+    EnsurePlotLinksRequest, EnsuredPlotLinks, InitWorkshopRequest, MoveTextPageRequest,
+    MovedTextPage, NotebookCatalog, ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest,
+    RemovedWorkshopSection, ReorderWorkshopSectionsRequest, ReorderedWorkshopSections,
+    UpdateDossierTemplateRequest, UpdateTextLevelsRequest, UpdateWorkshopRequest,
+    UpdatedDossierTemplate, UpdatedTextLevels, UpdatedWorkshop,
 };
 use crate::project::notebooks;
 use crate::project::references::{self, NoteReference};
 use crate::project::settings;
 use crate::project::text;
 use crate::project::text_stats::{self, TextPageStat};
+use crate::project::workshop_import::{self, WorkshopImportRequest, WorkshopImportResult};
 use crate::vault_context::VaultContext;
 use crate::watcher::WatcherState;
 
 fn active_generation(context: &VaultContext) -> Option<u64> {
     context
         .conn
-        .lock()
-        .expect("vault context poisoned")
+        .lock_or_recover()
         .as_ref()
         .map(|active| active.generation)
 }
@@ -64,7 +67,7 @@ pub fn list_projects(
 ) -> Result<ProjectCatalog, ProjectError> {
     let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     index::load_catalog(&active.connection, &active.root, active.generation)
         .map_err(|message| ProjectError::failed("projectIndexFailed", message))
@@ -79,10 +82,10 @@ pub fn refresh_projects(
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     expected_generation: u64,
 ) -> Result<ProjectCatalog, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     index::rebuild_project_index(&active.connection, &active.root)
         .and_then(|_| index::load_catalog(&active.connection, &active.root, generation))
@@ -129,14 +132,14 @@ pub fn init_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: InitWorkshopRequest,
 ) -> Result<CreatedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::init_workshop(&env, &request)?;
     if !created.replayed {
@@ -154,14 +157,14 @@ pub fn complete_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: CompleteWorkshopRequest,
 ) -> Result<CompletedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     // Every step is written to the files; the index is read again once, at the end, and also
     // after a step that failed halfway, so the panel shows what is there.
@@ -181,7 +184,7 @@ pub fn resolve_workshop_folder(
     context: tauri::State<'_, VaultContext>,
     picked_path: String,
 ) -> Result<String, ProjectError> {
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     create::workshop_folder_of(&active.root, &picked_path)
 }
@@ -194,14 +197,14 @@ pub fn create_story(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateStoryRequest,
 ) -> Result<CreatedStory, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::create_story(&env, &request)?;
     if !created.replayed {
@@ -228,14 +231,14 @@ pub fn create_workshop_section(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateWorkshopSectionRequest,
 ) -> Result<CreatedWorkshopSectionResult, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = create::create_workshop_section(&env, &request)?;
     if !created.replayed {
@@ -252,14 +255,14 @@ pub fn create_text_page(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateTextPageRequest,
 ) -> Result<CreatedTextPage, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = text::create_page(&env, &active.connection, &request)?;
     let note_path = std::path::Path::new(&created.note_path);
@@ -312,14 +315,14 @@ pub fn move_text_page(
     history: tauri::State<'_, DatabaseHistoryState>,
     request: MoveTextPageRequest,
 ) -> Result<MovedTextPage, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut moved = text::move_page(&env, &active.connection, Some(&history), &request)?;
     match crate::database::projection::update_database_values_incremental(
@@ -363,7 +366,7 @@ pub fn list_note_references(
             "noteId must be a canonical ULID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     references::list_references(&active.connection, &note_id)
 }
@@ -384,7 +387,7 @@ pub fn list_text_stats(
             "databaseId must be a database ID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     text_stats::list_text_stats(&active.connection, &database_id)
 }
@@ -405,7 +408,7 @@ pub fn list_notebooks(
             "databaseId must be a database ID",
         ));
     }
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     notebooks::list_notebooks_of(&active.connection, &active.root, &database_id)
 }
@@ -418,14 +421,14 @@ pub fn update_workshop(
     watcher: tauri::State<'_, WatcherState>,
     request: UpdateWorkshopRequest,
 ) -> Result<UpdatedWorkshop, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut updated = settings::update_workshop(&env, &request)?;
     if !updated.replayed {
@@ -447,14 +450,14 @@ pub fn remove_workshop_section(
     watcher: tauri::State<'_, WatcherState>,
     request: RemoveWorkshopSectionRequest,
 ) -> Result<RemovedWorkshopSection, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut removed = settings::remove_workshop_section(&env, &request)?;
     if !removed.replayed {
@@ -476,14 +479,14 @@ pub fn reorder_workshop_sections(
     watcher: tauri::State<'_, WatcherState>,
     request: ReorderWorkshopSectionsRequest,
 ) -> Result<ReorderedWorkshopSections, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut reordered = settings::reorder_workshop_sections(&env, &request)?;
     if !reordered.replayed {
@@ -505,14 +508,14 @@ pub fn update_text_levels(
     watcher: tauri::State<'_, WatcherState>,
     request: UpdateTextLevelsRequest,
 ) -> Result<UpdatedTextLevels, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut updated = settings::update_text_levels(&env, Some(&active.connection), &request)?;
     if !updated.replayed {
@@ -529,14 +532,14 @@ pub fn add_text_status(
     watcher: tauri::State<'_, WatcherState>,
     request: AddTextStatusRequest,
 ) -> Result<AddedTextStatus, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut added = settings::add_text_status(&env, &request)?;
     if !added.replayed {
@@ -553,14 +556,14 @@ pub fn add_story_links(
     watcher: tauri::State<'_, WatcherState>,
     request: AddStoryLinksRequest,
 ) -> Result<AddedStoryLinks, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut added = links::add_story_links(&env, &request)?;
     if !added.replayed {
@@ -577,20 +580,58 @@ pub fn ensure_plot_links(
     watcher: tauri::State<'_, WatcherState>,
     request: EnsurePlotLinksRequest,
 ) -> Result<EnsuredPlotLinks, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut ensured = links::ensure_plot_links(&env, &request)?;
     if !ensured.replayed && ensured.changed {
         refresh_after_write(active, &runtime, generation, &mut ensured.warnings);
     }
     Ok(ensured)
+}
+
+/// The page template of a section with its dossier layout, read from its manifest. Read-only.
+#[tauri::command]
+#[specta::specta]
+pub fn get_dossier_template(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    database_id: String,
+) -> Result<DossierTemplate, ProjectError> {
+    let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    dossier_template::get_dossier_template(&active.root, &database_id)
+}
+
+/// Writes the dossier layout (sections, hints, fields) of a section's template and its body.
+#[tauri::command]
+#[specta::specta]
+pub fn update_dossier_template(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateDossierTemplateRequest,
+) -> Result<UpdatedDossierTemplate, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher.self_writes,
+    };
+    let mut updated = dossier_template::update_dossier_template(&env, &request)?;
+    refresh_after_write(active, &runtime, generation, &mut updated.warnings);
+    Ok(updated)
 }
 
 /// A page of a world section, linked to a story in the same write when one is chosen.
@@ -602,14 +643,14 @@ pub fn create_workshop_entity(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateWorkshopEntityRequest,
 ) -> Result<CreatedWorkshopEntity, ProjectError> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
-    let active = context.conn.lock().expect("vault context poisoned");
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     let env = Env {
         vault: &active.root,
-        watcher: &watcher,
+        watcher: &watcher.self_writes,
     };
     let mut created = links::create_entity(&env, &request)?;
     let note_path = std::path::Path::new(&created.note_path);
@@ -651,4 +692,19 @@ pub fn create_workshop_entity(
         }
     }
     Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn workshop_import(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: WorkshopImportRequest,
+) -> Result<WorkshopImportResult, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    workshop_import::run(&active.connection, &active.root, &request)
 }

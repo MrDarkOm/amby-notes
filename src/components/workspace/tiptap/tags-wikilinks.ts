@@ -301,33 +301,37 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
           decorations(state) {
             return tagsWikilinksKey.getState(state)
           },
-          handleClickOn(_view, pos, node, nodePos, event) {
-            if (!node.isText || !node.text) return false
-            const offset = pos - nodePos
-            INLINE_TOKEN_RE.lastIndex = 0
-            let match: RegExpExecArray | null
-            while ((match = INLINE_TOKEN_RE.exec(node.text)) !== null) {
-              const start = match.index
-              const end = match.index + match[0].length
-              if (offset < start || offset > end) continue
-              if (
-                match[2] &&
-                isSourceSyntaxEditingAvailable() &&
-                !event.metaKey &&
-                !event.ctrlKey
-              ) {
-                return false
+          // `handleClickOn` is only ever given the enclosing blocks, never a text node, so the
+          // token under the pointer is looked up from the click position itself.
+          handleClick(view, pos, event) {
+            const $pos = view.state.doc.resolve(pos)
+            if (!$pos.parent.isTextblock) return false
+            const at = $pos.parentOffset
+            for (const child of [$pos.parent.childAfter(at), $pos.parent.childBefore(at)]) {
+              const node = child.node
+              if (!node?.isText || !node.text) continue
+              const offset = at - child.offset
+              INLINE_TOKEN_RE.lastIndex = 0
+              let match: RegExpExecArray | null
+              while ((match = INLINE_TOKEN_RE.exec(node.text)) !== null) {
+                const start = match.index
+                const end = match.index + match[0].length
+                if (offset < start || offset > end) continue
+                const modified = event.metaKey || event.ctrlKey
+                // While editing, a plain click places the caret; Cmd/Ctrl-click follows.
+                if (match[1] && view.editable && !modified) return false
+                if (match[2] && isSourceSyntaxEditingAvailable() && !modified) return false
+                const cb = callbacks.current
+                if (match[1]) {
+                  cb.onTagClick?.(match[1])
+                } else if (match[2]) {
+                  const { target } = getWikiLinkParts(match[2])
+                  // Pass the full raw inner content so the handler can extract
+                  // the anchor (#heading / ^block-id) for scroll-on-open.
+                  if (target) cb.onWikiLinkClick?.(match[2])
+                }
+                return true
               }
-              const cb = callbacks.current
-              if (match[1]) {
-                cb.onTagClick?.(match[1])
-              } else if (match[2]) {
-                const { target } = getWikiLinkParts(match[2])
-                // Pass the full raw inner content so the handler can extract
-                // the anchor (#heading / ^block-id) for scroll-on-open.
-                if (target) cb.onWikiLinkClick?.(match[2])
-              }
-              return true
             }
             return false
           },

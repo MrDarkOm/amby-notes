@@ -1,6 +1,7 @@
 import type * as React from "react"
 import type { TreeItem } from "@/lib/storage"
 import type { TreeReorderPosition } from "../tree-sort"
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 
 export type { TreeItem }
 
@@ -98,15 +99,21 @@ export interface SidebarTreeProps {
   items: TreeItem[]
   selectedId: string | null
   onSelect: (id: string) => void
-  onRename?: (id: string, newName: string) => void
+  onRename?: (id: string, newName: string) => Promise<RenameOutcome | void> | void
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onNewFolder?: (parentId: string | null) => void
+  onNewSketch?: (parentId: string | null) => void
+  onNewDatabase?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceIds: string[], targetId: string | null) => void
   onReorderItems?: (
@@ -120,12 +127,13 @@ export interface SidebarTreeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   canvasEnabled?: boolean
   sketchEnabled?: boolean
-  /** Increment to scroll the currently selected item into view. */
-  findActiveKey?: number
+  /** Open the folders around the selected item and scroll to it whenever it changes. */
+  autoReveal?: boolean
 }
 
 export type FlatRow = { item: TreeItem; level: number; branchIndex: number | null }
@@ -138,6 +146,17 @@ export function treeBranchGradientColor(branchIndex: number, branchCount: number
   const endWeight =
     branchCount <= 1 ? 0 : Math.min(100, Math.max(0, (branchIndex / (branchCount - 1)) * 100))
   return `color-mix(in oklch, var(--tree-gradient-start) ${100 - endWeight}%, var(--tree-gradient-end) ${endWeight}%)`
+}
+
+/** The ids of the items that contain `id`, outermost first; null when it is not in the tree. */
+export function ancestorIds(items: TreeItem[], id: string): string[] | null {
+  for (const item of items) {
+    if (item.id === id) return []
+    if (!item.children?.length) continue
+    const inner = ancestorIds(item.children, id)
+    if (inner) return [item.id, ...inner]
+  }
+  return null
 }
 
 export function flattenVisible(
@@ -169,6 +188,8 @@ export interface TreeNodeProps {
   isOpen: boolean
   onToggleOpen: (id: string) => void
   isEditing: boolean
+  /** Why the name typed in this row was refused; shown under the field while the field still holds that name. */
+  renameHint?: { name: string; text: string } | null
   onStartEdit: (id: string) => void
   onFinishEdit: (id: string, newName: string | null) => void
   selectedIds: ReadonlySet<string>
@@ -178,11 +199,17 @@ export interface TreeNodeProps {
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
+  onNewFolder?: (parentId: string | null) => void
+  onNewSketch?: (parentId: string | null) => void
+  onNewDatabase?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
+  onConvertFolderToNote?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
   onContextMenuSelect?: (id: string) => void
@@ -192,6 +219,7 @@ export interface TreeNodeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  supernotesEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   canvasEnabled?: boolean

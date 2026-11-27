@@ -1,4 +1,4 @@
-import type { ResolvedPos } from "@tiptap/pm/model"
+import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model"
 import type { EditorState, Transaction } from "@tiptap/pm/state"
 
 export type ColumnDropSide = "left" | "right"
@@ -68,6 +68,35 @@ export function removeEmptyColumnAtSelection(state: EditorState): Transaction | 
   const { $from } = state.selection
   if ($from.parent.type.name !== "paragraph" || $from.parent.content.size !== 0) return null
   return removeColumnAtResolvedPosition(state, $from)
+}
+
+/** Insert a new standalone block beside a row, using the existing column format. */
+export function insertBlockBeside(
+  tr: Transaction,
+  targetPos: number,
+  block: PMNode,
+  side: ColumnDropSide,
+): number | null {
+  const { doc } = tr
+  const { column, columnSet } = doc.type.schema.nodes
+  const target = doc.nodeAt(targetPos)
+  if (!column || !columnSet || !target) return null
+  const $target = doc.resolve(targetPos)
+  if ($target.parent.type.name === "column") {
+    const columnPos = $target.before($target.depth)
+    const insertPos = side === "left" ? columnPos : columnPos + $target.parent.nodeSize
+    tr.insert(insertPos, column.create(null, block))
+    return insertPos + 1
+  }
+  if ($target.depth !== 0) return null
+  const original = column.create(null, target)
+  const added = column.create(null, block)
+  tr.replaceWith(
+    targetPos,
+    targetPos + target.nodeSize,
+    columnSet.create(null, side === "left" ? [added, original] : [original, added]),
+  )
+  return targetPos + 2 + (side === "right" ? original.nodeSize : 0)
 }
 
 /** Build the document transaction used by the block gutter's side-drop zone. */
@@ -158,7 +187,7 @@ export function moveBlockAcrossColumns(
   targetPos: number,
   before: boolean,
 ): Transaction | null {
-  const { doc, schema } = state
+  const { doc } = state
   const source = doc.nodeAt(srcPos)
   const target = doc.nodeAt(targetPos)
   if (!source || !target || srcPos === targetPos) return null
@@ -172,13 +201,23 @@ export function moveBlockAcrossColumns(
   const rawInsert = before ? targetPos : targetPos + target.nodeSize
   let tr = state.tr
   if (sourceIsColumn && $source.parent.childCount === 1) {
-    const paragraph = schema.nodes.paragraph
-    if (!paragraph) return null
-    tr = tr.replaceWith(srcPos, srcPos + source.nodeSize, paragraph.create())
+    // Moving the last block removes its column; a two-column set dissolves.
+    const cleanup = removeSoleBlockColumn(state, srcPos)
+    if (!cleanup) return null
+    tr = cleanup
   } else {
     tr = tr.delete(srcPos, srcPos + source.nodeSize)
   }
-  const insertPos = tr.mapping.map(rawInsert, -1)
+  // Removing a column can replace the whole set, so its surviving target
+  // cannot be recovered by a step map alone. Locate the original node first.
+  let survivingTarget: number | null = null
+  tr.doc.descendants((node, pos) => {
+    if (node === target && survivingTarget === null) survivingTarget = pos
+  })
+  const insertPos =
+    survivingTarget === null
+      ? tr.mapping.map(rawInsert, -1)
+      : survivingTarget + (before ? 0 : target.nodeSize)
   try {
     tr.insert(insertPos, source)
     return tr.docChanged ? tr : null

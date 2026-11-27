@@ -1,5 +1,8 @@
 # Themes and localization
 
+Standalone interface emoji follow the [local Noto contract](emoji-icons.md).
+Ordinary editor text and system Lucide icons are outside that renderer's scope.
+
 ## Localization
 
 All interface strings live in `src/locales/resources.ts` and use stable dotted

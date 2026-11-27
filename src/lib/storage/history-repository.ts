@@ -5,10 +5,12 @@ import type {
   HistoryCleanupResult,
   HistoryRetention,
   HistoryStats,
-  RefactorPreview,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
+  DeleteMode,
   TrashEntry,
+  TrashPreview,
 } from "./types"
 
 export class HistoryRepository {
@@ -48,6 +50,10 @@ export class HistoryRepository {
     return this.port().readSnapshotText(snapshotId)
   }
 
+  async readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview> {
+    return this.port().readTrashPreview(trashId, relativePath)
+  }
+
   async listTrash(): Promise<TrashEntry[]> {
     return this.port().listTrash()
   }
@@ -59,19 +65,19 @@ export class HistoryRepository {
     return this.port().purgeTrash(trashId)
   }
 
-  async previewRenameRefactor(
-    vaultPath: string,
-    path: string,
-    newName: string,
-  ): Promise<RefactorPreview> {
-    return this.port().previewRenameRefactor(vaultPath, path, newName)
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return this.port().listArchive(vaultPath)
   }
 
-  async previewMoveRefactor(
-    vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    return this.port().previewMoveRefactor(vaultPath, sourcePath, targetPath)
+  async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
+    return this.port().readArchivePreview(archiveId, relativePath)
+  }
+
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return this.port().restoreArchive(archiveId, vaultPath)
+  }
+
+  async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
+    return this.port().purgeArchive(archiveId, mode)
   }
 }

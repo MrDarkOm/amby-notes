@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { NoteProperties } from "@/lib/storage"
 import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
 
@@ -87,5 +87,27 @@ describe("Live Preview admission for text with a space at the end", () => {
       sourceOnly: true,
       warningKey: "workspace.losslessSourceOnly",
     })
+  })
+})
+
+describe("a failed admission check", () => {
+  it("keeps the note in Source and leaves a coded line in the journal", async () => {
+    vi.resetModules()
+    vi.doMock("../tiptap/markdown", () => ({
+      roundTripCheck: () => {
+        throw new TypeError("boom: private text")
+      },
+    }))
+    const { logger, errorType } = await import("@/lib/logger")
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+    const policy = await import("./note-editing-policy")
+    expect(policy.inspectMarkdownCompatibility("# A\n")).toEqual({
+      ok: false,
+      reason: "inspection_failed",
+    })
+    expect(warn).toHaveBeenCalledWith("editor.live_admission_failed", {
+      errorType: errorType(new TypeError("x")),
+    })
+    vi.doUnmock("../tiptap/markdown")
   })
 })

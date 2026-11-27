@@ -1,0 +1,895 @@
+//! The sync of the open vault as the application sees it (docs/sync-plan.md, Р5, Р12; stage Э4):
+//! switching it on for a vault (a new space or an existing one), the session of the open vault,
+//! its status, and the answers of the person. The keys and the token come from the system key
+//! store, the address from the connection record; neither is kept in the vault.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use amby_sync_client::{DeviceToken, ServerUrl, SyncClient};
+use amby_sync_core::crypto::keys::AccountKey;
+use amby_sync_core::engine::RenameHint;
+use zeroize::Zeroizing;
+
+use crate::sync::account_types::{AccountOverview, BoundVault};
+use crate::sync::backup;
+use crate::sync::conflict_store::NotePick;
+use crate::sync::connection::ConnectionStore;
+use crate::sync::hints::RenameHints;
+use crate::sync::secrets::{SecretStore, SECRET_ACCOUNT_KEY, SECRET_DEVICE_TOKEN};
+use crate::sync::session::{Schedule, SessionConfig, SessionHooks, SyncSession};
+use crate::sync::space::{self, LinkedSpace};
+use crate::sync::state_db::{
+    read_meta_only, state_path, SqliteStateStore, META_DEVICE_ID, META_ENABLED, META_KEY_EPOCH,
+    META_SERVER_URL, META_SPACE_ID, META_SPACE_NAME, META_TEST_VAULT, META_WRAPPED_VK,
+};
+use crate::sync::types::SyncError;
+use crate::sync::vault_types::{
+    ApprovalKind, ConflictChoice, ConflictVersions, GroupConflictVersions, SpaceTarget, SpaceView,
+    VaultSyncStatus,
+};
+
+/// Who this device is on the server.
+struct Credentials {
+    /// The address of the server as the connection record keeps it.
+    server_url: String,
+    client: SyncClient,
+    token: DeviceToken,
+    account_key: AccountKey,
+    device_id: String,
+}
+
+/// What the state of a vault says about its link.
+struct Link {
+    /// The server the link was made on; `None` for a link made before the address was kept.
+    server_url: Option<String>,
+    space_id: [u8; 16],
+    space_name: Option<String>,
+    enabled: bool,
+    device_id: Option<String>,
+    kept_key: Option<(u32, Vec<u8>)>,
+}
+
+#[derive(Default)]
+struct Inner {
+    vault: Option<PathBuf>,
+    session: Option<SyncSession>,
+    /// The status while no session runs (switched off, not linked, cannot start).
+    resting: Option<VaultSyncStatus>,
+}
+
+/// The state of the sync of the open vault.
+pub struct SyncRuntime {
+    secrets: Arc<dyn SecretStore>,
+    connection: Arc<dyn ConnectionStore>,
+    handle: tokio::runtime::Handle,
+    schedule: Schedule,
+    hooks: Arc<dyn SessionHooks>,
+    hints: Arc<RenameHints>,
+    inner: Mutex<Inner>,
+    /// The list of deleted files of the server, kept until the next pass (appendix И, И13).
+    history_cache: Arc<crate::sync::server_history::ServerHistoryCache>,
+    /// Counts the requests to open, close or switch on a vault: an answer that comes after a
+    /// newer request is out of date and changes nothing.
+    epoch: AtomicU64,
+}
+
+/// The same address, however it was typed: the case of the scheme and host and a trailing slash
+/// do not make another server.
+fn same_server(a: &str, b: &str) -> bool {
+    let clean = |url: &str| url.trim().trim_end_matches('/').to_ascii_lowercase();
+    clean(a) == clean(b)
+}
+
+fn hex_32(text: &str) -> Option<Zeroizing<[u8; 32]>> {
+    if text.len() != 64 || !text.is_ascii() {
+        return None;
+    }
+    let mut bytes = Zeroizing::new([0u8; 32]);
+    for (index, pair) in text.as_bytes().chunks(2).enumerate() {
+        bytes[index] = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(bytes)
+}
+
+fn hex_16(text: &str) -> Option<[u8; 16]> {
+    hex::decode(text).ok()?.try_into().ok()
+}
+
+fn state_failure(error: &amby_sync_core::engine::StateError) -> SyncError {
+    match error {
+        amby_sync_core::engine::StateError::Io(text) if text == "state_newer" => {
+            SyncError::new("state_newer")
+        }
+        _ => SyncError::new("state_error"),
+    }
+}
+
+impl SyncRuntime {
+    /// Who this device is right now, to tell afterwards whether an answer that took a while still
+    /// belongs to the same account (Л9): the device and the address of the record and the token.
+    fn identity(&self) -> Option<(String, String, String)> {
+        let record = self.connection.load().ok()??;
+        let token = self.secrets.get(SECRET_DEVICE_TOKEN).ok()??;
+        Some((record.server_url, record.device_id, token))
+    }
+
+    /// Removes the server copy of the space only (Л6–Л9); every local file stays. When the space is
+    /// the one of the open vault, its session is stopped (waiting for a running pass) and the
+    /// switched-off state is saved before the request; when the request is confirmed the link is
+    /// forgotten. A failure leaves the link, switched off, so the action can be repeated. An answer
+    /// that comes after another vault or account was taken does not touch the new one.
+    pub async fn delete_space(&self, space_id: &str, password: &str) -> Result<(), SyncError> {
+        let id = hex_16(space_id).ok_or_else(|| SyncError::new("invalid_space"))?;
+        let credentials = self.credentials()?;
+        // Ц2, Ц4: the password is checked on this device before anything is stopped, so a wrong one
+        // leaves the sync of the open vault as it was. The server checks the key again (Ц1).
+        let proof =
+            amby_sync_client::password_proof(&credentials.client, &credentials.token, password)
+                .await?;
+        let identity = self.identity();
+        let current_vault = self.inner().vault.clone();
+        // Is it the space of the open vault? (Read before anything is stopped.)
+        let linked_vault = match current_vault {
+            Some(vault) => Self::read_link(&vault)?
+                .filter(|link| link.space_id == id)
+                .map(|_| vault),
+            None => None,
+        };
+        // Ц4: whether sync was on, to put it back when the server refuses the proof.
+        let was_enabled = match &linked_vault {
+            Some(vault) => Self::read_link(vault)?.is_some_and(|link| link.enabled),
+            None => false,
+        };
+        let token = match &linked_vault {
+            Some(vault) => {
+                let token = self.next_epoch();
+                self.stop_session();
+                Self::set_enabled(vault, false)?;
+                if let Some(link) = Self::read_link(vault)? {
+                    self.rest_current(vault, self.resting_status(&link, None), token);
+                }
+                Some(token)
+            }
+            None => None,
+        };
+
+        match credentials
+            .client
+            .delete_space(&credentials.token, &id, &proof)
+            .await
+        {
+            Ok(()) => {}
+            // A space that is already gone (a repeat after a lost answer) counts only when the
+            // list of the server proves that the id is absent; an old server that does not know
+            // the request still lists it.
+            Err(amby_sync_client::ClientError::Api {
+                status: 404 | 405, ..
+            }) => {
+                let spaces = credentials.client.list_spaces(&credentials.token).await?;
+                if spaces.iter().any(|space| space.space_id == id) {
+                    return Err(SyncError::new("unsupported_server"));
+                }
+            }
+            // Ц4: the server refused the proof (a wrong key or too many attempts): nothing was
+            // deleted, so the sync of the open vault goes back to how it was.
+            Err(
+                error @ amby_sync_client::ClientError::Api {
+                    status: 403 | 429, ..
+                },
+            ) => {
+                if let Some(vault) = &linked_vault {
+                    if was_enabled && self.identity() == identity {
+                        Self::set_enabled(vault, true)?;
+                        let _ = self.activate_vault(vault).await;
+                    }
+                }
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        // The answer is acted on only for the same account.
+        if let Some(vault) = linked_vault {
+            if self.identity() == identity {
+                let still_linked = Self::read_link(&vault)?.is_some_and(|link| link.space_id == id);
+                if still_linked {
+                    Self::forget_link(&vault)?;
+                    if let Some(token) = token {
+                        self.rest_current(&vault, VaultSyncStatus::off(), token);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A runtime that reads the credentials from `secrets` and `connection`, carries requests on
+    /// `handle`, follows `schedule` and reports through `hooks`.
+    pub fn new(
+        secrets: Arc<dyn SecretStore>,
+        connection: Arc<dyn ConnectionStore>,
+        handle: tokio::runtime::Handle,
+        schedule: Schedule,
+        hooks: Arc<dyn SessionHooks>,
+    ) -> Self {
+        Self {
+            secrets,
+            connection,
+            handle,
+            schedule,
+            hooks,
+            hints: Arc::new(RenameHints::new()),
+            inner: Mutex::new(Inner::default()),
+            history_cache: Arc::default(),
+            epoch: AtomicU64::new(0),
+        }
+    }
+
+    /// A new request about the open vault begins: whatever was started for an older one must not
+    /// install itself any more. The caller passes the token to [`SyncRuntime::activate_with`].
+    pub fn next_epoch(&self) -> u64 {
+        self.epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn is_current(&self, token: u64) -> bool {
+        self.epoch.load(Ordering::SeqCst) == token
+    }
+
+    fn inner(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The session of the open vault as the history of the server needs it; `None` while sync of
+    /// the vault is not running (appendix И, И4).
+    pub fn history_link(&self) -> Option<crate::sync::server_history::HistoryLink> {
+        self.inner().session.as_ref()?.history_link()
+    }
+
+    /// The cache of the "on the server" list of the archive.
+    pub fn history_cache(&self) -> Arc<crate::sync::server_history::ServerHistoryCache> {
+        self.history_cache.clone()
+    }
+
+    /// The renames made through Amby, waiting for the next pass (Д70).
+    pub fn hints(&self) -> Arc<RenameHints> {
+        self.hints.clone()
+    }
+
+    fn credentials(&self) -> Result<Credentials, SyncError> {
+        let record = self
+            .connection
+            .load()
+            .map_err(|_| SyncError::new("storage_error"))?
+            .ok_or_else(|| SyncError::new("not_connected"))?;
+        let key = self
+            .secrets
+            .get(SECRET_ACCOUNT_KEY)
+            .map_err(|_| SyncError::new("keychain_unavailable"))?
+            .ok_or_else(|| SyncError::new("not_connected"))?;
+        let token = self
+            .secrets
+            .get(SECRET_DEVICE_TOKEN)
+            .map_err(|_| SyncError::new("keychain_unavailable"))?
+            .ok_or_else(|| SyncError::new("not_connected"))?;
+        let key = Zeroizing::new(key);
+        let account_key = hex_32(&key)
+            .map(|bytes| AccountKey::from_bytes(*bytes))
+            .ok_or_else(|| SyncError::new("not_connected"))?;
+        let url = ServerUrl::parse(&record.server_url, record.allow_http)?;
+        Ok(Credentials {
+            server_url: record.server_url.clone(),
+            client: SyncClient::new(&url)?,
+            token: DeviceToken::new(token),
+            account_key,
+            device_id: record.device_id,
+        })
+    }
+
+    /// The spaces of the account (needs a signed-in device).
+    pub async fn list_spaces(&self) -> Result<Vec<SpaceView>, SyncError> {
+        let credentials = self.credentials()?;
+        space::list_spaces(
+            &credentials.client,
+            &credentials.token,
+            &credentials.account_key,
+        )
+        .await
+    }
+
+    /// The storages of the account with the plan and the sizes (appendix Е, У5). `known_vaults`
+    /// are the folders of the vaults the application knows; the ones linked to a space are named
+    /// in its row. Only the link of each folder is read (read-only, after the path is made
+    /// canonical); nothing is written to any vault.
+    pub async fn account_overview(
+        &self,
+        known_vaults: &[PathBuf],
+    ) -> Result<AccountOverview, SyncError> {
+        let credentials = self.credentials()?;
+        let linked = |vault: &Path| -> Option<[u8; 16]> {
+            let values = read_meta_only(vault, &[META_SPACE_ID, META_SERVER_URL])?;
+            let space_id = hex_16(values.first()?.as_deref()?)?;
+            // A link made on another server says nothing about this account.
+            match values.get(1)?.as_deref() {
+                Some(url) if !same_server(url, &credentials.server_url) => None,
+                _ => Some(space_id),
+            }
+        };
+        let current = self.inner().vault.as_deref().and_then(linked);
+        let mut bound: Vec<BoundVault> = Vec::new();
+        let mut seen: Vec<PathBuf> = Vec::new();
+        for vault in known_vaults {
+            let Ok(canonical) = std::fs::canonicalize(vault) else {
+                continue;
+            };
+            if seen.contains(&canonical) {
+                continue;
+            }
+            seen.push(canonical.clone());
+            if let (Some(space_id), Some(folder)) = (linked(&canonical), canonical.file_name()) {
+                bound.push(BoundVault {
+                    folder: folder.to_string_lossy().into_owned(),
+                    space_id,
+                });
+            }
+        }
+        space::account_overview(
+            &credentials.client,
+            &credentials.token,
+            &credentials.account_key,
+            current,
+            &bound,
+        )
+        .await
+    }
+
+    /// What the state of `vault` says about its link, if it has a state at all.
+    fn read_link(vault: &Path) -> Result<Option<Link>, SyncError> {
+        if !state_path(vault).is_file() {
+            return Ok(None);
+        }
+        let store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        let get = |key: &str| store.meta(key).map_err(|e| state_failure(&e));
+        let Some(space_hex) = get(META_SPACE_ID)? else {
+            return Ok(None);
+        };
+        let Some(space_id) = hex_16(&space_hex) else {
+            return Ok(None);
+        };
+        let kept_key = match (get(META_KEY_EPOCH)?, get(META_WRAPPED_VK)?) {
+            (Some(epoch), Some(wrapped)) => {
+                epoch.parse::<u32>().ok().zip(hex::decode(wrapped).ok())
+            }
+            _ => None,
+        };
+        Ok(Some(Link {
+            server_url: get(META_SERVER_URL)?,
+            space_id,
+            space_name: get(META_SPACE_NAME)?,
+            enabled: get(META_ENABLED)?.as_deref() == Some("1"),
+            device_id: get(META_DEVICE_ID)?,
+            kept_key,
+        }))
+    }
+
+    /// A vault whose state belongs to another device was copied here (Р10): the mark of a test
+    /// vault and the switch stay behind with the rest of the link, so it is switched on only by
+    /// marking it again. Returns the link as this device sees it.
+    fn forget_foreign_marks(
+        vault: &Path,
+        mut link: Link,
+        credentials: &Credentials,
+    ) -> Result<Link, SyncError> {
+        let foreign = link
+            .device_id
+            .as_ref()
+            .is_some_and(|device| *device != credentials.device_id);
+        if foreign {
+            let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+            store
+                .remove_meta(META_TEST_VAULT)
+                .and_then(|()| store.set_meta(META_ENABLED, "0"))
+                .map_err(|e| state_failure(&e))?;
+            link.enabled = false;
+        }
+        Ok(link)
+    }
+
+    fn remember_link(
+        vault: &Path,
+        server_url: &str,
+        space: &LinkedSpace,
+        enabled: bool,
+    ) -> Result<(), SyncError> {
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        match &space.name {
+            Some(name) => store.set_meta(META_SPACE_NAME, name),
+            None => store.remove_meta(META_SPACE_NAME),
+        }
+        .map_err(|e| state_failure(&e))?;
+        let mut set =
+            |key: &str, value: &str| store.set_meta(key, value).map_err(|e| state_failure(&e));
+        set(META_SPACE_ID, &hex::encode(space.space_id))?;
+        set(META_SERVER_URL, server_url)?;
+        set(META_WRAPPED_VK, &hex::encode(&space.wrapped_vk))?;
+        set(META_KEY_EPOCH, &space.key_epoch.to_string())?;
+        set(META_ENABLED, if enabled { "1" } else { "0" })
+    }
+
+    /// Writes the address of the server into a link that has none (best effort: the link works
+    /// without it, it is only not resumable until it is known).
+    fn learn_server(vault: &Path, server_url: &str) {
+        let Ok(mut store) = SqliteStateStore::open(vault) else {
+            return;
+        };
+        if matches!(store.meta(META_SERVER_URL), Ok(None)) {
+            let _ = store.set_meta(META_SERVER_URL, server_url);
+        }
+    }
+
+    fn set_enabled(vault: &Path, enabled: bool) -> Result<(), SyncError> {
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        store
+            .set_meta(META_ENABLED, if enabled { "1" } else { "0" })
+            .map_err(|e| state_failure(&e))
+    }
+
+    /// Does the link belong to this connection? Only a link made on this very server and with
+    /// this very account may be resumed: the address is the one kept with the link, and the key
+    /// of the space it kept opens with this account's key (an account key of another account
+    /// does not open it). A link that cannot be proved to belong here is a stale one: it is never
+    /// followed, whatever it points at.
+    fn link_matches(link: &Link, credentials: &Credentials) -> bool {
+        link.server_url
+            .as_deref()
+            .is_some_and(|url| same_server(url, &credentials.server_url))
+            && link.kept_key.as_ref().is_some_and(|(epoch, wrapped)| {
+                space::unwrap_kept_key(&credentials.account_key, link.space_id, *epoch, wrapped)
+                    .is_ok()
+            })
+    }
+
+    /// Forgets the link of the vault with a space and everything the engine remembers about it
+    /// (the bases of what was synchronised there). The notes themselves are not touched.
+    fn forget_link(vault: &Path) -> Result<(), SyncError> {
+        let mut store = SqliteStateStore::open(vault).map_err(|e| state_failure(&e))?;
+        store.clear_sync_state().map_err(|e| state_failure(&e))?;
+        for key in [
+            META_SPACE_ID,
+            META_SPACE_NAME,
+            META_WRAPPED_VK,
+            META_KEY_EPOCH,
+            META_TEST_VAULT,
+            META_SERVER_URL,
+        ] {
+            store.remove_meta(key).map_err(|e| state_failure(&e))?;
+        }
+        store
+            .set_meta(META_ENABLED, "0")
+            .map_err(|e| state_failure(&e))
+    }
+
+    /// The status of a vault that is linked but not running; `resumable` when the link belongs
+    /// to the connection of this device (see [`SyncRuntime::link_matches`]).
+    fn resting_status(&self, link: &Link, error_code: Option<&str>) -> VaultSyncStatus {
+        let resumable = self
+            .credentials()
+            .is_ok_and(|credentials| Self::link_matches(link, &credentials));
+        VaultSyncStatus {
+            linked: true,
+            resumable,
+            space_id: Some(hex::encode(link.space_id)),
+            space_name: link.space_name.clone(),
+            error_code: error_code.map(str::to_string),
+            ..VaultSyncStatus::off()
+        }
+    }
+
+    /// Starts the session of `vault`; the previous one (if any) is stopped first.
+    fn start_session(
+        &self,
+        vault: &Path,
+        credentials: Credentials,
+        space: LinkedSpace,
+        token: u64,
+    ) -> Result<VaultSyncStatus, SyncError> {
+        self.stop_session();
+        if !self.is_current(token) {
+            // The person opened another vault in the meantime.
+            return Ok(VaultSyncStatus::off());
+        }
+        let session = SyncSession::start(SessionConfig {
+            vault: vault.to_path_buf(),
+            client: credentials.client,
+            token: credentials.token,
+            account_key: credentials.account_key,
+            space_id: space.space_id,
+            space_name: space.name.clone(),
+            vk: space.vk,
+            device_id: credentials.device_id,
+            schedule: self.schedule,
+            hooks: self.hooks.clone(),
+            handle: self.handle.clone(),
+            hints: self.hints.clone(),
+        })?;
+        let status = session.status();
+        let mut inner = self.inner();
+        if !self.is_current(token) {
+            drop(inner);
+            session.stop();
+            return Ok(VaultSyncStatus::off());
+        }
+        inner.vault = Some(vault.to_path_buf());
+        inner.resting = None;
+        inner.session = Some(session);
+        drop(inner);
+        self.hooks.status_changed(&status);
+        Ok(status)
+    }
+
+    fn stop_session(&self) {
+        self.history_cache.invalidate();
+        let session = self.inner().session.take();
+        if let Some(session) = session {
+            session.stop();
+        }
+    }
+
+    fn rest(&self, vault: &Path, mut status: VaultSyncStatus) -> VaultSyncStatus {
+        match backup::standing(vault) {
+            backup::Standing::Ready(path) => status.backup_path = Some(path),
+            backup::Standing::Lost => status.backup_missing = true,
+            _ => {}
+        }
+        let mut inner = self.inner();
+        inner.vault = Some(vault.to_path_buf());
+        inner.resting = Some(status.clone());
+        drop(inner);
+        self.hooks.status_changed(&status);
+        status
+    }
+
+    /// [`SyncRuntime::rest`] unless a newer request came in the meantime.
+    fn rest_current(&self, vault: &Path, status: VaultSyncStatus, token: u64) -> VaultSyncStatus {
+        if self.is_current(token) {
+            self.rest(vault, status)
+        } else {
+            VaultSyncStatus::off()
+        }
+    }
+
+    /// Switches sync on for the vault at `vault` and starts it: makes a new space or connects an
+    /// existing one, remembers the link in `.amby/sync/state.db` after an external backup.
+    /// The legacy boolean is retained for compatibility. A vault already
+    /// linked to a space is switched on again with the same space (the target is ignored).
+    pub async fn enable(
+        &self,
+        vault: &Path,
+        target: SpaceTarget,
+    ) -> Result<VaultSyncStatus, SyncError> {
+        let vault = vault
+            .canonicalize()
+            .map_err(|_| SyncError::new("storage_error"))?;
+        {
+            let inner = self.inner();
+            if inner.vault.as_deref() == Some(&vault) {
+                if let Some(session) = &inner.session {
+                    return Ok(session.status());
+                }
+            }
+        }
+        let link = Self::read_link(&vault)?;
+        let credentials = self.credentials().ok();
+        let link = match (link, &credentials) {
+            (Some(link), Some(credentials)) => {
+                Some(Self::forget_foreign_marks(&vault, link, credentials)?)
+            }
+            (link, _) => link,
+        };
+        // Only a link of this server and account is resumed (with its own space, the target is
+        // ignored). Any other link is stale: the person chooses a space as the first time.
+        let resumable = match (&link, &credentials) {
+            (Some(link), Some(credentials)) => Self::link_matches(link, credentials),
+            _ => false,
+        };
+        let credentials = self.credentials()?;
+
+        // Finish the copy before creating a space or allowing an incoming/outgoing pass.
+        Self::prepare_backup(&vault).await?;
+
+        let space = match &link {
+            // The server is asked, so a space that is gone is found before anything is sent.
+            Some(link) if resumable => {
+                match space::open_space(
+                    &credentials.client,
+                    &credentials.token,
+                    &credentials.account_key,
+                    link.space_id,
+                )
+                .await
+                {
+                    Ok(space) => space,
+                    Err(error) if error.code == "space_not_found" => {
+                        Self::forget_link(&vault)?;
+                        self.rest(&vault, VaultSyncStatus::off());
+                        return Err(error);
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            _ => match target {
+                SpaceTarget::New { name } => {
+                    let name = if name.trim().is_empty() {
+                        space::default_space_name(&vault)
+                    } else {
+                        name
+                    };
+                    space::create_space(
+                        &credentials.client,
+                        &credentials.token,
+                        &credentials.account_key,
+                        &name,
+                    )
+                    .await?
+                }
+                SpaceTarget::Existing { space_id } => {
+                    let id = hex_16(&space_id).ok_or_else(|| SyncError::new("invalid_space"))?;
+                    space::open_space(
+                        &credentials.client,
+                        &credentials.token,
+                        &credentials.account_key,
+                        id,
+                    )
+                    .await?
+                }
+            },
+        };
+        if link.is_some() && !resumable {
+            // What the engine remembers belongs to the stale link, not to this space.
+            Self::forget_link(&vault)?;
+        }
+        Self::remember_link(&vault, &credentials.server_url, &space, true)?;
+        let token = self.next_epoch();
+        self.start_session(&vault, credentials, space, token)
+    }
+
+    async fn prepare_backup(vault: &Path) -> Result<(), SyncError> {
+        let vault = vault.to_path_buf();
+        tokio::task::spawn_blocking(move || backup::prepare(&vault))
+            .await
+            .map_err(|_| SyncError::new("backup_failed"))??;
+        Ok(())
+    }
+
+    /// Deletes the pre-sync copy once its 14 days after the first successful sync are over.
+    /// Best effort: a failure leaves the copy and is tried again at the next start.
+    async fn expire_backup(vault: &Path) {
+        let vault = vault.to_path_buf();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(0));
+        let _ = tokio::task::spawn_blocking(move || backup::cleanup_expired(&vault, now)).await;
+    }
+
+    /// The key of a space this vault was linked to: from the state when it is kept there (no
+    /// network), otherwise from the server.
+    async fn open_linked(
+        &self,
+        credentials: &Credentials,
+        link: &Link,
+    ) -> Result<LinkedSpace, SyncError> {
+        if let Some((epoch, wrapped)) = &link.kept_key {
+            if let Ok(vk) =
+                space::unwrap_kept_key(&credentials.account_key, link.space_id, *epoch, wrapped)
+            {
+                return Ok(LinkedSpace {
+                    space_id: link.space_id,
+                    name: link.space_name.clone(),
+                    vk,
+                    wrapped_vk: wrapped.clone(),
+                    key_epoch: *epoch,
+                });
+            }
+        }
+        space::open_space(
+            &credentials.client,
+            &credentials.token,
+            &credentials.account_key,
+            link.space_id,
+        )
+        .await
+    }
+
+    /// A vault was opened: starts sync when it was switched on and the device is signed in; the
+    /// status of a vault that is not synchronised otherwise. Never fails because of the
+    /// network.
+    pub async fn activate_vault(&self, vault: &Path) -> Result<VaultSyncStatus, SyncError> {
+        let token = self.next_epoch();
+        self.activate_with(vault, token).await
+    }
+
+    /// The same for a request that was announced by [`SyncRuntime::next_epoch`] when it was made.
+    pub async fn activate_with(
+        &self,
+        vault: &Path,
+        token: u64,
+    ) -> Result<VaultSyncStatus, SyncError> {
+        self.stop_session();
+        let vault = vault
+            .canonicalize()
+            .map_err(|_| SyncError::new("storage_error"))?;
+        Self::expire_backup(&vault).await;
+        let Some(link) = Self::read_link(&vault)? else {
+            return Ok(self.rest_current(&vault, VaultSyncStatus::off(), token));
+        };
+        // A link made by another device loses its mark and switch first, so a vault that rests
+        // shows what switching it on will really ask for.
+        let link = match self.credentials() {
+            Ok(credentials) => Self::forget_foreign_marks(&vault, link, &credentials)?,
+            Err(_) => link,
+        };
+        if !link.enabled {
+            return Ok(self.rest_current(&vault, self.resting_status(&link, None), token));
+        }
+        let credentials = match self.credentials() {
+            Ok(credentials) => credentials,
+            Err(error) => {
+                return Ok(self.rest_current(
+                    &vault,
+                    self.resting_status(&link, Some(&error.code)),
+                    token,
+                ));
+            }
+        };
+        // Older enabled vaults have no receipt yet. Protect them before their
+        // first automatic pass, without rehashing a complete copy on every restart.
+        if backup::standing(&vault) == backup::Standing::Never {
+            if let Err(error) = Self::prepare_backup(&vault).await {
+                return Ok(self.rest_current(
+                    &vault,
+                    self.resting_status(&link, Some(&error.code)),
+                    token,
+                ));
+            }
+        }
+        let space = match self.open_linked(&credentials, &link).await {
+            Ok(space) => space,
+            Err(error) => {
+                // The key is not in the state and the server cannot be asked now: the vault
+                // waits, the link stays.
+                return Ok(self.rest_current(
+                    &vault,
+                    self.resting_status(&link, Some(&error.code)),
+                    token,
+                ));
+            }
+        };
+        // A link made before the address was kept: the space opened on this server with this
+        // account's key, so it belongs here. An address that is already kept is never changed.
+        if link.server_url.is_none() {
+            Self::learn_server(&vault, &credentials.server_url);
+        }
+        match self.start_session(&vault, credentials, space, token) {
+            Ok(status) => Ok(status),
+            Err(error) => {
+                Ok(self.rest_current(&vault, self.resting_status(&link, Some(&error.code)), token))
+            }
+        }
+    }
+
+    /// The vault was closed or another one is opened: stops the session.
+    pub fn deactivate_vault(&self) {
+        self.history_cache.invalidate();
+        self.next_epoch();
+        self.stop_session();
+        let mut inner = self.inner();
+        inner.vault = None;
+        inner.resting = None;
+    }
+
+    /// Switches sync off for the open vault; the link with the space stays.
+    pub fn disable(&self) -> Result<VaultSyncStatus, SyncError> {
+        let vault = self
+            .inner()
+            .vault
+            .clone()
+            .ok_or_else(|| SyncError::new("no_vault_open"))?;
+        self.stop_session();
+        Self::set_enabled(&vault, false)?;
+        let link = Self::read_link(&vault)?;
+        let status = match link {
+            Some(link) => self.resting_status(&link, None),
+            None => VaultSyncStatus::off(),
+        };
+        Ok(self.rest(&vault, status))
+    }
+
+    /// The status of the open vault (no network).
+    pub fn status(&self) -> VaultSyncStatus {
+        let inner = self.inner();
+        if let Some(session) = &inner.session {
+            return session.status();
+        }
+        inner.resting.clone().unwrap_or_else(VaultSyncStatus::off)
+    }
+
+    fn with_session<T>(&self, action: impl FnOnce(&SyncSession) -> T) -> Result<T, SyncError> {
+        let inner = self.inner();
+        let session = inner
+            .session
+            .as_ref()
+            .ok_or_else(|| SyncError::new("sync_not_running"))?;
+        Ok(action(session))
+    }
+
+    /// A pass now.
+    pub fn sync_now(&self) -> Result<(), SyncError> {
+        self.with_session(|session| {
+            session.sync_now();
+        })
+    }
+
+    /// A file changed in the open vault (from the watcher).
+    pub fn notify_path(&self, path: &Path) {
+        let _ = self.with_session(|session| {
+            session.notify_path(path);
+        });
+    }
+
+    /// An answer to a stop of Р8.
+    pub fn approve(&self, kind: ApprovalKind) -> Result<(), SyncError> {
+        self.with_session(|session| {
+            session.approve(kind);
+        })
+    }
+
+    /// Resolves a conflict.
+    pub fn resolve_conflict(&self, id: &str, choice: ConflictChoice) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_conflict(id, choice))?
+    }
+
+    /// Resolves a conflict with a text put together by the comparison (stage Э4б).
+    pub fn resolve_conflict_with_text(
+        &self,
+        id: &str,
+        text: &str,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_conflict_with_text(id, text, stamp))?
+    }
+
+    /// The two versions of a conflict as text, for the comparison.
+    pub fn read_conflict_versions(&self, id: &str) -> Result<ConflictVersions, SyncError> {
+        self.with_session(|session| session.read_conflict_versions(id))?
+    }
+
+    /// The conflicting notes of a conflict of a group of note properties (З69).
+    pub fn read_group_conflict(&self, id: &str) -> Result<GroupConflictVersions, SyncError> {
+        self.with_session(|session| session.read_group_conflict(id))?
+    }
+
+    /// Resolves a conflict of a group of note properties by notes (З69).
+    pub fn resolve_group_conflict(
+        &self,
+        id: &str,
+        picks: std::collections::BTreeMap<String, NotePick>,
+        stamp: &str,
+    ) -> Result<(), SyncError> {
+        self.with_session(|session| session.resolve_group_conflict(id, picks, stamp))?
+    }
+
+    /// The person renamed or moved something through Amby (Д70): remembered for the next pass.
+    /// Nothing is kept when no session runs, so the queue cannot grow unused.
+    pub fn note_renames(&self, vault: &Path, changes: &[crate::model::PathChange]) {
+        let running = self.inner().session.is_some();
+        if running {
+            self.hints.record(vault, changes);
+        }
+    }
+
+    /// Passes the hints on to the session (also done before each answer and each notification).
+    pub fn push_hints(&self, hints: Vec<RenameHint>) {
+        let _ = self.with_session(|session| session.add_rename_hints(hints));
+    }
+}

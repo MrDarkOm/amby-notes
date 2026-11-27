@@ -15,6 +15,7 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
+import { projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const ensurePlotLinks = vi.fn()
@@ -167,9 +168,7 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   it("lists the anchors of the standalone stories in the author's order, those of no story last", async () => {
     render(<CreativePanel {...props()} />)
-    // The panel opens on the first standalone story; all of them are chosen with the top card.
-    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
-    await choose(/Все истории/)
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     await screen.findByRole("button", { name: /Одинокий/ })
     const names = titles(document.body)
     expect(names.map((text) => text.replace(/MoleHills|Lone/, "").trim())).toEqual([
@@ -204,7 +203,7 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   async function addIn(filter: RegExp, title: string, shown = /Потоп|Встреча/) {
     render(<CreativePanel {...props()} />)
-    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     await choose(filter)
     await screen.findAllByRole("button", { name: shown })
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
@@ -245,9 +244,11 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
 
   it("shows the failure of the relation and writes no anchor", async () => {
     act(() => useProjectStore.getState().setCatalog(world({ universeProperty: false })))
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     await addIn(/Мир/, "Пожар")
-    expect(await screen.findByText(/файл занят/)).toBeTruthy()
+    expect(await screen.findByText(/projectIndexFailed/)).toBeTruthy()
     expect(createWorkshopEntity).not.toHaveBeenCalled()
   })
 })
@@ -304,10 +305,13 @@ describe("CreativePanel: the anchors' relations after a base was made", () => {
   })
 
   it("shows the failure instead of swallowing it", async () => {
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     await createUniverse(true)
     const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("файл занят")
+    expect(alert.textContent).toContain("projectIndexFailed")
+    expect(alert.textContent).not.toContain("файл занят")
     expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
   })
 })
@@ -446,7 +450,9 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
   })
 
   it("shows the failure instead of swallowing it, and still opens the new section", async () => {
-    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    ensurePlotLinks
+      .mockReset()
+      .mockRejectedValue(projectFailure("projectIndexFailed", "файл занят"))
     const onOpenCreativeProject = vi.fn()
     act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false })))
     render(
@@ -461,7 +467,8 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
       dialogs.section.current?.({ section: { sectionId: "anchors" } })
     })
     const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("файл занят")
+    expect(alert.textContent).toContain("projectIndexFailed")
+    expect(alert.textContent).not.toContain("файл занят")
     expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
     expect(onOpenCreativeProject).toHaveBeenCalledWith("verse", "anchors")
   })

@@ -19,10 +19,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::Emitter;
+
+pub mod catalog;
+pub mod chats;
+pub mod claude_code;
+pub mod codex;
+pub mod connections;
+pub(crate) mod consent;
+use amby_core::index::snapshot as index_snapshot;
+pub mod local_apps;
+pub mod proposals;
+mod provider_stream;
+pub(crate) use amby_core::ai_tools as tools;
+pub mod turn;
 
 pub const MAX_MESSAGES_COUNT: usize = 100;
 pub const MAX_TOTAL_PROMPT_BYTES: usize = 512 * 1024; // 512 KB
@@ -31,8 +43,68 @@ pub const MAX_TOKENS_LIMIT: u32 = 8192;
 pub const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024; // 4 MB
 pub const MAX_ERROR_PREVIEW_CHARS: usize = 500;
 
+/// What goes between two parts of an answer that a tool call or a new message separated, so
+/// the reader sees paragraphs rather than "first part.Second part": nothing before the first
+/// part, and only what is missing of a blank line after text that already ends a line.
+pub fn part_gap(text: &str) -> Option<&'static str> {
+    if text.trim().is_empty() || text.ends_with("\n\n") {
+        None
+    } else if text.ends_with('\n') {
+        Some("\n")
+    } else {
+        Some("\n\n")
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct AiStreamState(pub Arc<Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>);
+
+impl AiStreamState {
+    fn register(&self, id: &str) -> Result<tokio::sync::watch::Receiver<bool>, &'static str> {
+        if id.is_empty() || id.len() > 128 {
+            return Err("invalidConfiguration");
+        }
+        let mut map = self.0.lock().map_err(|_| "requestFailed")?;
+        if let Some(existing) = map.get(id) {
+            if *existing.borrow() {
+                map.remove(id);
+                return Err("cancelled");
+            }
+            return Err("invalidConfiguration");
+        }
+        if map.len() >= 1024 {
+            return Err("requestFailed");
+        }
+        let (sender, receiver) = tokio::sync::watch::channel(false);
+        map.insert(id.to_owned(), sender);
+        Ok(receiver)
+    }
+
+    fn cancel(&self, id: &str) -> Result<bool, String> {
+        if id.is_empty() || id.len() > 128 {
+            return Ok(false);
+        }
+        let mut map = self.0.lock().map_err(|error| error.to_string())?;
+        if let Some(sender) = map.get(id) {
+            // Repeated cancellation must not remove a pending tombstone.
+            if sender.is_closed() {
+                return Ok(false);
+            }
+            let sender = map.remove(id).expect("sender is present");
+            let _ = sender.send(true);
+            return Ok(true);
+        }
+        if map.len() >= 1024 {
+            map.retain(|_, sender| !sender.is_closed());
+        }
+        if map.len() < 1024 {
+            let (sender, receiver) = tokio::sync::watch::channel(true);
+            drop(receiver);
+            map.insert(id.to_owned(), sender);
+        }
+        Ok(false)
+    }
+}
 
 struct StreamGuard {
     stream_id: String,
@@ -58,8 +130,10 @@ pub struct AiMessage {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
-    /// Wire family: "ollama" | "openai" | "anthropic" | "azure".
+    /// Wire family: "ollama" | "openai" | "anthropic" | "azure" | "codex" | "claude-code".
     pub provider: String,
+    /// Stable ID of the model in `ai-connections.json`; the native check matches it.
+    pub internal_model_id: Option<String>,
     pub model: String,
     /// Empty string falls back to the family's default endpoint.
     pub base_url: String,
@@ -79,7 +153,11 @@ pub enum AiErrorCode {
     MissingCredential,
     InvalidConfiguration,
     ProviderRejected,
+    ToolsUnsupported,
+    PrivacyConsentRequired,
     InvalidResponse,
+    /// The Codex agent attempted something outside Amby's boundary.
+    AgentBoundary,
     Network,
     RequestFailed,
 }
@@ -89,6 +167,11 @@ pub enum AiErrorCode {
 pub struct AiChatError {
     pub code: AiErrorCode,
     pub provider: String,
+}
+
+/// Providers that are a signed-in command-line tool rather than an endpoint with a key.
+pub(crate) fn is_cli_provider(provider: &str) -> bool {
+    matches!(provider, "codex" | "claude-code")
 }
 
 fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
@@ -175,14 +258,41 @@ mod error_tests {
 
 // ── Reusable HTTP Client & URL Policy ────────────────────────────────────────
 
-pub fn is_loopback_host(host: &str) -> bool {
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return true;
+/// Where an endpoint lives, from the point of view of the AI privacy rules. This is the one
+/// definition: plain HTTP is allowed only for `Loopback`; consent and tool defaults treat
+/// `Loopback` and `Private` (the user's own machine and network) as local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostClass {
+    /// `localhost`, `*.localhost`, `127.0.0.0/8`, `::1`.
+    Loopback,
+    /// Private IPv4 (10/8, 172.16/12, 192.168/16) and IPv6 unique-local (`fc00::/7`).
+    Private,
+    /// Everything else, including names (they may resolve anywhere) and a missing host.
+    Public,
+}
+
+impl HostClass {
+    pub(crate) fn is_local(self) -> bool {
+        self != HostClass::Public
     }
-    if let Ok(ip) = IpAddr::from_str(host) {
-        return ip.is_loopback();
+}
+
+pub(crate) fn host_class(url: &Url) -> HostClass {
+    match url.host() {
+        Some(url::Host::Domain(name)) => {
+            let name = name.to_ascii_lowercase();
+            if name == "localhost" || name.ends_with(".localhost") {
+                HostClass::Loopback
+            } else {
+                HostClass::Public
+            }
+        }
+        Some(url::Host::Ipv4(ip)) if ip.is_loopback() => HostClass::Loopback,
+        Some(url::Host::Ipv4(ip)) if ip.is_private() => HostClass::Private,
+        Some(url::Host::Ipv6(ip)) if ip.is_loopback() => HostClass::Loopback,
+        Some(url::Host::Ipv6(ip)) if ip.is_unique_local() => HostClass::Private,
+        _ => HostClass::Public,
     }
-    false
 }
 
 pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
@@ -201,7 +311,13 @@ pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
         return Err("Forbidden cloud metadata endpoint".to_string());
     }
 
-    if let Ok(ip) = IpAddr::from_str(host) {
+    // `url.host_str()` keeps the brackets of an IPv6 literal, so the address comes from the parsed host.
+    let ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => Some(IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => Some(IpAddr::V6(ip)),
+        _ => None,
+    };
+    if let Some(ip) = ip {
         match ip {
             IpAddr::V4(ipv4) => {
                 if ipv4.is_link_local() {
@@ -224,7 +340,7 @@ pub fn validate_ai_url(url: &Url, allow_http: bool) -> Result<(), String> {
         }
     }
 
-    let loopback = is_loopback_host(host);
+    let loopback = host_class(url) == HostClass::Loopback;
     if scheme == "http" && !allow_http && !loopback {
         return Err(
             "Remote keyed provider must use HTTPS (plain HTTP is only allowed for local loopback services)".to_string()
@@ -290,7 +406,7 @@ fn provider_base_url(config: &AiConfig, default: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn clean_key(config: &AiConfig) -> Option<String> {
+fn credential_key(config: &AiConfig) -> Option<String> {
     if let Some(cred_id) = &config.credential_id {
         if let Ok(secret) = crate::credentials::get_credential(cred_id) {
             let trimmed = secret.trim();
@@ -305,6 +421,15 @@ fn clean_key(config: &AiConfig) -> Option<String> {
         .map(str::trim)
         .filter(|k| !k.is_empty())
         .map(str::to_string)
+}
+
+fn clean_key(config: &AiConfig) -> Option<String> {
+    match config.api_key.as_deref() {
+        Some(key) => Some(key.trim())
+            .filter(|key| !key.is_empty())
+            .map(str::to_owned),
+        None => credential_key(config),
+    }
 }
 
 fn role_messages(messages: &[AiMessage], system: Option<&str>) -> Vec<Value> {
@@ -443,6 +568,21 @@ async fn stream_ollama(
     Ok(acc)
 }
 
+/// Newer OpenAI reasoning models reject the deprecated max_tokens field.
+fn set_openai_token_limit(body: &mut Value, config: &AiConfig) {
+    let limit = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
+    let model = config.model.to_ascii_lowercase();
+    let reasoning = config.provider == "openai"
+        && ["gpt-5", "o1", "o3", "o4"]
+            .iter()
+            .any(|prefix| model.starts_with(prefix));
+    body[if reasoning {
+        "max_completion_tokens"
+    } else {
+        "max_tokens"
+    }] = json!(limit);
+}
+
 // ── OpenAI-compatible (OpenAI, Azure, LM Studio, etc.) ─────────────────────────
 
 fn openai_candidate_urls(config: &AiConfig) -> Result<Vec<Url>, String> {
@@ -479,13 +619,12 @@ async fn chat_openai_like(
     system: Option<&str>,
     mut rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, String> {
-    let max_tokens = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
-    let body = json!({
+    let mut body = json!({
         "model": config.model,
         "messages": role_messages(messages, system),
         "stream": false,
-        "max_tokens": max_tokens,
     });
+    set_openai_token_limit(&mut body, config);
     let client = get_ai_client();
     let last = urls.len().saturating_sub(1);
     let mut last_err = String::from("Нет адреса для запроса");
@@ -541,13 +680,12 @@ async fn stream_openai_like(
     stream_id: &str,
     mut rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, String> {
-    let max_tokens = config.max_tokens.unwrap_or(1024).min(MAX_TOKENS_LIMIT);
-    let body = json!({
+    let mut body = json!({
         "model": config.model,
         "messages": role_messages(messages, system),
         "stream": true,
-        "max_tokens": max_tokens,
     });
+    set_openai_token_limit(&mut body, config);
     let client = get_ai_client();
     let last = urls.len().saturating_sub(1);
     let mut last_err = String::from("Нет адреса для запроса");
@@ -844,12 +982,89 @@ pub fn cancel_ai_request(
     state: tauri::State<AiStreamState>,
     stream_id: String,
 ) -> Result<bool, String> {
-    let mut map = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(tx) = map.remove(&stream_id) {
-        let _ = tx.send(true);
-        Ok(true)
-    } else {
-        Ok(false)
+    state.cancel(&stream_id)
+}
+
+/// List models through an explicitly supported transport. Errors contain no
+/// provider response body, endpoint or secret.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_model_catalog(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AiStreamState>,
+    config: AiConfig,
+    stream_id: String,
+) -> Result<Vec<catalog::CatalogModel>, AiChatError> {
+    let mut rx = state.register(&stream_id).map_err(|_| AiChatError {
+        code: AiErrorCode::InvalidConfiguration,
+        provider: config.provider.clone(),
+    })?;
+    let _guard = StreamGuard {
+        stream_id,
+        state: state.0.clone(),
+    };
+    let error = |code| AiChatError {
+        code,
+        provider: config.provider.clone(),
+    };
+    if config.provider == "codex" {
+        let _home_guard = tokio::select! {
+            guard = codex::CODEX_HOME_LOCK.lock() => guard,
+            _ = rx.changed() => return Err(error(AiErrorCode::Cancelled)),
+        };
+        if *rx.borrow() {
+            return Err(error(AiErrorCode::Cancelled));
+        }
+        let root =
+            crate::app_data::app_root(&app).map_err(|_| error(AiErrorCode::RequestFailed))?;
+        let home = codex::home::prepare_home(&root).map_err(|e| error(codex::error_code(&e)))?;
+        let binary =
+            codex::launch::find_binary().ok_or_else(|| error(AiErrorCode::InvalidConfiguration))?;
+        return codex::launch::codex_model_catalog(&binary, &home, rx)
+            .await
+            .map(|models| {
+                models
+                    .into_iter()
+                    .map(|(model, label)| catalog::CatalogModel {
+                        model,
+                        label,
+                        supports_tools: Some(true),
+                    })
+                    .collect()
+            })
+            .map_err(|e| error(codex::error_code(&e)));
+    }
+    if config.provider == "claude-code" {
+        let _home_guard = tokio::select! {
+            guard = claude_code::CLAUDE_HOME_LOCK.lock() => guard,
+            _ = rx.changed() => return Err(error(AiErrorCode::Cancelled)),
+        };
+        if *rx.borrow() {
+            return Err(error(AiErrorCode::Cancelled));
+        }
+        let root =
+            crate::app_data::app_root(&app).map_err(|_| error(AiErrorCode::RequestFailed))?;
+        let home = claude_code::home::prepare_home(&root)
+            .map_err(|e| error(claude_code::error_code(&e)))?;
+        let binary = claude_code::launch::find_binary()
+            .ok_or_else(|| error(AiErrorCode::InvalidConfiguration))?;
+        return claude_code::launch::claude_model_catalog(&binary, &home, rx)
+            .await
+            .map(|models| {
+                models
+                    .into_iter()
+                    .map(|(model, label)| catalog::CatalogModel {
+                        model,
+                        label,
+                        supports_tools: Some(true),
+                    })
+                    .collect()
+            })
+            .map_err(|e| error(claude_code::error_code(&e)));
+    }
+    tokio::select! {
+        result = catalog::fetch_catalog(&config) => result.map_err(error),
+        _ = rx.changed() => Err(error(AiErrorCode::Cancelled)),
     }
 }
 
@@ -858,11 +1073,25 @@ pub fn cancel_ai_request(
 pub async fn ai_chat(
     app: tauri::AppHandle,
     state: tauri::State<'_, AiStreamState>,
-    config: AiConfig,
+    mut config: AiConfig,
     messages: Vec<AiMessage>,
     system: Option<String>,
     stream_id: Option<String>,
 ) -> Result<String, AiChatError> {
+    let root = crate::app_data::app_root(&app)
+        .map_err(|_| ai_chat_error(&config.provider, "request failed"))?;
+    let captured_key =
+        connections::capture_selected_credential(&root, &config, false).map_err(|_| {
+            AiChatError {
+                code: AiErrorCode::InvalidConfiguration,
+                provider: config.provider.clone(),
+            }
+        })?;
+    config.api_key = if !is_cli_provider(&config.provider) && config.credential_id.is_some() {
+        Some(captured_key.unwrap_or_default())
+    } else {
+        captured_key
+    };
     // 1. Validate payload limits
     if messages.len() > MAX_MESSAGES_COUNT {
         return Err(ai_chat_error(
@@ -887,17 +1116,12 @@ pub async fn ai_chat(
     }
 
     // 2. Setup cancellation watch
-    let (tx, rx) = tokio::sync::watch::channel(false);
     let active_id = stream_id
         .clone()
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
-    {
-        let mut map = state
-            .0
-            .lock()
-            .map_err(|_| ai_chat_error(&config.provider, "stream state unavailable"))?;
-        map.insert(active_id.clone(), tx);
-    }
+    let rx = state
+        .register(&active_id)
+        .map_err(|code| ai_chat_error(&config.provider, code))?;
     let _guard = StreamGuard {
         stream_id: active_id.clone(),
         state: state.0.clone(),
@@ -964,7 +1188,65 @@ pub async fn ai_chat(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parts_of_an_answer_are_kept_apart_by_one_blank_line() {
+        assert_eq!(super::part_gap(""), None);
+        assert_eq!(super::part_gap("  \n"), None);
+        assert_eq!(super::part_gap("First."), Some("\n\n"));
+        assert_eq!(super::part_gap("First.\n"), Some("\n"));
+        assert_eq!(super::part_gap("First.\n\n"), None);
+    }
+
+    #[test]
+    fn openai_reasoning_models_use_the_supported_token_limit_field() {
+        let mut config = super::AiConfig {
+            provider: "openai".into(),
+            internal_model_id: None,
+            model: "gpt-5-mini".into(),
+            base_url: String::new(),
+            credential_id: None,
+            api_key: None,
+            max_tokens: Some(42),
+            api_version: None,
+        };
+        let mut body = serde_json::json!({});
+        super::set_openai_token_limit(&mut body, &config);
+        assert_eq!(body["max_completion_tokens"], 42);
+        assert!(body.get("max_tokens").is_none());
+        config.model = "gpt-4o".into();
+        let mut body = serde_json::json!({});
+        super::set_openai_token_limit(&mut body, &config);
+        assert_eq!(body["max_tokens"], 42);
+    }
+    #[test]
+    fn captured_key_is_used_without_rereading_keychain() {
+        let mut config = super::AiConfig {
+            provider: "openai".into(),
+            internal_model_id: None,
+            model: "m".into(),
+            base_url: String::new(),
+            credential_id: Some("does-not-exist".into()),
+            api_key: Some("captured".into()),
+            max_tokens: None,
+            api_version: None,
+        };
+        assert_eq!(super::clean_key(&config).as_deref(), Some("captured"));
+        config.api_key = Some(String::new());
+        assert_eq!(super::clean_key(&config), None);
+    }
+
     use super::*;
+
+    #[test]
+    fn ai1_u8_cancellation_before_registration_survives_repeated_stop() {
+        let state = AiStreamState::default();
+        assert!(!state.cancel("stream").unwrap());
+        assert!(!state.cancel("stream").unwrap());
+        assert!(matches!(state.register("stream"), Err("cancelled")));
+        let receiver = state.register("another").unwrap();
+        assert!(state.cancel("another").unwrap());
+        assert!(*receiver.borrow());
+    }
 
     #[test]
     fn test_url_policy_allowed() {
@@ -982,6 +1264,76 @@ mod tests {
 
         let u5 = Url::parse("https://api.anthropic.com").unwrap();
         assert!(validate_ai_url(&u5, false).is_ok());
+    }
+
+    #[test]
+    fn plain_http_is_allowed_for_every_loopback_spelling_and_only_for_them() {
+        for allowed in [
+            "http://localhost:1",
+            "http://app.localhost:1",
+            "http://127.0.0.1:1",
+            "http://127.1.2.3:1",
+            "http://[::1]:1",
+        ] {
+            let url = Url::parse(allowed).unwrap();
+            assert!(validate_ai_url(&url, false).is_ok(), "{allowed}");
+        }
+        for refused in [
+            "http://192.168.1.5:1",
+            "http://[fd00::1]:1",
+            "http://example.com",
+        ] {
+            let url = Url::parse(refused).unwrap();
+            assert!(validate_ai_url(&url, false).is_err(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn ipv6_link_local_and_unspecified_hosts_are_forbidden_even_when_http_is_allowed() {
+        for forbidden in ["http://[fe80::1]:1", "http://[::]:1", "http://[::1%25x]:1"] {
+            if let Ok(url) = Url::parse(forbidden) {
+                assert!(validate_ai_url(&url, true).is_err(), "{forbidden}");
+            }
+        }
+    }
+
+    #[test]
+    fn host_class_has_one_definition_for_loopback_private_and_public() {
+        let class = |text: &str| host_class(&Url::parse(text).unwrap());
+        for text in [
+            "http://localhost",
+            "http://LOCALHOST:1",
+            "http://a.b.localhost",
+            "http://127.0.0.1",
+            "http://127.255.255.254",
+            "http://[::1]",
+        ] {
+            assert_eq!(class(text), HostClass::Loopback, "{text}");
+        }
+        for text in [
+            "http://10.0.0.1",
+            "http://172.16.0.1",
+            "http://172.31.255.255",
+            "http://192.168.0.1",
+            "http://[fc00::1]",
+            "http://[fd12::1]",
+        ] {
+            assert_eq!(class(text), HostClass::Private, "{text}");
+        }
+        for text in [
+            "https://example.com",
+            "https://localhost.example.com",
+            "https://notlocalhost",
+            "http://172.32.0.1",
+            "http://8.8.8.8",
+            "http://169.254.169.254",
+            "http://[2001:db8::1]",
+            "http://[::ffff:8.8.8.8]",
+        ] {
+            assert_eq!(class(text), HostClass::Public, "{text}");
+            assert!(!class(text).is_local(), "{text}");
+        }
+        assert!(class("http://127.0.0.1").is_local() && class("http://10.0.0.1").is_local());
     }
 
     #[test]

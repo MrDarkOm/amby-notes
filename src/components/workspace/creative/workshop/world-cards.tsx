@@ -1,14 +1,16 @@
+import { sectionDisplayName } from "../project-labels"
 import { Database } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { sectionCreateLabel } from "../section-create-label"
 import type { DatabaseRow, WorkshopSectionSummary, WorkshopSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
-import { projectErrorText } from "../project-error"
 import { sectionRoleIcon } from "../section-icons"
 import { PortraitDot } from "./portrait-dot"
 import { usePortraitResolvers } from "./use-portrait-resolvers"
 import { QuickCreate } from "./quick-create"
 import { initialsOf } from "./workshop-model"
+import { projectErrorText } from "@/lib/operation-errors"
 
 /** How many pages of a section its card lists before "all". */
 const CARD_ITEMS = 6
@@ -23,7 +25,8 @@ export interface WorldCard {
   title?: string
 }
 
-function sectionTitle(section: WorkshopSectionSummary): string {
+function sectionTitle(section: WorkshopSectionSummary, storylines: string): string {
+  if (section.role === "arcs") return sectionDisplayName(section, storylines)
   return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
 }
 
@@ -65,7 +68,7 @@ export function WorldCards({
     <>
       {cards.map((entry) => {
         const { owner, section, rows: items } = entry
-        const name = entry.title ?? sectionTitle(section)
+        const name = entry.title ?? sectionTitle(section, t("creative.sections.arcs"))
         const create = createFor?.(entry) ?? null
         const Icon = section.role ? sectionRoleIcon(section.role) : Database
         const people = section.role === "characters"
@@ -127,9 +130,13 @@ export function WorldCards({
             {create && (
               <div className="pt-1">
                 <QuickCreate
-                  label={t("creative.workshop.world.addEntity", { name: sectionTitle(section) })}
+                  label={sectionCreateLabel(
+                    t,
+                    section.role,
+                    sectionTitle(section, t("creative.sections.arcs")),
+                  )}
                   placeholder={t("creative.workshop.newEntityPlaceholder", {
-                    name: sectionTitle(section),
+                    name: sectionTitle(section, t("creative.sections.arcs")),
                   })}
                   failed={(message) => t("creative.workshop.createFailed", { message })}
                   onCreate={create}

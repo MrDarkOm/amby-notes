@@ -30,6 +30,7 @@
   "preset:kind",
   "preset:participants",
   "preset:portrait",
+  "preset:role",
   "preset:status",
   "preset:synopsis",
   "property:anchors",

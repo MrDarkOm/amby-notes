@@ -8,6 +8,9 @@ import { characterArcs } from "../workshop/plot-views"
 import { extractToc, splitReferences } from "./dossier-model"
 import { ArcBlocks, CharacterArcsBlock } from "./plot-blocks"
 import type { NoteDossier } from "./use-note-dossier"
+import { FoundByName } from "./found-by-name"
+import { useTextMentions } from "./use-text-mentions"
+import { readScene } from "../workshop/scene-model"
 
 interface DossierAsideProps {
   dossier: NoteDossier
@@ -19,14 +22,19 @@ interface DossierAsideProps {
   onOpenNote?: (noteId: string) => void
   /** Beside the text (a fixed column) or under it (the full width). */
   sideBySide: boolean
+  /** The page cannot be edited: nothing is bound from here. */
+  locked?: boolean
 }
 
 function PageLink({
   reference,
   onOpenNote,
+  hints = [],
 }: {
   reference: NoteReference
   onOpenNote?: (noteId: string) => void
+  /** Quiet words after the title: the page's story time, "point of view". */
+  hints?: string[]
 }) {
   const { t } = useTranslation()
   if (reference.title === null) {
@@ -39,11 +47,16 @@ function PageLink({
   return (
     <button
       type="button"
-      className="truncate rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50"
+      className="flex min-w-0 items-baseline gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50"
       title={reference.databaseName ?? undefined}
       onClick={() => onOpenNote?.(reference.noteId)}
     >
-      {reference.title}
+      <span className="truncate">{reference.title}</span>
+      {hints.map((hint) => (
+        <span key={hint} className="shrink-0 text-[11px] text-muted-foreground">
+          {hint}
+        </span>
+      ))}
     </button>
   )
 }
@@ -59,6 +72,7 @@ export function DossierAside({
   onJump,
   onOpenNote,
   sideBySide,
+  locked,
 }: DossierAsideProps) {
   const { t } = useTranslation()
   const toc = canJump ? extractToc(content).filter((entry) => entry.level <= 3) : []
@@ -86,20 +100,47 @@ export function DossierAside({
     role === "characters"
       ? characterArcs(dossier.references, arcsSection?.charactersPropertyId ?? null)
       : []
+  // A character's header shows its stories, so the "Stories" relation is not repeated here.
+  const storiesProperty = role === "characters" ? dossier.world.section.storiesPropertyId : null
   const split = splitReferences(
     dossier.references,
     textDbIds,
     (reference) =>
-      reference.direction === "in" &&
-      ((role === "characters" &&
-        arcsSection?.charactersPropertyId != null &&
-        reference.propertyId === arcsSection.charactersPropertyId) ||
-        (isArc &&
-          anchorsSection?.arcsPropertyId != null &&
-          reference.propertyId === anchorsSection.arcsPropertyId)),
+      (reference.direction === "out" &&
+        storiesProperty != null &&
+        reference.propertyId === storiesProperty) ||
+      (reference.direction === "in" &&
+        ((role === "characters" &&
+          arcsSection?.charactersPropertyId != null &&
+          reference.propertyId === arcsSection.charactersPropertyId) ||
+          (isArc &&
+            anchorsSection?.arcsPropertyId != null &&
+            reference.propertyId === anchorsSection.arcsPropertyId))),
   )
   // An arc's chapters are the pages of the text that point at it, so they replace "Appears in".
   const hasText = textDbIds.size > 0 && !isArc
+  const linkedKey = split.appearsIn.map((reference) => reference.noteId).join("\n")
+  const linked = React.useMemo(() => new Set(linkedKey ? linkedKey.split("\n") : []), [linkedKey])
+  const { mentions, pageOf, rankOf } = useTextMentions(dossier, hasText ? content : "", linked)
+  const showsMentions = hasText && mentions.length > 0
+  // With one story the story's name on every row says nothing.
+  const texts = textDbIds.size
+  // The chapters a page is in, once each and in the order of the text: a timeline, with each
+  // chapter's story time and, for a character, whether it is told through their eyes.
+  const appearsIn = [...new Map(split.appearsIn.map((item) => [item.noteId, item])).values()].sort(
+    (left, right) => rankOf(left.noteId) - rankOf(right.noteId),
+  )
+  const hintsOf = (noteId: string): string[] => {
+    const page = pageOf(noteId)
+    const properties = page?.story.text?.properties
+    if (!page || !properties) return []
+    const scene = readScene(page.row, properties)
+    const hints = scene.storyTime ? [scene.storyTime] : []
+    if (role === "characters" && scene.pov === dossier.context.row.noteId) {
+      hints.push(t("creative.scene.timelinePov"))
+    }
+    return hints
+  }
 
   return (
     <aside
@@ -107,41 +148,54 @@ export function DossierAside({
       className={cn("flex shrink-0 flex-col gap-5", sideBySide ? "sticky top-2 w-60" : "w-full")}
     >
       {toc.length > 1 && (
-        <Block title={t("creative.dossier.toc")}>
-          <nav className="flex flex-col">
-            {toc.map((entry) => (
-              <button
-                key={entry.index}
-                type="button"
-                className={cn(
-                  "truncate rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50",
-                  entry.level === 1 && "font-medium",
-                )}
-                style={{ paddingLeft: `${0.5 + (entry.level - 1) * 0.75}rem` }}
-                onClick={() => onJump(entry.index)}
-              >
-                {entry.title}
-              </button>
-            ))}
-          </nav>
-        </Block>
+        <div data-dossier-sections="">
+          <Block title={t("creative.dossier.toc")}>
+            <nav className="flex flex-col">
+              {toc.map((entry) => (
+                <button
+                  key={entry.index}
+                  type="button"
+                  className={cn(
+                    "truncate rounded-md px-2 py-1 text-left text-xs hover:bg-accent/50",
+                    entry.level === 1 && "font-medium",
+                  )}
+                  style={{ paddingLeft: `${0.5 + (entry.level - 1) * 0.75}rem` }}
+                  onClick={() => onJump(entry.index)}
+                >
+                  {entry.title}
+                </button>
+              ))}
+            </nav>
+          </Block>
+        </div>
       )}
 
       {hasText && (
         <Block title={t("creative.dossier.appearsIn")}>
-          {split.appearsIn.length === 0 ? (
+          {split.appearsIn.length === 0 && !showsMentions ? (
             <p className="px-2 text-xs text-muted-foreground">
               {t("creative.dossier.appearsInEmpty")}
             </p>
           ) : (
             <div className="flex flex-col">
-              {split.appearsIn.map((reference) => (
+              {appearsIn.map((reference) => (
                 <PageLink
-                  key={`${reference.propertyId}:${reference.noteId}`}
+                  key={reference.noteId}
                   reference={reference}
                   onOpenNote={onOpenNote}
+                  hints={hintsOf(reference.noteId)}
                 />
               ))}
+              {showsMentions && (
+                <FoundByName
+                  dossier={dossier}
+                  mentions={mentions}
+                  pageOf={pageOf}
+                  showStory={texts > 1}
+                  locked={locked}
+                  onOpenNote={onOpenNote}
+                />
+              )}
             </div>
           )}
         </Block>

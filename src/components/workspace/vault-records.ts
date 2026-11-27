@@ -14,7 +14,11 @@ export function reconcileVaultRecord(records: VaultRecord[], path: string): Vaul
   if (existing)
     return records
       .filter((record) => record === existing || vaultPathKey(record.path) !== key)
-      .map((record) => (record === existing ? { ...record, path } : record))
+      .map((record) =>
+        record === existing
+          ? { ...record, path, ...(record.detached ? { detached: false } : {}) }
+          : record,
+      )
   const name = path.replace(/\\/gu, "/").replace(/\/+$/u, "").split("/").pop() ?? path
   return [...records, { id: crypto.randomUUID(), name, path }]
 }

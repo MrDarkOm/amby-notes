@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { DatabaseRow, DatabasePropertySummary } from "@/lib/storage"
@@ -16,7 +17,7 @@ export interface CardCellEdit {
   cellErrors: Record<string, string>
   onOpenNote?: (noteId: string) => void
   /** Renames the record; without it the title of a card in edit mode stays text. */
-  onRename?: (row: DatabaseRow, name: string) => Promise<void>
+  onRename?: (row: DatabaseRow, name: string) => Promise<RenameOutcome | void>
 }
 
 interface DatabaseValueCellProps {

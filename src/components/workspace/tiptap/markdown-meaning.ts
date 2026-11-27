@@ -1,6 +1,5 @@
-import MarkdownIt from "markdown-it"
+import MarkdownIt, { type Env, type Token } from "markdown-it"
 import { referenceUnlessFootnote } from "./markdown-footnotes"
-import type Token from "markdown-it/lib/token.mjs"
 
 // A second, independent reading of Markdown. The editor's own parser decides what a note
 // means to the editor, so it cannot notice what it drops while reading (the title of a
@@ -62,7 +61,7 @@ export interface MarkdownMeaning {
 }
 
 export function markdownMeaning(markdown: string): MarkdownMeaning {
-  const env: { references?: Record<string, unknown> } = {}
+  const env: Env = {}
   const out: unknown[] = []
   const tokens = reader.parse(markdown ?? "", env)
   tokens.forEach((token, index) => {
@@ -95,7 +94,7 @@ export function markdownMeaning(markdown: string): MarkdownMeaning {
  * no line of it starts another block, ends the paragraph or vanishes as a definition.
  */
 export function isOneParagraph(markdown: string): boolean {
-  const env: { references?: Record<string, unknown> } = {}
+  const env: Env = {}
   const tokens = reader.parse(markdown, env)
   return (
     tokens.length === 3 &&

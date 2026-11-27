@@ -2,7 +2,8 @@ import * as React from "react"
 import { useActivityDnD } from "./use-activity-dnd"
 import type { ActionContext, PanelId, Side } from "./panel-registry"
 import type { ActivityButton } from "./panel-registry"
-import { findButtonDef } from "./panel-definitions"
+import { findButtonDef, firstViewOnSide } from "./panel-definitions"
+import { canHideButton, setButtonHidden } from "./activity-buttons"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import {
@@ -14,7 +15,60 @@ import {
 } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
-const SIDEBAR_HIDE_DELAY_MS = 280
+/** Below this width the right panel steps aside, so the editor keeps a readable column. */
+const NARROW_LAYOUT_MAX_WIDTH = 1100
+
+type LayoutMode = "wide" | "narrow" | "compact"
+
+function layoutModeFor(width: number): LayoutMode {
+  return width < COMPACT_LAYOUT_MAX_WIDTH
+    ? "compact"
+    : width < NARROW_LAYOUT_MAX_WIDTH
+      ? "narrow"
+      : "wide"
+}
+
+function currentLayoutMode(): LayoutMode {
+  return typeof window === "undefined" ? "wide" : layoutModeFor(window.innerWidth)
+}
+const SIDEBAR_HIDE_DELAY_MS = 1000
+const SIDEBAR_MENU_POLL_MS = 150
+const OPEN_FLOATING_MENU_SELECTOR = [
+  '[data-slot="context-menu-content"][data-state="open"]',
+  '[data-slot="dropdown-menu-content"][data-state="open"]',
+  '[data-slot="popover-content"][data-state="open"]',
+  '[data-slot="select-content"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+].join(", ")
+
+function hasOpenFloatingMenu(): boolean {
+  if (typeof document === "undefined") return false
+  return document.querySelector(OPEN_FLOATING_MENU_SELECTOR) !== null
+}
+
+function isPointerOverSidebarOverlay(
+  side: Side,
+  pointer: { x: number; y: number } | null,
+): boolean {
+  if (typeof document === "undefined") return false
+  const overlay = document.querySelector(`.amby-sidebar-overlay--${side}`)
+  if (!overlay) return false
+  try {
+    if (overlay.matches(":hover")) return true
+  } catch {
+    // Some test DOM environments do not implement :hover matching.
+  }
+  if (!pointer) return false
+  const rect = overlay.getBoundingClientRect()
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    pointer.x >= rect.left &&
+    pointer.x <= rect.right &&
+    pointer.y >= rect.top &&
+    pointer.y <= rect.bottom
+  )
+}
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
@@ -51,8 +105,14 @@ export function useSidebarLayout({
   onWindowPrefsChange,
   rightPanelEnabled = true,
 }: UseSidebarLayoutParams) {
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
+  // The first paint already fits the window: no panel opens and then steps aside.
+  const [initialLayoutMode] = React.useState(currentLayoutMode)
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(
+    () => initialLayoutMode !== "compact",
+  )
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(
+    () => initialLayoutMode === "wide",
+  )
   // The panels have the same minimum/default width, but their current widths
   // and resize gestures are intentionally independent.
   const [leftWidth, setLeftWidth] = React.useState(windowPrefs.leftPanelWidth)
@@ -68,17 +128,36 @@ export function useSidebarLayout({
     () => typeof window !== "undefined" && window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH,
   )
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
-  const wasCompactLayout = React.useRef(false)
+  const layoutModeRef = React.useRef<LayoutMode>(initialLayoutMode)
+  // Panel state before the window got too narrow for it; restored when it grows back.
+  const preCompactSidebars = React.useRef<{ left: boolean; right: boolean } | null>(
+    initialLayoutMode === "wide" ? null : { left: true, right: true },
+  )
+  const sidebarOpenRef = React.useRef({ left: isLeftSidebarOpen, right: isRightSidebarOpen })
+  sidebarOpenRef.current = { left: isLeftSidebarOpen, right: isRightSidebarOpen }
   const hideTimersRef = React.useRef<Record<Side, ReturnType<typeof setTimeout> | null>>({
     left: null,
     right: null,
   })
+  const lastPointerRef = React.useRef<{ x: number; y: number } | null>(null)
 
   const clearHideTimer = React.useCallback((side: Side) => {
     const timer = hideTimersRef.current[side]
     if (timer) clearTimeout(timer)
     hideTimersRef.current[side] = null
   }, [])
+
+  const trackUnpinnedPointer =
+    (!dockPrefs.leftPinned && isLeftSidebarHover) || (!dockPrefs.rightPinned && isRightSidebarHover)
+
+  React.useEffect(() => {
+    if (!trackUnpinnedPointer || typeof window === "undefined") return
+    const onPointerMove = (event: PointerEvent) => {
+      lastPointerRef.current = { x: event.clientX, y: event.clientY }
+    }
+    window.addEventListener("pointermove", onPointerMove, { capture: true, passive: true })
+    return () => window.removeEventListener("pointermove", onPointerMove, { capture: true })
+  }, [trackUnpinnedPointer])
 
   React.useEffect(
     () => () => {
@@ -115,13 +194,27 @@ export function useSidebarLayout({
 
   React.useEffect(() => {
     function updateLayoutMode() {
-      const compact = window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH
-      setIsCompactLayout(compact)
-      if (compact && !wasCompactLayout.current) {
+      const mode = layoutModeFor(window.innerWidth)
+      setIsCompactLayout(mode === "compact")
+      const previous = layoutModeRef.current
+      layoutModeRef.current = mode
+      if (mode === previous) return
+      if (mode === "wide") {
+        if (!preCompactSidebars.current) return
+        setIsLeftSidebarOpen(preCompactSidebars.current.left)
+        setIsRightSidebarOpen(preCompactSidebars.current.right)
+        preCompactSidebars.current = null
+        return
+      }
+      if (!preCompactSidebars.current) preCompactSidebars.current = { ...sidebarOpenRef.current }
+      if (mode === "compact") {
         setIsLeftSidebarOpen(false)
         setIsRightSidebarOpen(false)
+      } else {
+        // Narrow: the left panel stays as the person had it, the right one steps aside.
+        setIsLeftSidebarOpen(preCompactSidebars.current.left)
+        setIsRightSidebarOpen(false)
       }
-      wasCompactLayout.current = compact
     }
 
     updateLayoutMode()
@@ -206,6 +299,7 @@ export function useSidebarLayout({
     if (isTauri())
       await getCurrentWindow()
         .setFullscreen(true)
+        // The full-screen change is refused by the system: the focus mode works in the window.
         .catch(() => {})
   }, [isLeftSidebarOpen, isRightSidebarOpen])
 
@@ -222,6 +316,7 @@ export function useSidebarLayout({
     if (isTauri())
       await getCurrentWindow()
         .setFullscreen(false)
+        // The full-screen change is refused by the system: the window stays as it is.
         .catch(() => {})
   }, [])
 
@@ -259,6 +354,26 @@ export function useSidebarLayout({
       }
       return next
     })
+  }
+
+  // Hide or show a button on its dock. A hidden view that was open on its side gives way
+  // to the first view still shown there.
+  function setDockButtonHidden(defId: string, hidden: boolean) {
+    setActivityButtons((prev) => setButtonHidden(prev, defId, hidden))
+    const button = activityButtons.find((candidate) => candidate.defId === defId)
+    if (!hidden || !button || !canHideButton(defId)) return
+    if (findButtonDef(defId)?.kind !== "view") return
+    setActiveBySide((prev) =>
+      prev[button.side] === defId
+        ? {
+            ...prev,
+            [button.side]: firstViewOnSide(
+              setButtonHidden(activityButtons, defId, true),
+              button.side,
+            ),
+          }
+        : prev,
+    )
   }
 
   // Drop handler: place defId on `targetSide` before `beforeDefId` (or at end).
@@ -319,23 +434,6 @@ export function useSidebarLayout({
     [],
   )
   const dnd = useActivityDnD({ onDrop: reorderButton, zoneForButton })
-  const setSidebarHover = React.useCallback(
-    (side: Side, hovering: boolean) => {
-      clearHideTimer(side)
-      if (hovering) {
-        if (side === "left") setIsLeftSidebarHover(true)
-        else setIsRightSidebarHover(true)
-        return
-      }
-      hideTimersRef.current[side] = setTimeout(() => {
-        hideTimersRef.current[side] = null
-        if (side === "left") setIsLeftSidebarHover(false)
-        else setIsRightSidebarHover(false)
-      }, SIDEBAR_HIDE_DELAY_MS)
-    },
-    [clearHideTimer],
-  )
-
   const hideSidebarHoverNow = React.useCallback(
     (side: Side) => {
       clearHideTimer(side)
@@ -343,6 +441,56 @@ export function useSidebarLayout({
       else setIsRightSidebarHover(false)
     },
     [clearHideTimer],
+  )
+
+  const closeOtherSidebarIfCompact = React.useCallback(
+    (side: Side) => {
+      if (!isCompactLayout) return
+      const otherSide: Side = side === "left" ? "right" : "left"
+      if (otherSide === "left") setIsLeftSidebarOpen(false)
+      else setIsRightSidebarOpen(false)
+      hideSidebarHoverNow(otherSide)
+    },
+    [hideSidebarHoverNow, isCompactLayout],
+  )
+
+  const scheduleHideSidebarHover = React.useCallback(
+    (side: Side, delayMs: number, sawOpenMenu: boolean) => {
+      clearHideTimer(side)
+      hideTimersRef.current[side] = setTimeout(() => {
+        hideTimersRef.current[side] = null
+        if (hasOpenFloatingMenu()) {
+          // Portaled menus live outside the sidebar DOM and trigger mouseleave.
+          // Keep the unpinned sidebar visible until the menu closes.
+          scheduleHideSidebarHover(side, SIDEBAR_MENU_POLL_MS, true)
+          return
+        }
+        if (isPointerOverSidebarOverlay(side, lastPointerRef.current)) {
+          return
+        }
+        if (sawOpenMenu) {
+          scheduleHideSidebarHover(side, SIDEBAR_HIDE_DELAY_MS, false)
+          return
+        }
+        if (side === "left") setIsLeftSidebarHover(false)
+        else setIsRightSidebarHover(false)
+      }, delayMs)
+    },
+    [clearHideTimer],
+  )
+
+  const setSidebarHover = React.useCallback(
+    (side: Side, hovering: boolean) => {
+      clearHideTimer(side)
+      if (hovering) {
+        closeOtherSidebarIfCompact(side)
+        if (side === "left") setIsLeftSidebarHover(true)
+        else setIsRightSidebarHover(true)
+        return
+      }
+      scheduleHideSidebarHover(side, SIDEBAR_HIDE_DELAY_MS, hasOpenFloatingMenu())
+    },
+    [clearHideTimer, closeOtherSidebarIfCompact, scheduleHideSidebarHover],
   )
 
   function handleActivate(defId: string) {
@@ -368,6 +516,7 @@ export function useSidebarLayout({
       return
     }
     setActiveBySide((prev) => ({ ...prev, [side]: def.id }))
+    closeOtherSidebarIfCompact(side)
     setOpen(true)
     if (!dockPrefs[side === "left" ? "leftPinned" : "rightPinned"]) {
       setSidebarHover(side, true)
@@ -377,6 +526,7 @@ export function useSidebarLayout({
   function activatePanelAnywhere(panelId: PanelId) {
     const button = activityButtons.find((b) => b.defId === panelId)
     if (!button) return
+    closeOtherSidebarIfCompact(button.side)
     if (button.side === "left") setIsLeftSidebarOpen(true)
     else setIsRightSidebarOpen(true)
     if (!dockPrefs[button.side === "left" ? "leftPinned" : "rightPinned"])
@@ -414,6 +564,7 @@ export function useSidebarLayout({
       const pinned = isDockPinned(side)
       const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
       if (!open || (!pinned && !visible)) {
+        closeOtherSidebarIfCompact(side)
         setOpen(true)
         if (!pinned) setSidebarHover(side, true)
         return
@@ -422,6 +573,7 @@ export function useSidebarLayout({
       hideSidebarHoverNow(side)
     },
     [
+      closeOtherSidebarIfCompact,
       isDockPinned,
       isLeftSidebarOpen,
       isLeftSidebarVisible,
@@ -457,6 +609,7 @@ export function useSidebarLayout({
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,
+    setDockButtonHidden,
     dnd,
     handleActivate,
     activatePanelAnywhere,

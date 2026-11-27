@@ -17,12 +17,14 @@ import {
   type FileNodeData,
   type GroupNodeData,
   type TextNodeData,
+  type UnknownNodeData,
 } from "@/lib/canvas-format"
 import { toAssetUrl, readFile } from "@/lib/storage"
 import { useCanvasCtx } from "./canvas-context"
 import { IMAGE_RE, pathStem, renderCardHtml, resolveVaultFilePath } from "./canvas-markdown"
 import { useViewStateStore } from "../use-view-state-store"
 import { TreeIcon } from "../tree/tree-icons"
+import { isEnterKey } from "@/lib/keyboard"
 
 const SIDES: Array<{ side: "top" | "right" | "bottom" | "left"; pos: Position }> = [
   { side: "top", pos: Position.Top },
@@ -322,6 +324,34 @@ export function FileNode({ data, selected }: NodeProps) {
   )
 }
 
+/** Read-only placeholder for a node type this app does not know; it can be moved and resized, not edited. */
+export function UnknownNode({ data, selected }: NodeProps) {
+  const { t } = useTranslation()
+  const d = data as UnknownNodeData
+  const { isLocked } = useCanvasCtx()
+  return (
+    <div
+      className={cn(
+        "relative flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border border-dashed bg-muted/20 p-3 text-center",
+        selected ? "border-primary/60 ring-2 ring-primary/40" : "border-border/80",
+      )}
+      data-testid="canvas-unknown-node"
+    >
+      <NodeResizer
+        minWidth={140}
+        minHeight={80}
+        isVisible={!isLocked && !!selected}
+        lineClassName="!border-primary/60"
+        handleClassName="!size-2.5 !bg-primary !border-background !rounded-full"
+      />
+      <div className="text-sm font-medium text-foreground">
+        {t("canvas.unknownNodeTitle", { type: d.originalType })}
+      </div>
+      <div className="text-xs text-muted-foreground">{t("canvas.unknownNodeHint")}</div>
+    </div>
+  )
+}
+
 export function GroupNode({ id, data, selected }: NodeProps) {
   const { t } = useTranslation()
   const d = data as GroupNodeData
@@ -371,7 +401,7 @@ export function GroupNode({ id, data, selected }: NodeProps) {
             onChange={(e) => updateNodeData(id, { label: e.target.value })}
             onBlur={() => setEditing(false)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === "Escape") {
+              if (isEnterKey(e) || e.key === "Escape") {
                 e.preventDefault()
                 setEditing(false)
               }

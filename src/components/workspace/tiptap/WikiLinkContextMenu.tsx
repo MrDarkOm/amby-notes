@@ -4,7 +4,7 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import type { Editor } from "@tiptap/react"
 import { useTranslation } from "react-i18next"
-import { ExternalLink, FilePenLine, Link2Off, Pencil, X } from "lucide-react"
+import { ExternalLink, FilePenLine, Link2Off, Pencil, RotateCcw, X } from "lucide-react"
 
 import type { WikiLinkContextDetail } from "./tags-wikilinks"
 
@@ -64,7 +64,7 @@ export function WikiLinkContextMenu({
   const editable = editor.isEditable
   const style = {
     left: clamp(activeContext.clientX, 8, window.innerWidth - 272),
-    top: clamp(activeContext.clientY, 8, window.innerHeight - 220),
+    top: clamp(activeContext.clientY, 8, window.innerHeight - 260),
   }
 
   function replaceToken(next: string) {
@@ -157,6 +157,15 @@ export function WikiLinkContextMenu({
                 <Pencil />
                 {t("wikiLinkMenu.rename")}
               </button>
+              {activeContext.hasAlias && (
+                <button
+                  type="button"
+                  onClick={() => replaceToken(`[[${activeContext.raw.split("|")[0]}]]`)}
+                >
+                  <RotateCcw />
+                  {t("wikiLinkMenu.resetName")}
+                </button>
+              )}
               <button
                 type="button"
                 className="is-danger"

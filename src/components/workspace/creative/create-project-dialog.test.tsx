@@ -11,6 +11,7 @@ import {
 } from "@/lib/storage"
 import { CreateProjectDialog } from "./create-project-dialog"
 import { workshopSummary } from "./project-fixtures.test-support"
+import {} from "@/lib/test-utils/errors"
 
 const createStory = vi.hoisted(() => vi.fn())
 const createWorkshopSection = vi.hoisted(() => vi.fn())
@@ -242,7 +243,7 @@ describe("CreateProjectDialog", () => {
     mount()
     type("Saga")
     submit()
-    expect((await screen.findByRole("alert")).textContent).toContain("Персонажи: not a directory")
+    expect((await screen.findByRole("alert")).textContent).toContain("часть созданного осталась")
   })
 
   it("sends the names of the base sections in the language that is active", async () => {
@@ -256,7 +257,7 @@ describe("CreateProjectDialog", () => {
       "section:stories": "Stories",
       "section:characters": "Characters",
       "section:locations": "Locations",
-      "section:arcs": "Arcs",
+      "section:arcs": "Storylines",
       "section:anchors": "Anchors",
     })
   })
@@ -289,6 +290,17 @@ describe("CreateProjectDialog", () => {
       expect(levelsSent()).toEqual(["Книга", "Глава", "Сцена"])
     })
 
+    it("adds Arc to a novel as an optional custom level", async () => {
+      createStory.mockResolvedValue(createdStoryRes)
+      mount()
+      fireEvent.click(screen.getByRole("button", { name: "Добавить уровень «Арка»" }))
+      expect(chain()).toBe("Уровни: Книга → Арка → Глава → Сцена")
+      type("Saga")
+      submit()
+      await waitFor(() => expect(createStory).toHaveBeenCalled())
+      expect(levelsSent()).toEqual(["Книга", "Арка", "Глава", "Сцена"])
+    })
+
     it("offers a short story with one level and a comic with four", async () => {
       createStory.mockResolvedValue(createdStoryRes)
       mount()
@@ -302,11 +314,11 @@ describe("CreateProjectDialog", () => {
       cleanup()
       mount()
       fireEvent.click(screen.getByRole("radio", { name: "Комикс" }))
-      expect(chain()).toBe("Уровни: Книга → Том → Глава → Страница")
+      expect(chain()).toBe("Уровни: Книга → Арка → Глава → Страница")
       type("Tale")
       submit()
       await waitFor(() => expect(createStory).toHaveBeenCalledTimes(2))
-      expect(levelsSent(1)).toEqual(["Книга", "Том", "Глава", "Страница"])
+      expect(levelsSent(1)).toEqual(["Книга", "Арка", "Глава", "Страница"])
     })
 
     it("keeps the operation ID for a retry and takes a new one when the schema changes", async () => {

@@ -4,7 +4,7 @@ set -euo pipefail
 # Every ignored advisory is documented, scoped and has a review date in
 # docs/security-advisories.md. Do not replace this explicit list with a broad
 # warning suppression: cargo-audit should fail when a new advisory appears.
-cargo audit --file src-tauri/Cargo.lock \
+cargo audit --file Cargo.lock \
   --ignore RUSTSEC-2024-0370 \
   --ignore RUSTSEC-2024-0411 \
   --ignore RUSTSEC-2024-0412 \

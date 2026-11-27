@@ -14,6 +14,7 @@ import {
   viewOptions,
   type DatabaseViewChoice,
 } from "./database-view-picker-model"
+import { isEnterKey } from "@/lib/keyboard"
 
 interface DatabaseViewPickerProps {
   /** The view the block is bound to now; marked in the list. */
@@ -84,7 +85,7 @@ export function DatabaseViewPicker({
     } else if (event.key === "ArrowUp") {
       event.preventDefault()
       setActive((index) => Math.max(index - 1, 0))
-    } else if (event.key === "Enter") {
+    } else if (isEnterKey(event)) {
       event.preventDefault()
       chooseIndex(active)
     } else if (event.key === "Escape") {

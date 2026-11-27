@@ -1,6 +1,8 @@
-import linkRule from "markdown-it/lib/rules_inline/link.mjs"
-import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs"
+import MarkdownIt, { type StateInline } from "markdown-it"
 import { SAFE_UNDERLINE_RE, parseSafeStyle, unescapeHtml } from "./constants"
+
+// markdown-it 15 no longer exposes its rule modules, so the stock rule is read from a default instance.
+const linkRule = new MarkdownIt().inline.ruler.__rules__.find((rule) => rule.name === "link")!.fn
 
 const SPAN_OPEN_RE = /^<span\s+style=["']([^"']*)["']>([\s\S]*?)<\/span>/i
 const U_OPEN_RE = /^<u>([\s\S]*?)<\/u>/i

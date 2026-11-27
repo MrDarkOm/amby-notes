@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Minimal capability for the main workspace window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:event:default",
     "core:app:allow-version",
@@ -27,10 +29,11 @@
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "core:webview:allow-print",
-    "dialog:allow-message",
     "dialog:allow-open",
     "dialog:allow-save",
-    "updater:default",
+    "updater:allow-download",
+    "updater:allow-install",
+    "core:resources:allow-close",
     "process:allow-restart"
   ]
 }

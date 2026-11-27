@@ -19,6 +19,7 @@ interface EntityRequest {
 interface CreativeNavState {
   /** The section each project's page shows: `overview` or a section id. */
   sectionByProject: Record<string, string>
+  revealedWorkshop: { vault: string; folderId: string } | null
   /** Folded nodes of the sidebar, by project ID or `story:`/`page:` key. */
   collapsed: Record<string, boolean>
   showSection: (projectId: string, sectionId: string) => void
@@ -45,6 +46,9 @@ interface CreativeNavState {
   /** The one search above the tabs: it looks through every list at once. Not remembered. */
   search: string
   setSearch: (search: string) => void
+  /** The story desk's chapters as a list or as a board of cards (session state). */
+  chaptersView: "list" | "cards"
+  setChaptersView: (view: "list" | "cards") => void
   /** Bumped after a write so the lists read the databases again. */
   dataNonce: number
   bumpData: () => void
@@ -61,6 +65,7 @@ interface CreativeNavState {
 
 export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   sectionByProject: {},
+  revealedWorkshop: null,
   collapsed: {},
   worksOpen: { text: true, anchors: false, notes: false },
   setWorksOpen: (worksOpen) => set({ worksOpen }),
@@ -76,6 +81,8 @@ export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   setShownStoryId: (shownStoryId) => set({ shownStoryId }),
   search: "",
   setSearch: (search) => set({ search }),
+  chaptersView: "list",
+  setChaptersView: (chaptersView) => set({ chaptersView }),
   dataNonce: 0,
   bumpData: () => set((state) => ({ dataNonce: state.dataNonce + 1 })),
   pageRequest: null,

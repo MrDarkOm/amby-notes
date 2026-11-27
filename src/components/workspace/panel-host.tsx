@@ -4,6 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { PanelDef, PanelId, PanelRenderProps, Side } from "./panel-registry"
 import { findPanelDef } from "./panel-definitions"
+import { SurfaceErrorBoundary } from "./surface-error-boundary"
 
 interface PanelHostProps {
   side: Side
@@ -56,6 +57,7 @@ export function PanelHost({ side, activeId, props, flush = false }: PanelHostPro
     .filter((definition): definition is PanelDef => Boolean(definition))
   return (
     <div
+      data-panel-side={side}
       className={`amby-panel-shell mt-0 min-h-0 rounded-xl ${
         flush
           ? "h-full w-full"
@@ -76,7 +78,9 @@ export function PanelHost({ side, activeId, props, flush = false }: PanelHostPro
                     : "invisible pointer-events-none absolute inset-0 flex h-full min-h-0 flex-col"
                 }
               >
-                <PanelContent definition={definition} props={props} active={active} />
+                <SurfaceErrorBoundary scope={`panel:${definition.id}`}>
+                  <PanelContent definition={definition} props={props} active={active} />
+                </SurfaceErrorBoundary>
               </div>
             )
           })

@@ -2,6 +2,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as storage from "@/lib/storage"
+import { databaseFailure } from "@/lib/test-utils/errors"
 import { useSavedView } from "./use-saved-view"
 
 const docFor = (viewId: string, extra: Record<string, unknown> = {}) => ({
@@ -35,7 +36,7 @@ function setup(
   vi.spyOn(storage, "getDatabaseView").mockImplementation(async (request) => {
     const doc = docs[request.viewId]
     if (!doc || doc.revision !== request.expectedViewRevision) {
-      throw new Error("View revision conflict")
+      throw databaseFailure("revision_conflict", "View revision conflict")
     }
     return doc
   })
@@ -104,7 +105,7 @@ describe("useSavedView", () => {
     const theirs = viewDoc("v1", "r9", { layoutConfig: { frozenBoundary: "title" } })
     const write = vi
       .spyOn(storage, "updateDatabaseViewConfig")
-      .mockRejectedValueOnce(new Error("View revision conflict"))
+      .mockRejectedValueOnce(databaseFailure("revision_conflict", "View revision conflict"))
       .mockResolvedValueOnce({
         databaseId: "db",
         viewId: "v1",
@@ -189,5 +190,58 @@ describe("useSavedView", () => {
     await act(() => vi.advanceTimersByTimeAsync(500))
     expect(write).not.toHaveBeenCalled()
     expect(result.current.settings.wrapped).toEqual(["a"])
+  })
+  it("shows a text from the dictionary, not the backend sentence, when a write is refused", async () => {
+    vi.spyOn(storage, "updateDatabaseViewConfig").mockRejectedValue(
+      databaseFailure("locked", "Database is locked at /Users/x/Vault/Db"),
+    )
+    const { result } = setup()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.update({ wrapped: ["a"] }))
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+    expect(result.current.error).toMatch(/закрыта от изменений/i)
+    expect(result.current.error).not.toContain("/Users")
+    expect(result.current.error).not.toContain("is locked")
+  })
+
+  it("takes a conflict from the reason: a sentence alone does not start a rebase", async () => {
+    const write = vi
+      .spyOn(storage, "updateDatabaseViewConfig")
+      .mockRejectedValue(new Error("View revision conflict"))
+    const { result } = setup()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.update({ wrapped: ["a"] }))
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(result.current.error).not.toContain("View revision conflict")
+  })
+
+  it("words a view that has gone from the dictionary", async () => {
+    vi.spyOn(storage, "updateDatabaseViewConfig").mockRejectedValue(
+      databaseFailure("revision_conflict", "View revision conflict"),
+    )
+    vi.spyOn(storage, "listDatabases").mockResolvedValue([
+      {
+        databaseId: "db",
+        title: "Db",
+        icon: null,
+        attachedNoteId: null,
+        manifestRevision: "m",
+        locked: false,
+        properties: [],
+        views: [],
+        templates: [],
+        diagnostics: [],
+      },
+    ])
+    const { result } = setup()
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => result.current.update({ wrapped: ["a"] }))
+    await act(() => vi.advanceTimersByTimeAsync(500))
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+    expect(result.current.error).not.toBe("View no longer exists")
+    expect(result.current.error).toMatch(/не найден/i)
   })
 })

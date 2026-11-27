@@ -1,3 +1,5 @@
+import { errorType } from "@/lib/logger"
+
 export interface QuarantineRecord {
   moduleId: string
   failureCount: number
@@ -71,7 +73,8 @@ export class QuarantineManager {
       lastError: "",
     }
     const failureCount = existing.failureCount + 1
-    const lastError = error instanceof Error ? error.message : String(error)
+    // What the module said is its own text and can hold anything: only the kind of error is kept.
+    const lastError = errorType(error)
     const isNowQuarantined = failureCount >= QUARANTINE_THRESHOLD
 
     this.records.set(moduleId, {

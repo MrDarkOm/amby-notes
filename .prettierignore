@@ -1,8 +1,16 @@
 dist
 node_modules
 src-tauri
+crates/amby-core/fixtures
+target
 src/lib/bindings.ts
 package-lock.json
 tests/fixtures/compatibility-vault
 .release-evidence
 src/components/workspace/creative/workshop/real-workshop.fixture.json
+sync/target
+sync/core/fuzz/target
+sync/reference/.venv
+sync/vectors
+
+build/site

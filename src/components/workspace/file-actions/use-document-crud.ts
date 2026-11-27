@@ -1,11 +1,12 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
 import {
   attachCanvasToNote,
   attachSketchToNote,
   archiveItem,
-  confirmAction,
   createCanvasFile,
   createSketchFile,
   createFolder,
@@ -13,29 +14,33 @@ import {
   deleteItem,
   getNoteProperties,
   readNote,
-  showErrorMessage,
   type TreeItem,
 } from "@/lib/storage"
 import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { useSettingsStore } from "../use-settings-store"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
+import { useVaultStore } from "../use-vault-store"
 import {
   findTreeItem,
   nextAvailableNoteName,
   updateInTree,
   wsPathStem,
 } from "../workspace-tree-utils"
-import { insertTreeItemOptimistically, removeTreeItem } from "../workspace-mutations"
+import { insertTreeItemOptimistically, mutationPaths, removeTreeItem } from "../workspace-mutations"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
+import { dispatchArchiveChanged } from "../use-archive-tree-refresh"
+import { reportTreeActionFailure } from "./action-failure"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
-type DeleteMode = "delete" | "archive"
+export type DeleteMode = "delete" | "archive"
 
 function normalizeFsPath(path: string): string {
   return path.replace(/\\/gu, "/").replace(/\/+$/u, "")
@@ -45,10 +50,19 @@ function pathName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
-function deletionRoot(item: { path: string; type: TreeItem["type"] }): string {
+// What a delete removes: the bundle folder for a bundle's main note, the item itself otherwise. A note
+// directly in the vault root is never a bundle's main note, even when the vault folder has its name
+// (`/Notes/Notes.md`): its "bundle" would be the whole vault (CORE-01, the same rule as in Rust).
+function deletionRoot(
+  item: Pick<TreeItem, "path" | "type" | "bundleMember">,
+  vault: string | null,
+): string {
   const path = normalizeFsPath(item.path)
-  if (item.type !== "file") return path
+  if (item.bundleMember || item.type === "folder" || !/\.(md|canvas|excalidraw)$/u.test(path)) {
+    return path
+  }
   const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")))
+  if (vault && parent === normalizeFsPath(vault)) return path
   const stem = pathName(path).replace(/\.[^.]+$/u, "")
   return pathName(parent) === stem ? parent : path
 }
@@ -60,14 +74,10 @@ function isPathInside(path: string, root: string): boolean {
 }
 
 function deleteTargets(
-  items: Array<{
-    id: string
-    name: string
-    path: string
-    type: TreeItem["type"]
-  }>,
+  vault: string | null,
+  items: Array<Pick<TreeItem, "id" | "name" | "path" | "type" | "bundleMember">>,
 ) {
-  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item) }))
+  const candidates = items.map((item) => ({ ...item, root: deletionRoot(item, vault) }))
   const uniqueCandidates = candidates.filter(
     (candidate, index) => candidates.findIndex((other) => other.root === candidate.root) === index,
   )
@@ -115,7 +125,7 @@ type Params = Pick<
   | "vault"
   | "treeItems"
   | "setTreeItems"
-  | "refreshTree"
+  | "refreshTreePaths"
   | "setOpenCanvases"
   | "setOpenSketches"
   | "setPendingRenameId"
@@ -127,7 +137,7 @@ export function useDocumentCrud({
   vault,
   treeItems,
   setTreeItems,
-  refreshTree,
+  refreshTreePaths,
   setOpenCanvases,
   setOpenSketches,
   setPendingRenameId,
@@ -135,6 +145,7 @@ export function useDocumentCrud({
   autosave,
   autosaveKey,
   handleApplyMutation,
+  handleContentChange,
   loadDoc,
   releaseUnusedDocumentBuffers,
   recoveryScope,
@@ -144,6 +155,7 @@ export function useDocumentCrud({
   const [pendingDelete, setPendingDelete] = React.useState<{
     ids: string[]
     name: string
+    kind: TreeItem["type"]
     count: number
     isDirtyOrConflicted: boolean
     resolve: (action: DeleteResolution, dontAskAgain?: boolean) => void
@@ -156,6 +168,7 @@ export function useDocumentCrud({
       ids: string[],
       names: string[],
       isDirtyOrConflicted: boolean,
+      kind: TreeItem["type"] = "file",
     ): Promise<DeleteResolution> => {
       const count = ids.length
       if (isDirtyOrConflicted)
@@ -163,6 +176,7 @@ export function useDocumentCrud({
           setPendingDelete({
             ids,
             name: names[0] ?? ids[0] ?? "",
+            kind,
             count,
             isDirtyOrConflicted: true,
             resolve,
@@ -174,6 +188,7 @@ export function useDocumentCrud({
         setPendingDelete({
           ids,
           name: names[0] ?? ids[0] ?? "",
+          kind,
           count,
           isDirtyOrConflicted: false,
           resolve,
@@ -197,7 +212,7 @@ export function useDocumentCrud({
       const items = ids
         .map((id) => findTreeItem(treeItems, id))
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      const targets = deleteTargets(items)
+      const targets = deleteTargets(vault, items)
       if (targets.length === 0) return
       const openDocuments = Object.values(useDocStore.getState().openDocs)
       const affected = openDocuments.filter((document) =>
@@ -217,13 +232,11 @@ export function useDocumentCrud({
       if (
         mode !== "archive" &&
         deleteMode === "permanent" &&
-        !(await confirmAction(
-          t(
-            targets.length > 1
-              ? "workspace.deletePermanentManyConfirm"
-              : "workspace.deletePermanentConfirm",
-            { count: targets.length, name: targets[0]?.name ?? "" },
-          ),
+        !(await confirm(
+          confirmations.deletePermanent({
+            count: targets.length,
+            name: targets[0]?.name ?? "",
+          }),
         ))
       ) {
         return
@@ -237,6 +250,7 @@ export function useDocumentCrud({
                 targets.map((target) => target.id),
                 targets.map((target) => target.name),
                 hasDirtyDocuments,
+                targets[0]?.type,
               )
       if (resolution === "cancel") return
       logger.info("file.delete", {
@@ -247,7 +261,7 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
-      let firstFailure = ""
+      const removedTargets: typeof targets = []
       try {
         for (const target of targets) {
           const targetDocuments = affected.filter(
@@ -258,9 +272,18 @@ export function useDocumentCrud({
               resolution === "archive"
                 ? await archiveItem(vault ?? "", target.path)
                 : await deleteItem(vault ?? "", target.path, deleteMode)
-            handleApplyMutation(result)
+            removedTargets.push(target)
+            const treeUpdated = handleApplyMutation(result)
             if (resolution === "archive") {
-              window.dispatchEvent(new Event("amby:archive-changed"))
+              dispatchArchiveChanged({ paths: mutationPaths(result), treeUpdated })
+            } else if (!treeUpdated && target.bundleMember) {
+              try {
+                await refreshTreePaths(mutationPaths(result))
+              } catch (error) {
+                logger.warn("refresh_vault.failed", {
+                  failureCode: operationErrorCode(error),
+                })
+              }
             }
             for (const document of targetDocuments) {
               autosave.discard(autosaveKey(document.id))
@@ -283,9 +306,11 @@ export function useDocumentCrud({
             }
           } catch (error) {
             failed += 1
-            const reason = error instanceof Error ? error.message : String(error)
-            firstFailure ||= reason
-            logger.error("file.delete_failed", { path: target.path, mode: resolution, reason })
+            logger.error("file.delete_failed", {
+              path: target.path,
+              mode: resolution,
+              failureCode: operationErrorCode(error),
+            })
             console.error("Failed to delete:", error)
           }
         }
@@ -294,7 +319,7 @@ export function useDocumentCrud({
         const tabsStore = useTabsStore.getState()
         const currentOpenDocs = useDocStore.getState().openDocs
         const survivingTabs = tabsStore.tabs.filter(
-          (tab) => !isTabAffectedByTargets(tab, targets, currentOpenDocs),
+          (tab) => !isTabAffectedByTargets(tab, removedTargets, currentOpenDocs),
         )
         if (survivingTabs.length !== tabsStore.tabs.length) {
           tabsStore.setTabs(survivingTabs)
@@ -308,7 +333,7 @@ export function useDocumentCrud({
         const docsToDrop: string[] = []
         for (const [docId, document] of Object.entries(docStore.openDocs)) {
           const cleanDocId = docId.startsWith("database:") ? docId.slice("database:".length) : docId
-          const isAffected = targets.some(
+          const isAffected = removedTargets.some(
             (target) =>
               docId === target.id ||
               document.id === target.id ||
@@ -349,8 +374,14 @@ export function useDocumentCrud({
         }
 
         if (failed > 0) {
-          const summary = t("workspace.deleteManyFailed", { failed, total: targets.length })
-          void showErrorMessage(firstFailure ? `${summary}\n\n${firstFailure}` : summary)
+          // Said under the tree; the reason of the first failure is in the log (docs/notices.md, section 10).
+          useTreeMessageStore.getState().show({
+            id: "delete-failed",
+            level: "warning",
+            titleKey: "workspace.deleteManyFailed",
+            params: { failed, total: targets.length },
+            lineKey: "notices.tree.deleteLine",
+          })
         }
       } finally {
         finishLocalMutation()
@@ -362,8 +393,8 @@ export function useDocumentCrud({
       handleApplyMutation,
       recoveryScope,
       refreshDatabaseCatalog,
+      refreshTreePaths,
       requestDeleteConfirmation,
-      t,
       treeItems,
       vault,
     ],
@@ -373,8 +404,15 @@ export function useDocumentCrud({
     [handleDeleteFiles],
   )
   const createDocumentIn = React.useCallback(
-    async (parentId: string | null, inNewTab = false) => {
+    async (parentId: string | null, inNewTab = false, initialContent?: string) => {
       if (!vault) return
+      const vaultState = useVaultStore.getState()
+      if (vaultState.switching || vaultState.vault !== vault) return
+      const generation = vaultState.generation
+      const stillActive = () => {
+        const current = useVaultStore.getState()
+        return !current.switching && current.vault === vault && current.generation === generation
+      }
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
       const normalize = (path: string) => path.replace(/\\/gu, "/").replace(/\/+$/u, "")
       const parentPath = normalize(parent?.path ?? parentId ?? vault)
@@ -413,6 +451,7 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       try {
         const result = await createNote(vault, parent?.path ?? parentId ?? vault, title)
+        if (!stillActive()) return
         handleApplyMutation(result)
         finishLocalMutation()
         setTreeItems((current) => removeTreeItem(current, optimisticId))
@@ -421,8 +460,15 @@ export function useDocumentCrud({
         if (!id) return
         const [note, noteProperties] = await Promise.all([
           readNote(vault, id),
-          getNoteProperties(vault, id).catch(() => undefined),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            // The new note opens without its properties panel filled; the note itself is fine.
+            logger.debug("file.create_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
         ])
+        if (!stillActive()) return
         const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : title
         logger.info("file.create_note", { id, title: actualTitle, inNewTab })
         setDoc(id, {
@@ -438,6 +484,7 @@ export function useDocumentCrud({
           noteProperties,
           noteId: id,
         })
+        if (initialContent) handleContentChange(id, initialContent)
         openItem({ kind: "document", fileId: id, title: actualTitle }, inNewTab)
         // Trigger this after the document/tab state is ready. The sidebar
         // otherwise receives the trigger and then immediately loses its edit
@@ -447,7 +494,7 @@ export function useDocumentCrud({
       } catch (error) {
         logger.error("file.create_note_failed", { error })
         setTreeItems((current) => removeTreeItem(current, optimisticId))
-        console.error("Failed to create file:", error)
+        reportTreeActionFailure("createNote")
       } finally {
         reservedNames.delete(title.toLocaleLowerCase())
         if (reservedNames.size === 0) noteNameReservationsRef.current.delete(reservationKey)
@@ -456,6 +503,7 @@ export function useDocumentCrud({
     },
     [
       handleApplyMutation,
+      handleContentChange,
       openItem,
       releaseUnusedDocumentBuffers,
       setDoc,
@@ -486,27 +534,33 @@ export function useDocumentCrud({
           icon: "folder",
           children: [],
         }
-        if (parentId)
+        let folderId = item.id
+        if (parentId && (!parent || parent.children?.some((child) => child.bundleMember))) {
+          const refreshed = await refreshTreePaths([path])
+          folderId = findTreeItem(refreshed, path)?.id ?? folderId
+        } else if (parentId) {
           setTreeItems((previous) =>
             updateInTree(previous, parentId, (folder) => ({
               ...folder,
               children: [...(folder.children ?? []), item],
             })),
           )
-        else setTreeItems((previous) => [...previous, item])
-        setPendingRenameId(item.id)
+        } else {
+          setTreeItems((previous) => [...previous, item])
+        }
+        setPendingRenameId(folderId)
         setTimeout(
-          () => setPendingRenameId((current) => (current === item.id ? null : current)),
+          () => setPendingRenameId((current) => (current === folderId ? null : current)),
           500,
         )
       } catch (error) {
         logger.error("file.create_folder_failed", { title, error })
-        console.error("Failed to create folder:", error)
+        reportTreeActionFailure("createFolder")
       } finally {
         finishLocalMutation()
       }
     },
-    [setPendingRenameId, setTreeItems, t, treeItems, vault],
+    [refreshTreePaths, setPendingRenameId, setTreeItems, t, treeItems, vault],
   )
   const handleNewCanvasIn = React.useCallback(
     async (parentId: string | null) => {
@@ -518,7 +572,7 @@ export function useDocumentCrud({
           t("defaults.untitled"),
         )
         logger.info("file.create_canvas", { path })
-        await refreshTree()
+        await refreshTreePaths([path])
         setOpenCanvases((previous) => ({ ...previous, [path]: "{}\n" }))
         const title = wsPathStem(path)
         useDocStore.getState().setDoc(path, {
@@ -536,10 +590,18 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_canvas_failed", { error })
-        console.error("Failed to create canvas:", error)
+        reportTreeActionFailure("createCanvas")
       }
     },
-    [refreshTree, openItem, releaseUnusedDocumentBuffers, setOpenCanvases, t, treeItems, vault],
+    [
+      refreshTreePaths,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      setOpenCanvases,
+      t,
+      treeItems,
+      vault,
+    ],
   )
   const handleAttachCanvasToNote = React.useCallback(
     async (canvasId: string) => {
@@ -549,8 +611,7 @@ export function useDocumentCrud({
       try {
         const result = await attachCanvasToNote(vault, canvasPath)
         logger.info("file.attach_canvas", { canvasPath, primaryPath: result.primaryPath })
-        handleApplyMutation(result)
-        await refreshTree()
+        if (!handleApplyMutation(result)) await refreshTreePaths(mutationPaths(result))
         setTabs((previous) =>
           previous.filter((tab) => !(tab.kind === "canvas" && tab.fileId === canvasPath)),
         )
@@ -574,7 +635,7 @@ export function useDocumentCrud({
     [
       handleApplyMutation,
       loadDoc,
-      refreshTree,
+      refreshTreePaths,
       setActiveLayer,
       openItem,
       releaseUnusedDocumentBuffers,
@@ -593,7 +654,7 @@ export function useDocumentCrud({
           t("defaults.untitled"),
         )
         logger.info("file.create_sketch", { path })
-        await refreshTree()
+        await refreshTreePaths([path])
         setOpenSketches((previous) => ({
           ...previous,
           [path]: serializeSketch(createDefaultSketch()),
@@ -614,10 +675,18 @@ export function useDocumentCrud({
         void releaseUnusedDocumentBuffers()
       } catch (error) {
         logger.error("file.create_sketch_failed", { error })
-        console.error("Failed to create sketch:", error)
+        reportTreeActionFailure("createSketch")
       }
     },
-    [refreshTree, openItem, releaseUnusedDocumentBuffers, setOpenSketches, t, treeItems, vault],
+    [
+      refreshTreePaths,
+      openItem,
+      releaseUnusedDocumentBuffers,
+      setOpenSketches,
+      t,
+      treeItems,
+      vault,
+    ],
   )
   const handleAttachSketchToNote = React.useCallback(
     async (sketchId: string) => {
@@ -627,8 +696,7 @@ export function useDocumentCrud({
       try {
         const result = await attachSketchToNote(vault, sketchPath)
         logger.info("file.attach_sketch", { sketchPath, primaryPath: result.primaryPath })
-        handleApplyMutation(result)
-        await refreshTree()
+        if (!handleApplyMutation(result)) await refreshTreePaths(mutationPaths(result))
         setTabs((previous) =>
           previous.filter((tab) => !(tab.kind === "sketch" && tab.fileId === sketchPath)),
         )
@@ -652,7 +720,7 @@ export function useDocumentCrud({
     [
       handleApplyMutation,
       loadDoc,
-      refreshTree,
+      refreshTreePaths,
       setActiveLayer,
       openItem,
       releaseUnusedDocumentBuffers,
@@ -661,10 +729,88 @@ export function useDocumentCrud({
       vault,
     ],
   )
+  const handleConvertFolderToNote = React.useCallback(
+    async (folderId: string) => {
+      if (!vault) return
+      const vaultState = useVaultStore.getState()
+      if (vaultState.switching || vaultState.vault !== vault) return
+      const generation = vaultState.generation
+      const stillActive = () => {
+        const current = useVaultStore.getState()
+        return !current.switching && current.vault === vault && current.generation === generation
+      }
+      const folder = findTreeItem(treeItems, folderId)
+      if (!folder || folder.type !== "folder") return
+      const finishLocalMutation = beginLocalTreeMutation()
+      try {
+        const result = await createNote(vault, folder.path, folder.name)
+        if (!stillActive()) return
+        const treeUpdated = handleApplyMutation(result)
+        finishLocalMutation()
+        if (!treeUpdated) {
+          await refreshTreePaths([folder.path])
+          if (!stillActive()) return
+        }
+        const id = result.primaryId ?? result.primaryPath
+        if (!id) return
+        const [note, noteProperties] = await Promise.all([
+          readNote(vault, id),
+          getNoteProperties(vault, id).catch((error: unknown) => {
+            logger.debug("file.convert_folder_properties_read_failed", {
+              failureCode: operationErrorCode(error),
+            })
+            return undefined
+          }),
+        ])
+        if (!stillActive()) return
+        const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : folder.name
+        logger.info("file.convert_folder_to_note", { id, folderPath: folder.path })
+        setDoc(id, {
+          id,
+          title: actualTitle,
+          content: note.content,
+          created: t("time.justNow"),
+          modified: t("time.justNow"),
+          wordCount: 0,
+          path: result.primaryPath ?? id,
+          revision: note.revision,
+          source: note.source,
+          noteProperties,
+          noteId: id,
+        })
+        const tabsStore = useTabsStore.getState()
+        const remainingTabs = tabsStore.tabs.filter(
+          (tab) =>
+            !(tab.kind === "folder" && (tab.fileId === folder.id || tab.fileId === folder.path)),
+        )
+        if (remainingTabs.length !== tabsStore.tabs.length) {
+          tabsStore.setTabs(remainingTabs)
+        }
+        openItem({ kind: "document", fileId: id, title: actualTitle }, false)
+        void releaseUnusedDocumentBuffers()
+      } catch (error) {
+        logger.error("file.convert_folder_to_note_failed", { folderId, error })
+        reportTreeActionFailure("createNote")
+      } finally {
+        finishLocalMutation()
+      }
+    },
+    [
+      handleApplyMutation,
+      openItem,
+      refreshTreePaths,
+      releaseUnusedDocumentBuffers,
+      setDoc,
+      t,
+      treeItems,
+      vault,
+    ],
+  )
   return {
     handleDeleteFile,
     handleDeleteFiles,
     handleNewFileIn: createDocumentIn,
+    handleConvertFolderToNote,
     handleNewFolderIn,
     handleNewCanvasIn,
     handleAttachCanvasToNote,
@@ -673,6 +819,7 @@ export function useDocumentCrud({
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {
           name: pendingDelete.name,
+          kind: pendingDelete.kind,
           count: pendingDelete.count,
           isDirtyOrConflicted: pendingDelete.isDirtyOrConflicted,
           onCancel: () => settleDeleteConfirmation("cancel"),

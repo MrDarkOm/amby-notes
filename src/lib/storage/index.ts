@@ -1,3 +1,8 @@
+import { createBackupPort } from "./backup-repository"
+import { createCliPathPort } from "./cli-path-repository"
+import { createMcpClientsPort } from "./mcp-clients-repository"
+import { createDatabaseLayoutPort } from "./database-layout-repository"
+import { createAiChatRepository } from "./ai-chat-repository"
 import { DesktopAdapter } from "./desktop-adapter"
 import { WebAdapter } from "./web-adapter"
 import { NotesRepository } from "./notes-repository"
@@ -6,6 +11,8 @@ import { AssetsRepository } from "./assets-repository"
 import { HistoryRepository } from "./history-repository"
 import { SettingsRepository } from "./settings-repository"
 import { configureDebugRepositoryRuntime } from "./debug-repository"
+import { commands, type Result } from "../bindings"
+import { unwrapCommand } from "./ipc-result"
 import { logger, traceOperation } from "../logger"
 import type { StoragePort, WriteNoteOptions } from "./port"
 import type {
@@ -42,6 +49,7 @@ import type {
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
+  UpdateDossierTemplateRequest,
   AddTextStatusRequest,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
@@ -54,12 +62,14 @@ import type {
   ReorderWorkshopSectionsRequest,
   UpdateWorkshopRequest,
   UpdateTextLevelsRequest,
+  WorkshopImportRequest,
 } from "./project-types"
 import type {
   CredentialInfo,
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -68,20 +78,23 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  ImportFilesResult,
   PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SettingsReadResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
+  TrashPreview,
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
@@ -101,6 +114,8 @@ export * from "./assets-repository"
 export * from "./history-repository"
 export * from "./settings-repository"
 export * from "./debug-repository"
+export * from "./ai-chat-repository"
+export { StorageOperationError } from "./operation-error"
 
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -140,6 +155,10 @@ export const loadVaultData = (vaultPath: string): Promise<LoadVaultResult> =>
   traceOperation("index.load", {}, () => notesRepository.loadVaultData(vaultPath))
 export const loadActiveVaultData = (): Promise<LoadVaultResult> =>
   traceOperation("index.refresh", {}, () => notesRepository.loadActiveVaultData())
+export const refreshVaultPaths = (paths: string[]): Promise<PathsRefresh | null> =>
+  traceOperation("index.refreshPaths", { count: paths.length }, () =>
+    notesRepository.refreshVaultPaths(paths),
+  )
 export const reindexActiveVaultData = (): Promise<LoadVaultResult> =>
   traceOperation("index.rebuild", {}, () => notesRepository.reindexActiveVaultData())
 export const preflightVault = (vaultPath: string): Promise<VaultPreflight> =>
@@ -234,6 +253,11 @@ export const getNoteMetadata = (vaultPath: string, noteId: string): Promise<File
   notesRepository.getNoteMetadata(vaultPath, noteId)
 export const getNoteProperties = (vaultPath: string, noteId: string): Promise<NoteProperties> =>
   notesRepository.getNoteProperties(vaultPath, noteId)
+export const setNotePagesFlag = (
+  vaultPath: string,
+  noteId: string,
+  flag: boolean | null,
+): Promise<void> => getAdapter().setNotePagesFlag(vaultPath, noteId, flag)
 export const upsertCustomProperty = (
   vaultPath: string,
   noteId: string,
@@ -246,6 +270,117 @@ export const upsertCustomProperty = (
     propertyType: property.propertyType,
   })
   return notesRepository.upsertCustomProperty(vaultPath, noteId, property)
+}
+// Commands of the new format of the properties, by the name of the property (docs/sync-plan.md,
+// З60). They exist in the desktop application only; the browser keeps the old contract below.
+const byName = <T>(command: () => Promise<Result<T, string>>): Promise<T> => {
+  if (!isTauri()) return Promise.reject(new Error("Properties by name need the desktop app"))
+  return unwrapCommand<T>(command())
+}
+export const createProperty = (
+  vaultPath: string,
+  noteId: string,
+  property: Pick<CustomProperty, "name" | "icon" | "propertyType" | "settings" | "value">,
+): Promise<string> => {
+  void vaultPath
+  return byName(() =>
+    commands.createNoteProperty(
+      noteId,
+      property.name,
+      property.icon,
+      property.propertyType,
+      property.settings,
+      property.value,
+    ),
+  )
+}
+export const setPropertyAppearance = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  icon: string,
+  settings: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, icon, settings)).then(
+    () => undefined,
+  )
+}
+export const setPropertyIcon = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  icon: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, icon, null)).then(
+    () => undefined,
+  )
+}
+export const setPropertySettings = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  settings: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyAppearance(noteId, name, null, settings)).then(
+    () => undefined,
+  )
+}
+export const renameProperty = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  newName: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.renameNoteProperty(noteId, name, newName)).then(() => undefined)
+}
+export const changePropertyType = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  propertyType: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.changeNotePropertyType(noteId, name, propertyType)).then(
+    () => undefined,
+  )
+}
+export const setPropertyValue = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  value: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyValue(noteId, name, value)).then(() => undefined)
+}
+export const setPropertyList = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+  items: string[],
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.setNotePropertyList(noteId, name, items)).then(() => undefined)
+}
+export const reorderProperties = (
+  vaultPath: string,
+  noteId: string,
+  names: string[],
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.reorderNoteProperties(noteId, names)).then(() => undefined)
+}
+export const deletePropertyByName = (
+  vaultPath: string,
+  noteId: string,
+  name: string,
+): Promise<void> => {
+  void vaultPath
+  return byName(() => commands.deleteNoteProperty(noteId, name)).then(() => undefined)
 }
 export const deleteCustomProperty = (
   vaultPath: string,
@@ -393,6 +528,17 @@ export const initWorkshop = (request: InitWorkshopRequest) => {
   })
   return getAdapter().initWorkshop(request)
 }
+export type { NoteTemplate } from "./note-modules-port"
+export const listNoteTemplates = () => getAdapter().listNoteTemplates()
+export const createNoteFromTemplate = (parentPath: string, name: string, template: string) => {
+  logger.info("storage.create_note_from_template", { parentPath, name })
+  return getAdapter().createNoteFromTemplate(parentPath, name, template)
+}
+export const openDailyNote = () => getAdapter().openDailyNote()
+export const createNoteTemplate = (name: string) => {
+  logger.info("storage.create_note_template", { name })
+  return getAdapter().createNoteTemplate(name)
+}
 export const resolveWorkshopFolder = (pickedPath: string) =>
   getAdapter().resolveWorkshopFolder(pickedPath)
 export const completeWorkshop = (request: CompleteWorkshopRequest) => {
@@ -472,6 +618,15 @@ export const ensurePlotLinks = (request: EnsurePlotLinksRequest) => {
   })
   return getAdapter().ensurePlotLinks(request)
 }
+export const getDossierTemplate = (databaseId: string) =>
+  getAdapter().getDossierTemplate(databaseId)
+export const updateDossierTemplate = (request: UpdateDossierTemplateRequest) => {
+  logger.info("storage.update_dossier_template", {
+    databaseId: request.databaseId,
+    sections: request.dossier.sections.length,
+  })
+  return getAdapter().updateDossierTemplate(request)
+}
 export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {
     sectionId: request.sectionId,
@@ -499,6 +654,8 @@ export const moveTextPage = (request: MoveTextPageRequest) => {
 }
 export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
 export const listTextStats = (databaseId: string) => getAdapter().listTextStats(databaseId)
+export const workshopImport = (request: WorkshopImportRequest) =>
+  getAdapter().workshopImport(request)
 export const listNotebooks = (databaseId: string) => getAdapter().listNotebooks(databaseId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>
@@ -595,6 +752,21 @@ export const deleteItem = (
 ): Promise<FsMutationResult> => mutationsRepository.deleteItem(vaultPath, path, mode)
 export const archiveItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
   mutationsRepository.archiveItem(vaultPath, path)
+export const undoMutation = (record: UndoRecord): Promise<FsMutationResult> => {
+  logger.info("storage.undo_mutation", { kind: record.kind })
+  return getAdapter().undoMutation(record)
+}
+export const beginMerge = (targetPath: string): Promise<string | null> =>
+  getAdapter().beginMerge(targetPath)
+export const finishMerge = (
+  vaultPath: string,
+  sourcePath: string,
+  targetPath: string,
+  snapshotId: string,
+): Promise<FsMutationResult> => {
+  logger.info("storage.finish_merge", { sourcePath, targetPath })
+  return getAdapter().finishMerge(vaultPath, sourcePath, targetPath, snapshotId)
+}
 export const noteLayers = (notePath: string): Promise<NoteLayers> =>
   mutationsRepository.noteLayers(notePath)
 export const createLayer = (notePath: string, kind: LayerKind): Promise<LayerResult> =>
@@ -628,26 +800,32 @@ export const deleteSnapshot = (snapshotId: string): Promise<void> =>
   historyRepository.deleteSnapshot(snapshotId)
 export const readSnapshotText = (snapshotId: string): Promise<SnapshotText> =>
   historyRepository.readSnapshotText(snapshotId)
+export const readTrashPreview = (trashId: string, relativePath = ""): Promise<TrashPreview> =>
+  historyRepository.readTrashPreview(trashId, relativePath)
 export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTrash()
 export const restoreTrash = (trashId: string): Promise<FsMutationResult> =>
   historyRepository.restoreTrash(trashId)
 export const purgeTrash = (trashId: string): Promise<void> => historyRepository.purgeTrash(trashId)
-export const previewRenameRefactor = (
-  vaultPath: string,
-  path: string,
-  newName: string,
-): Promise<RefactorPreview> => historyRepository.previewRenameRefactor(vaultPath, path, newName)
-export const previewMoveRefactor = (
-  vaultPath: string,
-  sourcePath: string,
-  targetPath: string,
-): Promise<RefactorPreview> =>
-  historyRepository.previewMoveRefactor(vaultPath, sourcePath, targetPath)
+export const listArchive = (vaultPath: string): Promise<ArchiveEntry[]> =>
+  historyRepository.listArchive(vaultPath)
+export const readArchivePreview = (archiveId: string, relativePath = ""): Promise<TrashPreview> =>
+  historyRepository.readArchivePreview(archiveId, relativePath)
+export const restoreArchive = (archiveId: string, vaultPath: string): Promise<FsMutationResult> =>
+  historyRepository.restoreArchive(archiveId, vaultPath)
+export const purgeArchive = (archiveId: string, mode: DeleteMode): Promise<void> =>
+  historyRepository.purgeArchive(archiveId, mode)
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
+export const revealVaultFolder = (id: string): Promise<void> =>
+  assetsRepository.revealVaultFolder(id)
+export const revealAppDataFolder = (): Promise<void> => assetsRepository.revealAppDataFolder()
 export const openAttachment = (notePath: string, attachmentPath: string): Promise<void> =>
   assetsRepository.openAttachment(notePath, attachmentPath)
+export const saveAttachmentCopy = (
+  notePath: string,
+  attachmentPath: string,
+): Promise<string | null> => assetsRepository.saveAttachmentCopy(notePath, attachmentPath)
 export const openWebAddress = (address: string): Promise<void> =>
   assetsRepository.openWebAddress(address)
 export const fetchPageInfo = (address: string): Promise<PageInfo> =>
@@ -659,6 +837,10 @@ export const importAsset = (
   notePath: string,
   sourcePath: string,
 ): Promise<ImportedAsset | null> => assetsRepository.importAsset(vaultPath, notePath, sourcePath)
+export const importFiles = (
+  targetDir: string | null,
+  sources: string[],
+): Promise<ImportFilesResult> => assetsRepository.importFiles(targetDir, sources)
 export const importAssetBytes = (
   vaultPath: string,
   notePath: string,
@@ -670,10 +852,6 @@ export const toAssetUrl = (absPath: string): Promise<string> => assetsRepository
 export const exportTextFile = (contents: string, defaultName: string): Promise<string | null> =>
   assetsRepository.exportTextFile(contents, defaultName)
 export const importTextFile = (): Promise<string | null> => assetsRepository.importTextFile()
-export const confirmAction = (message: string): Promise<boolean> =>
-  assetsRepository.confirmAction(message)
-export const showErrorMessage = (message: string): Promise<void> =>
-  assetsRepository.showErrorMessage(message)
 
 // Settings, Vault Metadata & AI Credentials
 export const readGlobalSettingsResult = <T>(file: string): Promise<SettingsReadResult<T>> =>
@@ -684,17 +862,53 @@ export const saveGlobalJSON = (file: string, data: unknown): Promise<void> =>
   settingsRepository.saveGlobalJSON(file, data)
 export const loadVaultJSON = <T>(rel: string, fallback: T): Promise<T> =>
   settingsRepository.loadVaultJSON<T>(rel, fallback)
-export const saveVaultJSON = (rel: string, data: unknown): Promise<void> =>
-  settingsRepository.saveVaultJSON(rel, data)
+export const saveVaultJSON = (
+  rel: string,
+  data: unknown,
+  expectedGeneration?: number | null,
+): Promise<void> => settingsRepository.saveVaultJSON(rel, data, expectedGeneration)
+export const readGlobalRaw = (file: string): Promise<string | null> =>
+  settingsRepository.readGlobalRaw(file)
+export const writeGlobalRaw = (file: string, contents: string): Promise<void> =>
+  settingsRepository.writeGlobalRaw(file, contents)
+export const compareWriteGlobalRaw = (
+  file: string,
+  expected: string | null,
+  contents: string,
+): Promise<boolean> => settingsRepository.compareWriteGlobalRaw(file, expected, contents)
 export const globalFileMissing = (file: string): Promise<boolean> =>
   settingsRepository.globalFileMissing(file)
 export const vaultFileMissing = (rel: string): Promise<boolean> =>
   settingsRepository.vaultFileMissing(rel)
 export const storeAiCredential = (credentialId: string, secret: string): Promise<void> =>
   settingsRepository.storeAiCredential(credentialId, secret)
+export const deleteUnreferencedAiCredential = (credentialId: string): Promise<boolean> =>
+  settingsRepository.deleteUnreferencedAiCredential(credentialId)
 export const deleteAiCredential = (credentialId: string): Promise<void> =>
   settingsRepository.deleteAiCredential(credentialId)
 export const inspectAiCredential = (credentialId: string): Promise<CredentialInfo> =>
   settingsRepository.inspectAiCredential(credentialId)
 
 export { joinStoragePath } from "./storage-path"
+
+export {
+  BackupOperationError,
+  type BackupPort,
+  type BackupCatalog,
+  type BackupInfo,
+} from "./backup-repository"
+export const resolveBackupPort = () => createBackupPort(isTauri())
+export { CliPathOperationError, type CliPathPort, type CliPathStatus } from "./cli-path-repository"
+export const resolveCliPathPort = () => createCliPathPort(isTauri())
+export {
+  McpClientOperationError,
+  type McpClient,
+  type McpClientStatus,
+  type McpClientsPort,
+} from "./mcp-clients-repository"
+export const resolveMcpClientsPort = () => createMcpClientsPort(isTauri())
+export const resolveDatabaseLayoutPort = () => createDatabaseLayoutPort(isTauri())
+export const resolveAiChatRepository = () => createAiChatRepository(isTauri())
+
+/** Consume a native command-line request in the desktop main window. */
+export const takeCliOpen = () => commands.takeCliOpen()

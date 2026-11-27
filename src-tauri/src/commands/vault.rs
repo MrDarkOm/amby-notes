@@ -1,8 +1,10 @@
+use crate::lock_util::LockExt;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::Manager;
 
+use crate::path_grants::{self, PathGrants};
 use crate::vault_context;
 use crate::vault_index;
 use crate::watcher::{self, WatcherState};
@@ -22,6 +24,34 @@ pub fn grant_vault_scopes(app: &tauri::AppHandle, vault: &Path) -> Result<(), St
     Ok(())
 }
 
+/// The folder the webview names, in its real form, if and only if Rust itself vouches for it: the
+/// open vault, a folder the system dialog gave out, or a known vault (IPC-03, CORE-06). The webview
+/// can write any string, so a string alone is never enough to open, migrate or recover a folder.
+fn trusted_vault_folder(
+    app: &tauri::AppHandle,
+    context: &vault_context::VaultContext,
+    grants: &PathGrants,
+    vault_path: &str,
+) -> Result<std::path::PathBuf, String> {
+    let canonical = Path::new(vault_path)
+        .canonicalize()
+        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let active_root = context
+        .conn
+        .lock_or_recover()
+        .as_ref()
+        .map(|active| active.root.clone());
+    let registry = crate::app_data::app_root(app)
+        .ok()
+        .and_then(|root| std::fs::read_to_string(root.join(path_grants::WORKSPACES_FILE)).ok())
+        .unwrap_or_default();
+    if path_grants::vault_path_trusted(&canonical, active_root.as_deref(), grants, &registry) {
+        Ok(canonical)
+    } else {
+        Err(path_grants::ERR_PATH_NOT_GRANTED.to_string())
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -36,6 +66,9 @@ pub async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String>
     let Some(path) = result else {
         return Ok(None);
     };
+    if let Ok(real) = path.clone().into_path() {
+        app.state::<PathGrants>().grant_folder(&real);
+    }
     Ok(Some(path.to_string()))
 }
 
@@ -45,17 +78,21 @@ pub fn load_vault(
     app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     let loaded = context.activate(
-        &vault_path,
+        canonical.to_str().ok_or("Invalid vault path encoding")?,
         |root| grant_vault_scopes(&app, root),
         |mut loaded, generation| {
             loaded.generation = generation;
             loaded
         },
     )?;
-    let active = context.conn.lock().unwrap();
+    // What was picked for the old vault (folders, files to import) does not carry over.
+    grants.forget_all();
+    let active = context.conn.lock_or_recover();
     if let Some(active) = active.as_ref() {
         if let Ok(Some(projection)) =
             crate::database::projection::cached_projection_version(&active.connection, &active.root)
@@ -69,6 +106,11 @@ pub fn load_vault(
     if let Some(history) = app.try_state::<crate::database::history::DatabaseHistoryState>() {
         history.clear(None);
     }
+    crate::shadow_check::note_full_tree(
+        Path::new(&loaded.vault_path),
+        loaded.generation,
+        &loaded.tree,
+    );
     Ok(loaded)
 }
 
@@ -80,8 +122,8 @@ pub fn load_active_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let active = context.conn.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.refresh()?;
     if let Ok(Some(projection)) =
@@ -92,7 +134,44 @@ pub fn load_active_vault(
     } else {
         runtime.reset_for_generation(Some(loaded.generation));
     }
+    crate::shadow_check::note_full_tree(&active.root, loaded.generation, &loaded.tree);
     Ok(loaded)
+}
+
+/// Bring the index and the sidebar tree up to date for the paths the watcher reported, without
+/// reading the rest of the vault. `null` means a point refresh cannot cover them (the vault
+/// root, a bulk change, an identity clash): the renderer then runs `load_active_vault`.
+#[tauri::command]
+#[specta::specta]
+pub fn refresh_vault_paths(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    paths: Vec<String>,
+) -> Result<Option<vault_context::PathsRefresh>, String> {
+    let mut changed = std::collections::HashSet::new();
+    for path in paths {
+        let path = std::path::PathBuf::from(path);
+        if path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err("A path may not leave the vault".to_string());
+        }
+        changed.insert(path);
+    }
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or("No vault open")?;
+    let refreshed = active.refresh_paths(changed)?;
+    if let Some(refresh) = &refreshed {
+        crate::shadow_check::note_patch(
+            &active.root,
+            active.generation,
+            "refresh_paths",
+            refresh.sync.path_to_id.len(),
+            &refresh.patch,
+        );
+    }
+    Ok(refreshed)
 }
 
 #[tauri::command]
@@ -101,8 +180,8 @@ pub fn reindex_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let active = context.conn.lock().unwrap();
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let active = context.conn.lock_or_recover();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.reindex()?;
     if let Ok(Some(projection)) =
@@ -113,32 +192,61 @@ pub fn reindex_vault(
     } else {
         runtime.reset_for_generation(Some(loaded.generation));
     }
+    crate::shadow_check::note_full_tree(&active.root, loaded.generation, &loaded.tree);
     Ok(loaded)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight, String> {
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|e| format!("Vault not accessible: {e}"))?;
+pub fn preflight_vault(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
+    vault_path: String,
+) -> Result<vault_index::VaultPreflight, String> {
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     vault_index::preflight_vault(&canonical)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn apply_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
 ) -> Result<vault_index::IdMigrationResult, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
     if !canonical.is_dir() {
         return Err(format!("Vault is not a directory: {}", canonical.display()));
     }
+    context.reserve_desktop(&canonical)?;
+    amby_core::structural::recover_desktop(&canonical)?;
     vault_index::apply_id_migration(&canonical)
+}
+
+/// Opening one note: gives it an `amby-id` if it has none, without walking the vault (CORE-04).
+#[tauri::command]
+#[specta::specta]
+pub fn apply_note_id_migration(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    note_id: String,
+) -> Result<(), String> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let (root, rel_path) = {
+        let conn_guard = context.conn.lock_or_recover();
+        let conn = conn_guard.as_ref().ok_or("No vault open")?;
+        let note = vault_index::note_by_id(conn, &conn.root, &note_id)?;
+        let rel = Path::new(&note.path)
+            .strip_prefix(&conn.root)
+            .map(vault_index::normalize_rel_path)
+            .map_err(|error| error.to_string())?;
+        (conn.root.clone(), rel)
+    };
+    let _text_write = crate::paths::lock_text_write(&root)?;
+    amby_core::structural::ensure_clean_for_text_edit(&root).map_err(str::to_owned)?;
+    vault_index::apply_note_id_migration(&root, &rel_path)
 }
 
 #[tauri::command]
@@ -155,15 +263,17 @@ pub fn inspect_id_migrations(
 #[tauri::command]
 #[specta::specta]
 pub fn recover_id_migration(
+    app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    grants: tauri::State<'_, PathGrants>,
     vault_path: String,
     journal_path: String,
     action: vault_index::IdMigrationRecoveryAction,
 ) -> Result<vault_index::IdMigrationRecovery, String> {
-    let _mutation_guard = context.mutation_gate.lock().unwrap();
-    let canonical = Path::new(&vault_path)
-        .canonicalize()
-        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let canonical = trusted_vault_folder(&app, &context, &grants, &vault_path)?;
+    context.reserve_desktop(&canonical)?;
+    amby_core::structural::recover_desktop(&canonical)?;
     vault_index::recover_id_migration(&canonical, &journal_path, action)
 }
 
@@ -172,9 +282,12 @@ pub fn recover_id_migration(
 pub fn list_files(
     db: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<Vec<vault_index::TreeItem>, String> {
-    let conn_guard = db.conn.lock().unwrap();
+    let conn_guard = db.conn.lock_or_recover();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    conn.refresh().map(|loaded| loaded.tree)
+    conn.refresh().map(|loaded| {
+        crate::shadow_check::note_full_tree(&conn.root, loaded.generation, &loaded.tree);
+        loaded.tree
+    })
 }
 
 #[tauri::command]
@@ -185,10 +298,8 @@ pub fn start_vault_watcher(
     context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
     use notify::Watcher;
-    use tauri::Emitter;
-
     let (vault, generation, index_changes) = {
-        let active = context.conn.lock().unwrap();
+        let active = context.conn.lock_or_recover();
         let active = active.as_ref().ok_or("No vault open")?;
         (
             active.root.clone(),
@@ -196,9 +307,13 @@ pub fn start_vault_watcher(
             Arc::clone(&active.index_changes),
         )
     };
-    state.active_generation.store(generation, Ordering::Release);
-    let own_writes = Arc::clone(&state.own_writes);
-    let active_generation = Arc::clone(&state.active_generation);
+    state
+        .self_writes
+        .active_generation
+        .store(generation, Ordering::Release);
+    let own_writes = Arc::clone(&state.self_writes.own_writes);
+    let active_generation = Arc::clone(&state.self_writes.active_generation);
+    let batch = Arc::clone(&state.batch);
     let app_handle = app.clone();
     let watched_vault = vault.clone();
 
@@ -207,6 +322,10 @@ pub fn start_vault_watcher(
             return;
         }
 
+        // Synchronisation hears about every change in the vault: also the ones Amby made itself
+        // (the self-write records below only keep the renderer from reloading its own saves) and
+        // the documented files in `.amby/` (docs/sync-plan.md, Р4, Р10).
+        crate::sync::notify_watch_event(&app_handle, &watched_vault, &res);
         let changes = watcher::queue_external_changes(
             res,
             &watched_vault,
@@ -214,40 +333,10 @@ pub fn start_vault_watcher(
             generation,
             &index_changes,
         );
-        for change in &changes {
-            let _ = app_handle.emit("vault-file-changed", change);
-        }
-        let database_changes = changes
-            .iter()
-            .filter_map(|change| {
-                crate::database::events::classify_path(
-                    &watched_vault,
-                    Path::new(&change.path),
-                    generation,
-                )
-            })
-            .collect::<Vec<_>>();
-        let coalesced = crate::database::events::coalesce(database_changes.iter().cloned());
-        tracing::debug!(
-            changed_paths = coalesced.changed_paths.len(),
-            containers = coalesced.containers.len(),
-            requires_full_rebuild = coalesced.requires_full_rebuild,
-            "coalesced database watcher invalidations"
-        );
-        for database_change in database_changes {
-            let _ = app_handle.emit("database:changed", database_change);
-        }
-        // Projects follow the structure file and whole-folder moves; the
-        // renderer debounces these and asks for `refresh_projects`.
-        for project_change in changes.iter().filter_map(|change| {
-            crate::project::events::classify_path(
-                &watched_vault,
-                Path::new(&change.path),
-                &change.kind,
-                generation,
-            )
-        }) {
-            let _ = app_handle.emit("project:changed", project_change);
+        // All renderer notifications, including database and project invalidation,
+        // are released together after a sync batch is complete.
+        for change in batch.push(changes) {
+            watcher::emit_external_change(&app_handle, &watched_vault, generation, change);
         }
     })
     .map_err(|e| e.to_string())?;
@@ -255,23 +344,32 @@ pub fn start_vault_watcher(
     watcher
         .watch(&vault, notify::RecursiveMode::Recursive)
         .map_err(|error| {
-            state.active_generation.store(0, Ordering::Release);
+            state
+                .self_writes
+                .active_generation
+                .store(0, Ordering::Release);
             error.to_string()
         })?;
 
-    *state.watcher.lock().unwrap() = Some(watcher);
+    *state.watcher.lock_or_recover() = Some(watcher);
     context.set_watcher_identity(Some(generation))?;
+    crate::sync::activate_for_open_vault(&app, vault);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn stop_vault_watcher(
+    app: tauri::AppHandle,
     state: tauri::State<'_, WatcherState>,
     context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
-    *state.watcher.lock().unwrap() = None;
-    state.active_generation.store(0, Ordering::Release);
+    crate::sync::deactivate_for_closed_vault(&app);
+    *state.watcher.lock_or_recover() = None;
+    state
+        .self_writes
+        .active_generation
+        .store(0, Ordering::Release);
     context.set_watcher_identity(None)?;
     Ok(())
 }

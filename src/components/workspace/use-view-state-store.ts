@@ -40,6 +40,7 @@ interface ViewStateStore {
   closedTreeIds: Set<string>
   toggleTreeItem: (id: string) => void
   expandTreeItem: (id: string) => void
+  expandTreeItems: (ids: string[]) => void
   setTreeExpanded: (items: TreeItem[], expanded: boolean) => void
   /** File ids the user has starred. */
   favorites: Set<string>
@@ -120,6 +121,13 @@ function createViewStateStore() {
         if (!s.closedTreeIds.has(id)) return s
         const closedTreeIds = new Set(s.closedTreeIds)
         closedTreeIds.delete(id)
+        return { closedTreeIds }
+      }),
+    expandTreeItems: (ids) =>
+      set((s) => {
+        if (!ids.some((id) => s.closedTreeIds.has(id))) return s
+        const closedTreeIds = new Set(s.closedTreeIds)
+        for (const id of ids) closedTreeIds.delete(id)
         return { closedTreeIds }
       }),
     setTreeExpanded: (items, expanded) =>

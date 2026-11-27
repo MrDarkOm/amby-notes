@@ -22,12 +22,15 @@ export function EmptyStateHeader() {
     win
       .isMaximized()
       .then(setIsMaximized)
+      // The window state is only for the icon of the button; it is read again on the next resize.
       .catch(() => {})
     return adoptAsyncDisposer(
       win.onResized(() =>
         win
           .isMaximized()
           .then(setIsMaximized)
+          // The window state is only for the icon of the button; it is read again on the next
+          // resize.
           .catch(() => {}),
       ),
     )
@@ -45,6 +48,8 @@ export function EmptyStateHeader() {
     } else {
       getCurrentWindow()
         .startDragging()
+        // Window gesture of the system: if it is refused nothing is lost and the person can repeat
+        // it.
         .catch(() => {})
     }
   }

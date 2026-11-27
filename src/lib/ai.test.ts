@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { aiChat, aiErrorMessage, cancelAiChat, AiRequestError, AiUnavailableError } from "./ai"
 import { commands } from "./bindings"
+import { listen } from "@tauri-apps/api/event"
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
@@ -112,5 +113,30 @@ describe("ai client and cancellation (WP-21)", () => {
     const result = await cancelAiChat("stream-uuid-1")
     expect(result).toBe(true)
     expect(cancelSpy).toHaveBeenCalledWith("stream-uuid-1")
+  })
+
+  // AI1-U8: stopping while the event subscription is pending must not start inference.
+  it("does not start a request after cancellation during listener registration", async () => {
+    let finishListening!: (unlisten: () => void) => void
+    vi.mocked(listen).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishListening = resolve
+        }),
+    )
+    const unlisten = vi.fn()
+    const request = vi.spyOn(commands, "aiChat")
+    vi.spyOn(commands, "cancelAiRequest").mockResolvedValue({ status: "ok", data: false })
+    const controller = new AbortController()
+    const result = aiChat(
+      { provider: "ollama", model: "test", baseUrl: "" },
+      [{ role: "user", content: "hello" }],
+      { signal: controller.signal, onToken: () => {} },
+    )
+    controller.abort()
+    finishListening(unlisten)
+    await expect(result).rejects.toThrow("Request cancelled")
+    expect(request).not.toHaveBeenCalled()
+    expect(unlisten).toHaveBeenCalledOnce()
   })
 })

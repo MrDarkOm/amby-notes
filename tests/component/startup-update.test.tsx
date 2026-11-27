@@ -8,6 +8,7 @@ const startup = vi.hoisted(() => ({
   preferencesReady: true,
   windowStateReady: true,
   autoUpdate: true,
+  channel: "stable" as "stable" | "beta",
   run: vi.fn(),
 }))
 
@@ -16,7 +17,7 @@ vi.mock("@/components/workspace/use-settings-store", () => ({
   useApplyPreferences: () => startup.preferencesReady,
   useWindowStatePersistence: () => startup.windowStateReady,
   useSettingsStore: (select: (state: unknown) => unknown) =>
-    select({ prefs: { updates: { autoUpdate: startup.autoUpdate } } }),
+    select({ prefs: { updates: { autoUpdate: startup.autoUpdate, channel: startup.channel } } }),
 }))
 vi.mock("@/components/theme-provider", () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -26,6 +27,7 @@ vi.mock("motion/react", () => ({
 }))
 vi.mock("@/lib/motion", () => ({ MotionPulse: () => <div /> }))
 vi.mock("@/components/ui/tooltip-provider", () => ({ TooltipProvider: () => null }))
+vi.mock("@/components/confirm-dialog-host", () => ({ ConfirmDialogHost: () => null }))
 vi.mock("@/components/workspace/workspace", () => ({
   Workspace: () => <div data-testid="workspace" />,
 }))
@@ -44,6 +46,7 @@ beforeEach(() => {
   startup.preferencesReady = true
   startup.windowStateReady = true
   startup.autoUpdate = true
+  startup.channel = "stable"
   startup.run.mockReturnValue(
     new Promise<StartupUpdateResult>((resolve) => (settleStartup = resolve)),
   )
@@ -63,6 +66,7 @@ describe("workspace startup update gate", () => {
     startup.preferencesReady = true
     view.rerender(<App />)
     expect(startup.run).toHaveBeenCalledOnce()
+    expect(startup.run).toHaveBeenCalledWith("stable")
     expect(screen.queryByTestId("workspace")).toBeNull()
     expect(screen.queryByTestId("conflict-dialog")).toBeNull()
     await act(async () => settleStartup("ready"))
@@ -76,6 +80,15 @@ describe("workspace startup update gate", () => {
     expect(screen.queryByTestId("workspace")).toBeNull()
     expect(screen.queryByTestId("conflict-dialog")).toBeNull()
     expect(screen.getByRole("main").getAttribute("aria-busy")).toBe("true")
+  })
+
+  it("uses the hydrated beta channel for its single startup check", async () => {
+    startup.channel = "beta"
+    const { default: App } = await import("@/App")
+    render(<App />)
+    expect(startup.run).toHaveBeenCalledOnce()
+    expect(startup.run).toHaveBeenCalledWith("beta")
+    await act(async () => settleStartup("ready"))
   })
 
   it("awaits the same task across StrictMode effect subscriptions", async () => {
@@ -107,8 +120,10 @@ describe("workspace startup update gate", () => {
     const { default: App } = await import("@/App")
     const view = render(<App />)
     startup.autoUpdate = false
+    startup.channel = "beta"
     view.rerender(<App />)
     expect(startup.run).toHaveBeenCalledOnce()
+    expect(startup.run).toHaveBeenCalledWith("stable")
     expect(screen.queryByTestId("workspace")).toBeNull()
     await act(async () => settleStartup("ready"))
     expect(screen.getByTestId("workspace")).toBeTruthy()

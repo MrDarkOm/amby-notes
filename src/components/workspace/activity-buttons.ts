@@ -21,3 +21,29 @@ export function collapseButtonsToLeft(buttons: ActivityButton[]): ActivityButton
   }
   return result
 }
+
+/** The settings button always stays on its dock: without it the hidden buttons could not be found again. */
+export function canHideButton(defId: string): boolean {
+  return defId !== "settings"
+}
+
+/**
+ * Hides or shows one button where it stands. Hiding the settings button is refused, and a
+ * button that is not in the list is left out of it.
+ */
+export function setButtonHidden(
+  buttons: ActivityButton[],
+  defId: string,
+  hidden: boolean,
+): ActivityButton[] {
+  if (hidden && !canHideButton(defId)) return buttons
+  const current = buttons.find((button) => button.defId === defId)
+  if (!current || Boolean(current.hidden) === hidden) return buttons
+  return buttons.map((button) => {
+    if (button.defId !== defId) return button
+    if (hidden) return { ...button, hidden: true }
+    const shown = { ...button }
+    delete shown.hidden
+    return shown
+  })
+}

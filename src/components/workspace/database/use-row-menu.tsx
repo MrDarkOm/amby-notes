@@ -1,3 +1,4 @@
+import type { RenameOutcome } from "../file-actions/rename-outcome"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { duplicateDatabaseRow, type DatabaseRow, type DatabaseSummary } from "@/lib/storage"
@@ -5,6 +6,7 @@ import { logger } from "@/lib/logger"
 import type { RowMenuModel } from "./row-menu"
 import type { RowReorderConfig } from "./table-view"
 import { moveRowInOrder, type RowDropPlacement } from "./row-order"
+import { operationErrorText } from "@/lib/operation-errors"
 
 /** What the workspace lends a database for the pages it holds: favourites, windows, delete, move. */
 export interface DatabaseRowActions {
@@ -29,7 +31,7 @@ interface UseRowMenuOptions {
   vaultGeneration: number | null
   actions?: DatabaseRowActions
   openRow: (row: DatabaseRow) => void
-  onRenameRow?: (rowId: string, name: string) => Promise<void> | void
+  onRenameRow?: (rowId: string, name: string) => Promise<RenameOutcome | void> | void
   /** Reloads the rows after a page was added, renamed, moved or removed. */
   refresh: () => void
   onError?: (message: string) => void
@@ -62,7 +64,7 @@ export function useRowMenu({
   const fail = React.useCallback(
     (event: string, error: unknown) => {
       logger.error(event, { databaseId, error })
-      latest.current.onError?.(error instanceof Error ? error.message : String(error))
+      latest.current.onError?.(operationErrorText(error))
     },
     [databaseId],
   )
@@ -92,6 +94,8 @@ export function useRowMenu({
           : undefined,
       onCopyLink: () => {
         const stem = fileStem(row.relativePath) || row.title
+        // Copying to the clipboard is refused by the system: nothing changed, the command can be
+        // repeated.
         void navigator.clipboard?.writeText(`[[${stem}]]`).catch(() => undefined)
       },
       onDuplicate:

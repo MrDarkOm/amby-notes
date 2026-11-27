@@ -7,6 +7,7 @@ import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state"
 import {
   BlockShortcuts,
   OPEN_LINK_PANEL_EVENT,
+  deleteToLineStart,
   duplicateBlock,
   backspaceAtHeadingStart,
   moveBlock,
@@ -308,5 +309,22 @@ describe("Mod-K", () => {
     target.view.dom.addEventListener(OPEN_LINK_PANEL_EVENT, () => (asked += 1))
     expect(press(target, "k", { ctrlKey: true })).toBe(true)
     expect(asked).toBe(1)
+  })
+})
+
+describe("Mod-Backspace", () => {
+  it("deletes from the caret back to the start of the current line", () => {
+    const state = open("Hello world", 7)
+    const result = run(deleteToLineStart, state)
+    expect(result.handled).toBe(true)
+    expect(docToMarkdown(result.state.doc)).toBe("world")
+    expect(result.state.selection.from).toBe(1)
+  })
+
+  it("is bound to Mod-Backspace in the editor", () => {
+    const target = mount("First line\n\nSecond line here")
+    target.commands.setTextSelection(20)
+    expect(press(target, "Backspace", { ctrlKey: true })).toBe(true)
+    expect(docToMarkdown(target.state.doc)).toBe("First line\n\nline here")
   })
 })

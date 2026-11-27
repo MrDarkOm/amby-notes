@@ -1,5 +1,6 @@
-import { FileRevisionConflictError, confirmAction, getFileRevision, writeFile } from "@/lib/storage"
-import i18n from "@/lib/i18n"
+import { confirm } from "@/lib/confirm"
+import { confirmations } from "@/lib/confirmations"
+import { FileRevisionConflictError, getFileRevision, writeFile } from "@/lib/storage"
 import { logger } from "@/lib/logger"
 
 /** Thrown after the user was told about a conflict; the autosave is paused. */
@@ -74,7 +75,7 @@ export class FileRevisionTracker {
     } catch (error) {
       if (!(error instanceof FileRevisionConflictError)) throw error
     }
-    const overwrite = await confirmAction(i18n.t("errors.fileChangedExternally")).catch(() => false)
+    const overwrite = await confirm(confirmations.overwriteExternal()).catch(() => false)
     if (!overwrite) {
       onConflict()
       throw new FileConflictPausedError()

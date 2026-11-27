@@ -73,7 +73,7 @@ export const storageContractCases: Array<{
       check(path(renamed.primaryPath!) === `${path(vaultPath)}/Переименовано.md`, "Rename path")
       check((await adapter.readFile(renamed.primaryPath!)) === "saved content", "Rename bytes")
       await rejects(adapter.readFile(note.primaryPath!))
-      await adapter.deleteItem(vaultPath, renamed.primaryPath!, "vault")
+      await adapter.deleteItem(vaultPath, renamed.primaryPath!, "archive")
       await rejects(adapter.readFile(renamed.primaryPath!))
       check(
         !flatten(await adapter.listFiles(vaultPath)).some(
@@ -115,6 +115,60 @@ export const storageContractCases: Array<{
       await rejects(adapter.renameItem(vaultPath, first.primaryPath!, "Other"), "alreadyExists")
       check((await adapter.readFile(first.primaryPath!)) === "first", "Collision retains source")
       check((await adapter.readFile(second.primaryPath!)) === "second", "Collision retains target")
+    },
+  },
+  {
+    name: "move into a folder keeps bytes and rejects a name collision without overwriting",
+    async run({ adapter, vaultPath }) {
+      const folder = await adapter.createFolder(vaultPath, "Destination")
+      const moving = await adapter.createNote(vaultPath, vaultPath, "Moving")
+      await adapter.writeFile(moving.primaryPath!, "moving bytes")
+      const moved = await adapter.moveItem(vaultPath, moving.primaryPath!, folder)
+      check(path(moved.primaryPath!) === `${path(folder)}/Moving.md`, "Move path")
+      check((await adapter.readFile(moved.primaryPath!)) === "moving bytes", "Move bytes")
+      await rejects(adapter.readFile(moving.primaryPath!))
+
+      const clash = await adapter.createNote(vaultPath, vaultPath, "Moving")
+      await adapter.writeFile(clash.primaryPath!, "clashing bytes")
+      await rejects(adapter.moveItem(vaultPath, clash.primaryPath!, folder), "alreadyExists")
+      check((await adapter.readFile(clash.primaryPath!)) === "clashing bytes", "Source retained")
+      check(
+        (await adapter.readFile(moved.primaryPath!)) === "moving bytes",
+        "Target not overwritten",
+      )
+    },
+  },
+  {
+    name: "note names are trimmed on create and rename, blank names are refused",
+    async run({ adapter, vaultPath }) {
+      const created = await adapter.createNote(vaultPath, vaultPath, "  Padded  ")
+      check(path(created.primaryPath!) === `${path(vaultPath)}/Padded.md`, "Create trims name")
+      const renamed = await adapter.renameItem(vaultPath, created.primaryPath!, "  Trimmed  ")
+      check(path(renamed.primaryPath!) === `${path(vaultPath)}/Trimmed.md`, "Rename trims name")
+      await rejects(adapter.createNote(vaultPath, vaultPath, "   "), "invalidPath")
+      await rejects(adapter.renameItem(vaultPath, renamed.primaryPath!, "   "), "invalidPath")
+    },
+  },
+  {
+    name: "archive never deletes permanently: it is restorable or refused",
+    async run({ adapter, vaultPath }) {
+      const note = await adapter.createNote(vaultPath, vaultPath, "Archived")
+      await adapter.writeFile(note.primaryPath!, "archived bytes")
+      let archived = false
+      try {
+        await adapter.archiveItem(vaultPath, note.primaryPath!)
+        archived = true
+      } catch (error) {
+        check(error instanceof StorageOperationError, `Typed refusal expected: ${String(error)}`)
+      }
+      if (archived) {
+        check((await adapter.listArchive(vaultPath)).length > 0, "Archived item is restorable")
+      } else {
+        check(
+          (await adapter.readFile(note.primaryPath!)) === "archived bytes",
+          "Refused archive keeps the file",
+        )
+      }
     },
   },
 ]

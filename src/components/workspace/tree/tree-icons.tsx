@@ -1,21 +1,26 @@
 "use client"
 
-import {
-  BookOpenText,
-  Database,
-  FileText,
-  Folder,
-  LayoutGrid,
-  PanelsTopLeft,
-  PenLine,
-  Star,
-} from "lucide-react"
+import { Database, FileText, Folder, LayoutGrid, PanelsTopLeft, PenLine, Star } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
-import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
+import { isSuperCanvasItem, isSuperSketchItem } from "../workspace-tree-utils"
+
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
+import { isEnterKey } from "@/lib/keyboard"
+
+function isBundleNote(item: TreeItem): boolean {
+  return (
+    item.type === "file" &&
+    !item.bundleMember &&
+    (item.icon === "supernote" ||
+      item.bundleMembers !== undefined ||
+      Boolean(item.children?.length))
+  )
+}
 
 export function BrainIcon({ className }: { className?: string }) {
   return (
@@ -42,7 +47,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
   if (icon && !KNOWN_ICONS.has(icon)) {
     return (
       <span className={cn(cls, "flex items-center justify-center text-[14px] leading-4")}>
-        {icon}
+        <EmojiGlyph value={icon} />
       </span>
     )
   }
@@ -50,7 +55,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
     case "folder":
       return <Folder className={cls} />
     case "supernote":
-      return <BookOpenText className={cls} />
+      return <CompositeNoteIcon className={cls} />
     case "supercanvas":
       return <LayoutGrid className={cls} />
     case "supersketch":
@@ -83,11 +88,11 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
     item.icon !== "sketch" &&
     item.icon !== "database"
       ? item.icon
-      : isSuperNoteItem(item)
+      : isBundleNote(item)
         ? "supernote"
-        : isSuperCanvasItem(item)
+        : !item.bundleMember && isSuperCanvasItem(item)
           ? "supercanvas"
-          : isSuperSketchItem(item)
+          : !item.bundleMember && isSuperSketchItem(item)
             ? "supersketch"
             : item.type === "folder"
               ? "folder"
@@ -132,9 +137,8 @@ export function TreeItemStatusIcon({
   onActivate?: () => void
   label?: string
 }) {
-  const isFavoriteItem = (item.type === "file" || item.type === "database") && isFavorite
-  const isInteractive = (item.type === "file" || item.type === "database") && !!onActivate
-  const isSuperNote = isSuperNoteItem(item)
+  const isFavoriteItem = isFavorite
+  const isInteractive = !!onActivate
   const Icon =
     item.type === "folder"
       ? Folder
@@ -144,18 +148,18 @@ export function TreeItemStatusIcon({
           ? PenLine
           : item.type === "database"
             ? Database
-            : isSuperNote
-              ? BookOpenText
+            : isBundleNote(item)
+              ? CompositeNoteIcon
               : FileText
 
   return (
     <span
       aria-hidden={isInteractive ? undefined : true}
-      data-tree-file-status={
-        item.type === "folder" ? "folder" : isFavoriteItem ? "favorite" : item.type
-      }
+      data-tree-file-status={isFavoriteItem ? "favorite" : item.type}
       role={isInteractive ? "button" : undefined}
-      tabIndex={isInteractive ? 0 : undefined}
+      // Not a Tab stop: the row is the tree's single stop, and the context menu offers the
+      // same favourite action from the keyboard.
+      tabIndex={isInteractive ? -1 : undefined}
       aria-label={isInteractive ? label : undefined}
       aria-pressed={isInteractive ? isFavoriteItem : undefined}
       title={isInteractive ? label : undefined}
@@ -170,7 +174,7 @@ export function TreeItemStatusIcon({
       onKeyDown={
         isInteractive
           ? (event) => {
-              if (event.key !== "Enter" && event.key !== " ") return
+              if (!isEnterKey(event) && event.key !== " ") return
               event.preventDefault()
               event.stopPropagation()
               onActivate?.()

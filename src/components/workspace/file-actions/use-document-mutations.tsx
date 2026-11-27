@@ -2,6 +2,7 @@ import * as React from "react"
 import { useDatabaseStore } from "../database/database-store"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
+import { operationErrorCode, operationErrorText } from "@/lib/operation-errors"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   Dialog,
@@ -11,37 +12,87 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useNoticeJournalStore } from "@/lib/notices/use-notice-journal-store"
 import {
-  applyDatabaseValueBatch,
   backupCustomProperties,
-  confirmAction,
-  createDatabaseProperty,
+  beginMerge,
   deleteItem,
+  finishMerge,
   getDatabaseNoteContext,
   getNoteProperties,
+  listDatabases,
   moveItem,
-  previewMoveRefactor,
-  previewRenameRefactor,
   readNote,
   renameItem,
-  showErrorMessage,
+  undoMutation,
+  type UndoRecord,
   type FsMutationResult,
-  type CustomProperty,
   type DatabaseNoteContext,
-  type DatabasePropertySummary,
+  type TreeItem,
+  DatabaseOperationError,
 } from "@/lib/storage"
+import { flushAutosaveGeneration, holdLayerAutosavesInside } from "../autosave/autosave-lifecycle"
+import { useVaultStore } from "../use-vault-store"
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
+import { useTreeMessageStore } from "../tree/use-tree-message-store"
+import { usePropertyMoveRetryStore } from "./property-move-retry-store"
+import {
+  migratePropertiesToDatabase,
+  propertiesToMigrate,
+  type MigratingProperty,
+} from "./property-migration"
 import { findTreeItem } from "../workspace-tree-utils"
 import { moveTreeItemsOptimistically } from "../workspace-mutations"
+import { concatTreePatches } from "../tree-patch"
 import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
+import type { RenameOutcome } from "./rename-outcome"
+import { announceUndoable, registerUndoApplier, type UndoOutcome } from "./undo-operation"
 
 type Params = Pick<
   UseFileActionsParams,
   "vault" | "treeItems" | "setTreeItems" | "refreshTree" | "backendGeneration"
 > &
   MarkdownAutosaveActions & { handleSelect: (id: string) => Promise<void> }
+
+/** Where a path ended up after a mutation: a moved path, or one under a moved folder. */
+function pathAfterMutation(result: FsMutationResult, path: string): string {
+  for (const { oldPath, newPath } of result.pathChanges) {
+    if (!oldPath || !newPath) continue
+    if (path === oldPath) return newPath
+    if (path.startsWith(`${oldPath}/`)) return `${newPath}${path.slice(oldPath.length)}`
+  }
+  return path
+}
+
+/** A name without its folder and extension, as the person sees it. */
+function displayName(path: string): string {
+  const base = path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() ?? ""
+  return base.replace(/\.[^.]+$/, "")
+}
+
+/** The notes an undo writes back: open ones must have nothing unsaved first. */
+function undoTouchedPaths(record: UndoRecord): string[] {
+  return record.kind === "merge" ? [record.target.path] : record.rewritten.map((note) => note.path)
+}
+
+const UNDO_REFUSALS = new Set(["undoItemMoved", "undoNoteChanged", "undoUnavailable"])
+
+/**
+ * The app's own writes do not reach the open databases (the watcher skips them): after a note went into
+ * one, or its fields were made, they read their rows and fields again.
+ */
+async function refreshOpenDatabases() {
+  const store = useDatabaseStore.getState()
+  store.invalidateHosts()
+  if (store.catalogStatus === "disabled") return
+  try {
+    useDatabaseStore.getState().setCatalog(await listDatabases())
+  } catch (error) {
+    logger.debug("file.move_databases_refresh_failed", { failureCode: operationErrorCode(error) })
+  }
+}
 
 type PropertyMigrationChoice = "database" | "backup"
 
@@ -56,147 +107,6 @@ interface PendingPropertyMigration {
   count: number
   database: string
   resolve: (choice: PropertyMigrationChoice) => void
-}
-
-function migratedPropertyType(property: CustomProperty): string {
-  if (
-    property.propertyType === "number" &&
-    (!property.value || Number.isFinite(Number(property.value)))
-  )
-    return "number"
-  if (property.propertyType === "checkbox") return "checkbox"
-  if (
-    property.propertyType === "date" &&
-    (!property.value || /^\d{4}-\d{2}-\d{2}/.test(property.value))
-  )
-    return "date"
-  if (property.propertyType === "url") return "url"
-  if (property.propertyType === "select") return "select"
-  return "text"
-}
-
-function migratedOptions(property: CustomProperty): string[] {
-  const options = property.settings
-    .split(",")
-    .map((option) => option.trim())
-    .filter(Boolean)
-  if (
-    property.value &&
-    !options.some(
-      (option) => option.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-    )
-  ) {
-    options.push(property.value)
-  }
-  return options
-}
-
-function migratedValue(
-  property: CustomProperty,
-  propertyType: string,
-  targetProperty: DatabasePropertySummary,
-): string | undefined {
-  if (!property.value) return undefined
-  if (propertyType === "number") {
-    return JSON.stringify({ type: "number", decimal: property.value })
-  }
-  if (propertyType === "checkbox") {
-    return JSON.stringify({ type: "checkbox", checked: property.value === "true" })
-  }
-  if (propertyType === "date") {
-    return JSON.stringify({ type: "date", start: property.value })
-  }
-  if (propertyType === "select") {
-    const option = targetProperty.options.find(
-      (candidate) =>
-        candidate.name.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-    )
-    if (!option) {
-      throw new Error(
-        i18n.t("infoPanel.databasePropertyMoveOptionMissing", { property: property.name }),
-      )
-    }
-    return JSON.stringify({ type: "select", optionId: option.optionId })
-  }
-  return JSON.stringify({ type: propertyType, value: property.value })
-}
-
-async function migratePropertiesToDatabase(
-  vault: string,
-  context: DatabaseNoteContext,
-  properties: CustomProperty[],
-) {
-  let manifestRevision = context.manifestRevision
-  const usedNames = new Set(context.properties.map((property) => property.name.toLocaleLowerCase()))
-  const targetProperties: Array<{ propertyId: string; property: CustomProperty; type: string }> = []
-
-  for (const property of properties) {
-    const type = migratedPropertyType(property)
-    const matching = context.properties.find(
-      (candidate) =>
-        candidate.name.localeCompare(property.name, undefined, { sensitivity: "base" }) === 0 &&
-        candidate.propertyType === type &&
-        (type !== "select" ||
-          !property.value ||
-          candidate.options.some(
-            (option) =>
-              option.name.localeCompare(property.value, undefined, { sensitivity: "base" }) === 0,
-          )),
-    )
-    if (matching) {
-      targetProperties.push({ propertyId: matching.propertyId, property, type })
-      continue
-    }
-    let name = property.name.trim()
-    let suffix = 2
-    while (usedNames.has(name.toLocaleLowerCase())) name = `${property.name.trim()} ${suffix++}`
-    const created = await createDatabaseProperty({
-      expectedGeneration: context.vaultGeneration,
-      databaseId: context.databaseId,
-      expectedManifestRevision: manifestRevision,
-      name,
-      propertyType: type,
-      options: type === "select" ? migratedOptions(property) : undefined,
-    })
-    manifestRevision = created.manifestRevision
-    usedNames.add(name.toLocaleLowerCase())
-    targetProperties.push({ propertyId: created.propertyId, property, type })
-  }
-
-  const refreshedContext = (await getDatabaseNoteContext(context.row.noteId)) ?? context
-  const cells = targetProperties.flatMap(({ propertyId, property, type }) => {
-    const targetProperty = refreshedContext.properties.find(
-      (candidate) => candidate.propertyId === propertyId,
-    )
-    if (!targetProperty) {
-      throw new Error(
-        i18n.t("infoPanel.databasePropertyMoveFieldMissing", { property: property.name }),
-      )
-    }
-    const valueJson = migratedValue(property, type, targetProperty)
-    return valueJson
-      ? [
-          {
-            noteId: context.row.noteId,
-            propertyId,
-            valueJson,
-            expectedRevision: context.row.rowRevision,
-          },
-        ]
-      : []
-  })
-  if (cells.length) {
-    await applyDatabaseValueBatch({
-      expectedGeneration: context.vaultGeneration,
-      databaseId: context.databaseId,
-      operationId:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? `property-migration-${crypto.randomUUID()}`
-          : `property-migration-${Date.now()}`,
-      cells,
-    })
-  }
-  await backupCustomProperties(vault, context.row.noteId)
 }
 
 export function useDocumentMutations({
@@ -229,43 +139,138 @@ export function useDocumentMutations({
       return null
     })
   }, [])
+  /**
+   * After a note went into a database: offer to carry its own properties over, or to save them aside.
+   * It never throws and never writes before the answer. Whatever stops it (the properties or the place
+   * in the database cannot be read, the writing fails) is said under the tree with a button to try again
+   * and as a card of the note; the properties stay in the note then (docs/notices.md, section 8).
+   * `known` is what was read before the move; if that failed, it is read again here.
+   */
+  const offerPropertiesToDatabase = React.useCallback(
+    async (noteId: string, name: string, known: MigratingProperty[] | null): Promise<void> => {
+      if (!vault) return
+      const retry = () => offerPropertiesToDatabase(noteId, name, null)
+      const keepInNote = (event: string, error: unknown) => {
+        logger.warn(event, { failureCode: operationErrorCode(error) })
+        usePropertyMoveRetryStore.getState().set(noteId, { name, retry })
+        useTreeMessageStore.getState().show({
+          id: `properties-kept:${noteId}`,
+          level: "warning",
+          titleKey: "notices.tree.propertiesKept",
+          params: { name },
+          lineKey: "notices.tree.propertiesKeptLine",
+          action: { labelKey: "notices.tree.propertiesRetry", run: retry },
+        })
+      }
+      const done = () => {
+        usePropertyMoveRetryStore.getState().clear(noteId)
+        const { message: shown } = useTreeMessageStore.getState()
+        if (shown?.id === `properties-kept:${noteId}`) useTreeMessageStore.getState().dismiss()
+      }
+      let properties = known
+      if (!properties) {
+        try {
+          properties = propertiesToMigrate(await getNoteProperties(vault, noteId))
+        } catch (error) {
+          keepInNote("file.move_properties_read_failed", error)
+          return
+        }
+      }
+      if (!properties.length) return done()
+      let databaseContext: DatabaseNoteContext | null
+      try {
+        databaseContext = await getDatabaseNoteContext(noteId)
+      } catch (error) {
+        // The module is off: for the person the note is in no database, so there is nothing to offer.
+        if (error instanceof DatabaseOperationError && error.kind === "moduleDisabled")
+          return done()
+        keepInNote("file.move_database_context_failed", error)
+        return
+      }
+      // Not in a database (it went out of one, or into a plain folder): nothing to carry over.
+      if (!databaseContext) return done()
+      const choice = await requestPropertyMigration(
+        properties.length,
+        databaseContext.databaseTitle,
+      )
+      try {
+        if (choice === "database") {
+          await migratePropertiesToDatabase(vault, databaseContext, properties)
+        } else {
+          await backupCustomProperties(vault, noteId)
+          // A backup the person asked for: the journal says it is there (docs/notices.md, section 5).
+          useNoticeJournalStore.getState().record({
+            kind: "backupReady",
+            level: "success",
+            subject: `properties:${noteId}`,
+            params: { name, what: "properties" },
+          })
+        }
+      } catch (error) {
+        keepInNote("file.move_properties_write_failed", error)
+        return
+      }
+      done()
+      await refreshOpenDatabases()
+      try {
+        await refreshTree()
+      } catch (error) {
+        // The move and the properties are saved; the tree catches up with the next change.
+        logger.warn("file.move_refresh_failed", { failureCode: operationErrorCode(error) })
+      }
+    },
+    [refreshTree, requestPropertyMigration, vault],
+  )
   const handleRenameFile = React.useCallback(
-    async (id: string, newName: string) => {
+    async (id: string, newName: string): Promise<RenameOutcome> => {
       const item = findTreeItem(treeItems, id)
-      if (!item) return
+      if (!item || item.bundleMember) return { status: "skipped" }
       let finishLocalMutation: (() => void) | null = null
+      let releaseLayerSaves: ((newPathOf: (oldPath: string) => string) => void) | null = null
+      let newPathOf = (oldPath: string) => oldPath
       try {
         const path = item.path ?? id
-        const preview = await previewRenameRefactor(vault ?? "", path, newName)
-        if (
-          preview.replacements > 0 &&
-          !(await confirmAction(
-            t("workspace.renameRefactorConfirm", {
-              replacements: preview.replacements,
-              notes: preview.notes,
-            }),
-          ))
-        )
-          return
+        // Links in other notes are rewritten without a question: the line under the tree undoes it
+        // exactly (docs/notices.md, section 9).
         finishLocalMutation = beginLocalTreeMutation()
+        // A queued save of a canvas or sketch must not meet the old path gone (SAVE-10).
+        releaseLayerSaves = await holdLayerAutosavesInside(
+          useVaultStore.getState().generation,
+          path,
+        )
         const result = await renameItem(vault ?? "", path, newName)
+        newPathOf = (oldPath) => pathAfterMutation(result, oldPath)
         handleApplyMutation(result)
         // A page that databases list changed its title: their lists read it again.
         useDatabaseStore.getState().invalidateHosts()
         finishLocalMutation()
         patchDoc(id, { title: newName, path: result.primaryPath ?? item.path ?? id })
+        const renamedFolderId =
+          id.startsWith("folder:") && result.primaryPath ? `folder:${result.primaryPath}` : null
         setTabs((previous) =>
-          previous.map((tab) => (tab.fileId === id ? { ...tab, title: newName } : tab)),
+          previous.map((tab) =>
+            tab.fileId === id || tab.fileId === renamedFolderId ? { ...tab, title: newName } : tab,
+          ),
         )
         logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
+        announceUndoable([result], {
+          kind: "renamedWithLinks",
+          params: { name: newName },
+          titleKey: "notices.tree.renamed",
+          lineKey: "notices.tree.linksUpdated",
+          ...(result.primaryPath ? { target: result.primaryPath } : {}),
+        })
+        return { status: "renamed" }
       } catch (error) {
-        logger.error("file.rename_failed", { id, newName, error })
-        console.error("Failed to rename:", error)
+        // The field the name was typed in shows the reason (RenameHint); the log keeps the code.
+        logger.error("file.rename_failed", { id, failureCode: operationErrorCode(error), error })
+        return { status: "failed", text: operationErrorText(error) }
       } finally {
         finishLocalMutation?.()
+        releaseLayerSaves?.(newPathOf)
       }
     },
-    [handleApplyMutation, patchDoc, setTabs, t, treeItems, vault],
+    [handleApplyMutation, patchDoc, setTabs, treeItems, vault],
   )
   const handleMoveItem = React.useCallback(
     async (sourceIds: string[], targetId: string | null): Promise<MoveOutcome> => {
@@ -273,7 +278,7 @@ export function useDocumentMutations({
       const uniqueSourceIds = [...new Set(sourceIds)]
       const selectedSources = uniqueSourceIds
         .map((id) => findTreeItem(treeItems, id))
-        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .filter((item): item is NonNullable<typeof item> => Boolean(item && !item.bundleMember))
       if (!selectedSources.length) return "skipped"
       const target = targetId ? findTreeItem(treeItems, targetId) : null
       // A standalone database is a folder of its own; moving a page into it adds the page to it.
@@ -333,39 +338,39 @@ export function useDocumentMutations({
       )
         return "skipped"
 
-      const previousTree = treeItems
-      setTreeItems((current) =>
-        moveTreeItemsOptimistically(
+      // The rollback needs the raw tree the setter holds, not `treeItems`: that one is the displayed
+      // tree, with icons and types of the primary layer mixed in, and would stick to the raw one.
+      let previousTree: TreeItem[] | null = null
+      setTreeItems((current) => {
+        previousTree = current
+        return moveTreeItemsOptimistically(
           current,
           sourceEntries.map(({ source }) => source.id),
           targetId,
-        ),
-      )
+        )
+      })
+      const restoreTree = () => {
+        if (previousTree) setTreeItems(previousTree)
+        else void refreshTree()
+      }
 
       const results: FsMutationResult[] = []
       const finishLocalMutation = beginLocalTreeMutation()
       try {
         const source = sourceEntries.length === 1 ? sourceEntries[0].source : null
-        const previousProperties =
+        // Read before the move; if that fails, the offer after the move reads again.
+        const previousProperties: MigratingProperty[] | null =
           source?.type === "file"
-            ? await getNoteProperties(vault, source.id).catch(() => null)
-            : null
-        if (sourceEntries.length === 1) {
-          const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
-          if (
-            preview.replacements > 0 &&
-            !(await confirmAction(
-              t("workspace.moveRefactorConfirm", {
-                replacements: preview.replacements,
-                notes: preview.notes,
-              }),
-            ))
-          ) {
-            setTreeItems(previousTree)
-            return "skipped"
-          }
-        }
-
+            ? await getNoteProperties(vault, source.id).then(
+                (properties) => propertiesToMigrate(properties),
+                (error: unknown) => {
+                  logger.debug("file.move_properties_read_failed", {
+                    failureCode: operationErrorCode(error),
+                  })
+                  return null
+                },
+              )
+            : []
         let currentTargetPath = targetPath
         for (const { sourcePath } of sourceEntries) {
           const result = await moveItem(vault, sourcePath, currentTargetPath)
@@ -398,6 +403,8 @@ export function useDocumentMutations({
           pathChanges,
           deletedPaths: results.flatMap((result) => result.deletedPaths),
           deletedIds: results.flatMap((result) => result.deletedIds ?? []),
+          // The moves ran one after another, so their patches apply in the same order.
+          treePatch: concatTreePatches(results.map((result) => result.treePatch)),
         })
         recordLocalTreePaths(sourceEntries.map((entry) => entry.sourceRoot))
         finishLocalMutation()
@@ -407,24 +414,31 @@ export function useDocumentMutations({
           pathChangesCount: pathChanges.length,
         })
 
-        if (previousProperties?.customProperties.length && source) {
-          const databaseContext = await getDatabaseNoteContext(source.id).catch(() => null)
-          if (databaseContext) {
-            const choice = await requestPropertyMigration(
-              previousProperties.customProperties.length,
-              databaseContext.databaseTitle,
-            )
-            if (choice === "database") {
-              await migratePropertiesToDatabase(
-                vault,
-                databaseContext,
-                previousProperties.customProperties,
-              )
-            } else {
-              await backupCustomProperties(vault, source.id)
-            }
-            await refreshTree()
-          }
+        // The move is undone as a whole, exactly, from the line under the tree or the journal, when it
+        // changed links in other notes (docs/notices.md, section 9).
+        const targetName = target?.name ?? displayName(vault)
+        announceUndoable(
+          results,
+          sourceEntries.length === 1
+            ? {
+                kind: "movedWithLinks",
+                params: { name: sourceEntries[0].source.name, target: targetName },
+                titleKey: "notices.tree.moved",
+                lineKey: "notices.tree.linksUpdated",
+                ...(lastResult?.primaryPath ? { target: lastResult.primaryPath } : {}),
+              }
+            : {
+                kind: "movedManyWithLinks",
+                params: { items: String(sourceEntries.length), target: targetName },
+                titleKey: "notices.tree.movedMany",
+                lineKey: "notices.tree.linksUpdated",
+              },
+        )
+        await refreshOpenDatabases()
+        // A single note moved: carry its properties over if it is now in a database. Not awaited for
+        // the person's answer in the outcome of the move: the move itself is done.
+        if (source?.type === "file" && previousProperties?.length !== 0) {
+          await offerPropertiesToDatabase(source.id, source.name, previousProperties)
         }
         return "moved"
       } catch (error) {
@@ -436,20 +450,34 @@ export function useDocumentMutations({
         if (results.length) {
           await refreshTree()
         } else {
-          setTreeItems(previousTree)
+          restoreTree()
         }
         console.error("Failed to move item:", error)
-        void showErrorMessage(
-          t("infoPanel.databasePropertyMoveFailed", {
-            message: error instanceof Error ? error.message : String(error),
-          }),
+        // Said under the tree, where the note was dragged; the cause stays in the log (docs/notices.md, section 10).
+        const moved = results.length > 0
+        useTreeMessageStore.getState().show(
+          sourceEntries.length === 1
+            ? {
+                id: "move-failed",
+                level: "warning",
+                titleKey: "notices.tree.moveFailed",
+                params: { name: sourceEntries[0].source.name },
+                lineKey: moved ? "notices.tree.movePartial" : "notices.tree.moveKept",
+              }
+            : {
+                id: "move-failed",
+                level: "warning",
+                titleKey: "notices.tree.moveFailedMany",
+                params: { count: sourceEntries.length },
+                lineKey: moved ? "notices.tree.movePartial" : "notices.tree.moveKept",
+              },
         )
         return "failed"
       } finally {
         finishLocalMutation()
       }
     },
-    [handleApplyMutation, refreshTree, requestPropertyMigration, setTreeItems, t, treeItems, vault],
+    [handleApplyMutation, offerPropertiesToDatabase, refreshTree, setTreeItems, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {
@@ -458,10 +486,9 @@ export function useDocumentMutations({
       const target = findTreeItem(treeItems, targetId)
       if (
         source?.type !== "file" ||
-        target?.type !== "file" ||
-        !(await confirmAction(
-          t("workspace.mergeFilesConfirm", { source: source.name, target: target.name }),
-        ))
+        source.bundleMember ||
+        target?.bundleMember ||
+        target?.type !== "file"
       )
         return
       try {
@@ -479,6 +506,9 @@ export function useDocumentMutations({
           .filter(Boolean)
           .join("\n\n")
         const path = targetDocument?.path ?? target.path
+        // The target's text is kept as a version first, so the merge is undone exactly and is not asked
+        // about (docs/notices.md, section 9). `null` where it cannot be kept (the browser).
+        const snapshotId = await beginMerge(path)
         if (targetDocument) {
           patchDoc(targetId, {
             content,
@@ -495,10 +525,25 @@ export function useDocumentMutations({
           expectedRevision: targetDocument?.revision ?? targetRead!.revision,
         })
         await autosave.flush(autosaveKey(targetId))
+        // The merged text did not reach the disk: the source stays where it is.
+        if (useDocStore.getState().unsavedFileIds.has(targetId)) {
+          logger.warn("file.merge_kept_source", { sourceId, targetId })
+          return
+        }
         const finishLocalMutation = beginLocalTreeMutation()
         try {
-          handleApplyMutation(await deleteItem(vault, source.path))
+          const result = snapshotId
+            ? await finishMerge(vault, source.path, path, snapshotId)
+            : await deleteItem(vault, source.path)
+          handleApplyMutation(result)
           finishLocalMutation()
+          announceUndoable([result], {
+            kind: "notesMerged",
+            params: { source: source.name, target: target.name },
+            titleKey: "notices.tree.merged",
+            lineKey: "notices.tree.mergedLine",
+            target: path,
+          })
         } finally {
           finishLocalMutation()
         }
@@ -516,11 +561,68 @@ export function useDocumentMutations({
       markUnsaved,
       patchDoc,
       recoveryScope,
-      t,
       treeItems,
       vault,
     ],
   )
+  /**
+   * «Вернуть» of a rename, a move or a merge (undo-operation.ts). Unsaved text is saved first, and an open
+   * note the undo would write back must have nothing unsaved and no outside change; the backend refuses
+   * when anything changed since, and then nothing is touched.
+   */
+  const applyUndo = React.useCallback(
+    async (record: UndoRecord): Promise<UndoOutcome> => {
+      const saveFirst = { outcome: "refused", key: "notices.journal.undoSaveFirst" } as const
+      if (!vault) return { outcome: "refused", key: "notices.journal.undoFailed" }
+      const flushed = await flushAutosaveGeneration(useVaultStore.getState().generation)
+      if (!flushed.flushed) return saveFirst
+      const state = useDocStore.getState()
+      const touched = new Set(undoTouchedPaths(record).map((path) => path.normalize("NFC")))
+      const blocked = Object.values(state.openDocs).some(
+        (doc) =>
+          touched.has(doc.path.normalize("NFC")) &&
+          (state.unsavedFileIds.has(doc.id) || Boolean(state.externalConflicts[doc.id])),
+      )
+      if (blocked) return saveFirst
+      const finishLocalMutation = beginLocalTreeMutation()
+      try {
+        const result = await undoMutation(record)
+        handleApplyMutation(result)
+        finishLocalMutation()
+        useDatabaseStore.getState().invalidateHosts()
+        if (record.kind === "rename" && result.primaryPath) {
+          const name = displayName(result.primaryPath)
+          const docs = useDocStore.getState().openDocs
+          const renamed = Object.values(docs).find((doc) => doc.path === result.primaryPath)
+          if (renamed) {
+            patchDoc(renamed.id, { title: name })
+            setTabs((previous) =>
+              previous.map((tab) => (tab.fileId === renamed.id ? { ...tab, title: name } : tab)),
+            )
+          }
+        }
+        logger.info("file.undo", { kind: record.kind })
+        try {
+          await refreshTree()
+        } catch (error) {
+          // The undo is done; the tree catches up with the next change.
+          logger.warn("file.undo_refresh_failed", { failureCode: operationErrorCode(error) })
+        }
+        return { outcome: "restored" }
+      } catch (error) {
+        const code = operationErrorCode(error)
+        logger.warn("file.undo_failed", { kind: record.kind, failureCode: code })
+        return {
+          outcome: "refused",
+          key: UNDO_REFUSALS.has(code) ? `operationErrors.${code}` : "notices.journal.undoFailed",
+        }
+      } finally {
+        finishLocalMutation()
+      }
+    },
+    [handleApplyMutation, patchDoc, refreshTree, setTabs, vault],
+  )
+  React.useEffect(() => registerUndoApplier(applyUndo), [applyUndo])
   const propertyMigrationDialog = (
     <Dialog open={Boolean(pendingPropertyMigration)}>
       <DialogContent

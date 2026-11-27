@@ -12,16 +12,24 @@ export class SettingsRepository {
     return this.port().writeGlobalRaw(file, contents)
   }
 
+  async compareWriteGlobalRaw(
+    file: string,
+    expected: string | null,
+    contents: string,
+  ): Promise<boolean> {
+    return this.port().compareWriteGlobalRaw(file, expected, contents)
+  }
+
   async readVaultRaw(rel: string): Promise<string | null> {
     return this.port().readVaultRaw(rel)
   }
 
-  async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    return this.port().writeVaultRaw(rel, contents)
-  }
-
-  async deleteVaultMeta(rel: string): Promise<void> {
-    return this.port().deleteVaultMeta(rel)
+  async writeVaultRaw(
+    rel: string,
+    contents: string,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    return this.port().writeVaultRaw(rel, contents, expectedGeneration)
   }
 
   async readGlobalSettingsResult<T>(file: string): Promise<SettingsReadResult<T>> {
@@ -33,7 +41,7 @@ export class SettingsRepository {
     }
     if (raw === null) return { status: "missing" }
     try {
-      const data = JSON.parse(raw) as T
+      const data = JSON.parse(raw.replace(/^\uFEFF/, "")) as T
       return { status: "found", data }
     } catch (err) {
       return { status: "corrupt", raw, error: String(err) }
@@ -96,8 +104,17 @@ export class SettingsRepository {
     throw new Error(`Failed to load vault settings file ${rel}: ${res.error}`)
   }
 
-  async saveVaultJSON(rel: string, data: unknown): Promise<void> {
-    await this.writeVaultRaw(rel, JSON.stringify(data, null, 2))
+  /**
+   * `expectedGeneration` is the backend generation of the vault the caller decided to write for;
+   * the backend refuses the write when another vault is active by then. `null`/omitted: no check
+   * (a window that does not know the generation).
+   */
+  async saveVaultJSON(
+    rel: string,
+    data: unknown,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    await this.writeVaultRaw(rel, JSON.stringify(data, null, 2), expectedGeneration)
   }
 
   async globalFileMissing(file: string): Promise<boolean> {
@@ -110,6 +127,10 @@ export class SettingsRepository {
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
     return this.port().storeAiCredential(credentialId, secret)
+  }
+
+  async deleteUnreferencedAiCredential(credentialId: string): Promise<boolean> {
+    return this.port().deleteUnreferencedAiCredential(credentialId)
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {

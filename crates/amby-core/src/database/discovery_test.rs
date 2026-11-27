@@ -1,0 +1,360 @@
+use super::*;
+use serde_json::json;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const OUTER_ID: &str = "01J00000000000000000000000";
+const INNER_ID: &str = "01J00000000000000000000001";
+const FIRST_NOTE_ID: &str = "01J00000000000000000000002";
+const SECOND_NOTE_ID: &str = "01J00000000000000000000003";
+
+fn temp_vault(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("amby-discovery-{name}-{nanos}"));
+    fs::create_dir_all(&path).unwrap();
+    path
+}
+
+fn write_manifest(root: &Path, id: &str, name: &str) {
+    fs::create_dir_all(root).unwrap();
+    fs::write(
+        root.join(DATABASE_MANIFEST),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": id,
+            "name": name,
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [],
+            "viewOrder": [],
+            "defaultViewId": null,
+            "templateOrder": [],
+            "defaultTemplateId": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+fn write_note(path: &Path, id: &str, title: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, format!("---\namby-id: {id}\n---\n# {title}\n")).unwrap();
+}
+
+fn note<'a>(result: &'a DiscoveryResult, path: &str) -> &'a DiscoveredNote {
+    result
+        .notes
+        .iter()
+        .find(|note| note.relative_path == path)
+        .unwrap()
+}
+
+fn has_code(result: &DiscoveryResult, code: DiagnosticCode) -> bool {
+    result
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == code)
+}
+
+#[test]
+fn discovers_attached_and_standalone_ownership_and_categories() {
+    let vault = temp_vault("ownership");
+    let attached = vault.join("Characters");
+    let standalone = vault.join("Tasks");
+    write_manifest(&attached, OUTER_ID, "Characters");
+    write_manifest(&standalone, INNER_ID, "Tasks");
+    write_note(
+        &attached.join("Characters.md"),
+        FIRST_NOTE_ID,
+        "Database page",
+    );
+    write_note(&attached.join("Alice.md"), SECOND_NOTE_ID, "Alice");
+    write_note(&attached.join("Category/Bob.md"), OUTER_ID, "Bob");
+    write_note(&standalone.join("Task.md"), FIRST_NOTE_ID, "Task");
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(result.databases.len(), 2);
+    assert_eq!(result.databases[0].kind, ContainerKind::Attached);
+    assert_eq!(result.databases[1].kind, ContainerKind::Standalone);
+    assert_eq!(
+        note(&result, "Characters/Characters.md").owner_database_id,
+        None
+    );
+    assert_eq!(
+        note(&result, "Characters/Alice.md")
+            .owner_database_id
+            .as_deref(),
+        Some(OUTER_ID)
+    );
+    assert_eq!(
+        note(&result, "Characters/Category/Bob.md").category_path,
+        vec!["Category"]
+    );
+    assert_eq!(
+        note(&result, "Tasks/Task.md").owner_database_id.as_deref(),
+        Some(INNER_ID)
+    );
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn nearest_nested_database_owns_subtree_but_attached_main_stays_outer() {
+    let vault = temp_vault("nested");
+    let outer = vault.join("Outer");
+    let inner = outer.join("Inner");
+    write_manifest(&outer, OUTER_ID, "Outer");
+    write_manifest(&inner, INNER_ID, "Inner");
+    write_note(&inner.join("Inner.md"), FIRST_NOTE_ID, "Inner database");
+    write_note(&inner.join("Child.md"), SECOND_NOTE_ID, "Child");
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(
+        note(&result, "Outer/Inner/Inner.md")
+            .owner_database_id
+            .as_deref(),
+        Some(OUTER_ID)
+    );
+    assert_eq!(
+        note(&result, "Outer/Inner/Child.md")
+            .owner_database_id
+            .as_deref(),
+        Some(INNER_ID)
+    );
+    assert_eq!(
+        note(&result, "Outer/Inner/Child.md")
+            .parent_note_id
+            .as_deref(),
+        Some(FIRST_NOTE_ID)
+    );
+    assert_eq!(note(&result, "Outer/Inner/Child.md").depth, 1);
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn confirms_w3_story_attached_inner_database_inside_stories_outer_database() {
+    let vault = temp_vault("w3-workshop");
+    let stories = vault.join("Истории");
+    let story = stories.join("Моя история");
+    let stories_id = "01J00000000000000000000010";
+    let story_id = "01J00000000000000000000011";
+    let story_card_id = "01J00000000000000000000012";
+    let chapter1_id = "01J00000000000000000000013";
+    let chapter2_id = "01J00000000000000000000014";
+
+    write_manifest(&stories, stories_id, "Истории");
+    write_manifest(&story, story_id, "Моя история");
+    write_note(
+        &story.join("Моя история.md"),
+        story_card_id,
+        "Карточка истории",
+    );
+    write_note(&story.join("Глава 1.md"), chapter1_id, "Глава 1");
+    write_note(&story.join("Глава 2.md"), chapter2_id, "Глава 2");
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(result.databases.len(), 2);
+
+    let story_card = note(&result, "Истории/Моя история/Моя история.md");
+    let chapter1 = note(&result, "Истории/Моя история/Глава 1.md");
+    let chapter2 = note(&result, "Истории/Моя история/Глава 2.md");
+
+    // Main file is a row in outer database "Истории"
+    assert_eq!(story_card.owner_database_id.as_deref(), Some(stories_id));
+    assert_eq!(story_card.owner_container_path.as_deref(), Some("Истории"));
+
+    // Other notes in folder are rows in inner database "Моя история", not outer
+    assert_eq!(chapter1.owner_database_id.as_deref(), Some(story_id));
+    assert_eq!(
+        chapter1.owner_container_path.as_deref(),
+        Some("Истории/Моя история")
+    );
+    assert_eq!(chapter2.owner_database_id.as_deref(), Some(story_id));
+    assert_eq!(
+        chapter2.owner_container_path.as_deref(),
+        Some("Истории/Моя история")
+    );
+
+    // Chapters are NOT in outer database
+    let outer_members = result
+        .notes
+        .iter()
+        .filter(|n| n.owner_database_id.as_deref() == Some(stories_id))
+        .map(|n| n.relative_path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(outer_members, vec!["Истории/Моя история/Моя история.md"]);
+
+    // Story card is NOT in inner database
+    let inner_members = result
+        .notes
+        .iter()
+        .filter(|n| n.owner_database_id.as_deref() == Some(story_id))
+        .map(|n| n.relative_path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        inner_members,
+        vec![
+            "Истории/Моя история/Глава 1.md",
+            "Истории/Моя история/Глава 2.md"
+        ]
+    );
+
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn corrupt_nested_manifest_is_a_hard_boundary() {
+    let vault = temp_vault("broken-nested");
+    let outer = vault.join("Outer");
+    let inner = outer.join("Inner");
+    write_manifest(&outer, OUTER_ID, "Outer");
+    fs::create_dir_all(&inner).unwrap();
+    fs::write(inner.join(DATABASE_MANIFEST), b"{not-json").unwrap();
+    write_note(&inner.join("Child.md"), FIRST_NOTE_ID, "Child");
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(result.databases.len(), 1);
+    assert_eq!(
+        note(&result, "Outer/Inner/Child.md").owner_database_id,
+        None
+    );
+    assert!(has_code(&result, DiagnosticCode::BrokenManifest));
+    assert!(has_code(&result, DiagnosticCode::NestedBoundary));
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn duplicate_ids_titles_and_excluded_service_directories_are_visible() {
+    let vault = temp_vault("diagnostics");
+    write_manifest(&vault.join("One"), OUTER_ID, "Same");
+    write_manifest(&vault.join("Two"), OUTER_ID, "Same");
+    write_note(&vault.join("One/A.md"), FIRST_NOTE_ID, "Same note");
+    write_note(&vault.join("One/B.md"), FIRST_NOTE_ID, "Same note");
+    for directory in [".amby", ".obsidian", ".git", ".trash", "assets", ".ambd"] {
+        let hidden = vault.join(directory).join("Hidden.md");
+        if let Some(parent) = hidden.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(hidden, "# Hidden").unwrap();
+    }
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(
+        result
+            .notes
+            .iter()
+            .filter(|note| note.relative_path.contains("Hidden"))
+            .count(),
+        0
+    );
+    assert!(has_code(&result, DiagnosticCode::DuplicateDatabaseId));
+    assert!(has_code(&result, DiagnosticCode::DuplicateDatabaseTitle));
+    assert!(has_code(&result, DiagnosticCode::DuplicateNoteId));
+    assert!(has_code(&result, DiagnosticCode::DuplicateNoteTitle));
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
+fn orphan_record_shard_and_missing_view_are_diagnosed() {
+    let vault = temp_vault("shards");
+    let database = vault.join("Database");
+    write_manifest(&database, OUTER_ID, "Database");
+    write_note(&database.join("Known.md"), FIRST_NOTE_ID, "Known");
+    let records = database.join(".ambd/records");
+    fs::create_dir_all(&records).unwrap();
+    fs::write(
+        records.join(format!("{SECOND_NOTE_ID}.json")),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database-record",
+            "formatVersion": 1,
+            "databaseId": OUTER_ID,
+            "noteId": SECOND_NOTE_ID,
+            "values": {}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let manifest_path = database.join(DATABASE_MANIFEST);
+    let mut manifest =
+        serde_json::from_slice::<serde_json::Value>(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["viewOrder"] = json!([INNER_ID]);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let result = discover_vault(&vault).unwrap();
+    assert!(has_code(&result, DiagnosticCode::OrphanShard));
+    assert!(has_code(&result, DiagnosticCode::MissingShard));
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_escape_is_diagnosed_without_following_the_link() {
+    use std::os::unix::fs::symlink;
+
+    let vault = temp_vault("symlink");
+    let outside = temp_vault("symlink-outside");
+    write_manifest(&vault.join("Database"), OUTER_ID, "Database");
+    write_note(&outside.join("Secret.md"), FIRST_NOTE_ID, "Secret");
+    symlink(&outside, vault.join("Database/.ambd")).unwrap();
+    let result = discover_vault(&vault).unwrap();
+    assert!(has_code(&result, DiagnosticCode::SymlinkEscape));
+    assert!(result
+        .notes
+        .iter()
+        .all(|note| !note.relative_path.contains("Secret")));
+    fs::remove_dir_all(vault).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn named_manifest_database_is_discovered_and_preferred_over_legacy() {
+    let vault = temp_vault("named-manifest");
+    let db_dir = vault.join("Projects");
+    fs::create_dir_all(&db_dir).unwrap();
+
+    // 1. Named manifest
+    let manifest = json!({
+        "format": "amby-database",
+        "formatVersion": 1,
+        "databaseId": OUTER_ID,
+        "name": "Projects",
+        "locked": false,
+        "membership": {"kind": "filesystem-descendants", "recursive": true},
+        "properties": [],
+        "viewOrder": [],
+        "defaultViewId": null,
+        "templateOrder": [],
+        "defaultTemplateId": null,
+    });
+    fs::write(
+        db_dir.join("Projects.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    // 2. An unrelated JSON file in another folder
+    let config_dir = vault.join("Config");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(config_dir.join("Config.json"), b"{\"unrelated\": true}").unwrap();
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(result.databases.len(), 1);
+    let db = &result.databases[0];
+    assert_eq!(db.database_id, OUTER_ID);
+    assert_eq!(db.name, "Projects");
+    assert_eq!(
+        db.manifest_path,
+        vault.canonicalize().unwrap().join("Projects/Projects.json")
+    );
+    assert!(result.diagnostics.is_empty());
+
+    fs::remove_dir_all(vault).unwrap();
+}

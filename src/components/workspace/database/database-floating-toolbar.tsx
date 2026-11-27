@@ -1,6 +1,7 @@
 "use client"
 
 import { useTranslation } from "react-i18next"
+import { formatRedoShortcut, formatShortcut } from "../keyboard-shortcuts"
 import { Lock, Maximize2, Redo2, Settings2, Undo2, Unlock } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
@@ -34,7 +35,7 @@ export function DatabaseFloatingToolbar({
   const { t } = useTranslation()
 
   return (
-    <div className="pointer-events-none absolute bottom-2 right-2 z-10 select-none max-w-[calc(100%-1rem)]">
+    <div className="pointer-events-none absolute bottom-3 right-3 z-10 select-none max-w-[calc(100%-1.5rem)]">
       <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
         {/* Statistics: Row count & Property count */}
         <div className="flex items-center px-1.5 text-[11px] text-muted-foreground select-none">
@@ -48,7 +49,7 @@ export function DatabaseFloatingToolbar({
           <>
             <div className="mx-0.5 h-3.5 w-px bg-border/80" />
             <ToolbarButton
-              title={t("docEditor.undo")}
+              title={t("docEditor.undo", { shortcut: formatShortcut("Mod+Z") })}
               disabled={!canUndo}
               onMouseDown={(e) => e.preventDefault()}
               onClick={onUndo}
@@ -56,7 +57,7 @@ export function DatabaseFloatingToolbar({
               <Undo2 className="size-3.5" />
             </ToolbarButton>
             <ToolbarButton
-              title={t("docEditor.redo")}
+              title={t("docEditor.redo", { shortcut: formatRedoShortcut() })}
               disabled={!canRedo}
               onMouseDown={(e) => e.preventDefault()}
               onClick={onRedo}

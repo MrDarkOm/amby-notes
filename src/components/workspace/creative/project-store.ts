@@ -1,5 +1,6 @@
 import { create } from "zustand"
-import type { ProjectCatalog } from "@/lib/storage"
+import type { PathChange, ProjectCatalog } from "@/lib/storage"
+import { remapPath } from "../workspace-mutations"
 import { activeCatalog } from "./workshop-location"
 
 export type ProjectCatalogStatus = "idle" | "loading" | "ready" | "disabled" | "error"
@@ -57,3 +58,16 @@ export const useProjectStore = create<ProjectStoreState>((set) => ({
   setError: (error) => set({ status: "error", error }),
   setDisabled: () => set({ status: "disabled", catalog: null, rawCatalog: null, error: null }),
 }))
+
+/** App-originated renames suppress watcher events. Refresh from their committed path changes. */
+export function refreshAfterWorkshopMove(vault: string, changes: PathChange[]) {
+  const { catalog, refresh } = useProjectStore.getState()
+  const active = catalog?.workshops[0]
+  if (!active || !refresh || changes.length === 0) return
+  const root = vault.replace(/\\/gu, "/").replace(/\/+$/u, "")
+  const marker = `${active.path}/amby-workshop.json`
+  const absolute = `${root}/${marker}`
+  if (remapPath(absolute, changes) !== absolute || remapPath(marker, changes) !== marker) {
+    void refresh(true)
+  }
+}

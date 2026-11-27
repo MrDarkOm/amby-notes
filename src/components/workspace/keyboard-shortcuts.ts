@@ -179,6 +179,13 @@ export function formatShortcut(
     .join(" + ")
 }
 
+/** The editor's redo key as people expect it: ⇧⌘Z on a Mac, Ctrl+Y elsewhere. */
+export function formatRedoShortcut(
+  mac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform),
+): string {
+  return formatShortcut(mac ? "Mod+Shift+Z" : "Mod+Y", mac)
+}
+
 export function normalizeShortcutBindings(raw: unknown): ShortcutBindings {
   const stored = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}
   return Object.fromEntries(

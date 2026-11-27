@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import * as React from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import i18n from "@/lib/i18n"
@@ -47,6 +46,68 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("sidebar tree interactions", () => {
+  it.each([false, true])("offers only missing layers on a database bundle (%s)", (withSketch) => {
+    const onAttachLayer = vi.fn()
+    const onAttachSketch = vi.fn()
+    const project: TreeItem = {
+      id: "project",
+      path: withSketch ? "/vault/Project/Project.excalidraw" : "/vault/Project",
+      name: "Project",
+      type: withSketch ? "sketch" : "database",
+      ...(withSketch
+        ? {
+            bundleMembers: [
+              {
+                id: "db",
+                path: "/vault/Project/Project.json",
+                name: "Project",
+                type: "database" as const,
+              },
+            ],
+          }
+        : {}),
+    }
+    const stale = { project: { note: true, database: true, canvas: false, sketch: withSketch } }
+    const tree = (item: TreeItem) => (
+      <SidebarTree
+        items={[item]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onAttachLayer={onAttachLayer}
+        onAttachSketch={onAttachSketch}
+        linkedLayersByDoc={stale}
+        canCreateDatabaseLayer
+      />
+    )
+    const openedMenu = () => {
+      fireEvent.contextMenu(screen.getByRole("treeitem", { name: "Project" }), { button: 2 })
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: i18n.t("tree.attach") }), {
+        key: "ArrowRight",
+      })
+    }
+    const { rerender } = render(
+      tree({
+        ...project,
+        path: "/vault/Project/Project.md",
+        bundleMembers: project.bundleMembers ?? [],
+      }),
+    )
+    openedMenu()
+    expect(screen.queryByRole("menuitem", { name: i18n.t("tree.attachNote") })).toBeNull()
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: i18n.t("tree.attach") }), {
+      key: "Escape",
+    })
+
+    rerender(tree({ ...project, bundleMembers: project.bundleMembers ?? [] }))
+    openedMenu()
+    expect(screen.queryByRole("menuitem", { name: i18n.t("tree.attachDatabase") })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: i18n.t("tree.attachToNote") })).toBeNull()
+    fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("tree.attachNote") }))
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("tree.create") }))
+    expect(onAttachLayer).toHaveBeenCalledWith("project", "note")
+    expect(onAttachSketch).not.toHaveBeenCalled()
+  })
+
   it("keeps editor focus when saved metadata refreshes the tree", async () => {
     const props = { items, selectedId: "leaf", onSelect: vi.fn() }
     const view = render(
@@ -91,7 +152,10 @@ describe("sidebar tree interactions", () => {
         <SidebarTree items={items} selectedId={null} onSelect={vi.fn()} onNewFile={onNewFile} />,
       )
       fireEvent.contextMenu(screen.getByRole("treeitem", { name }), { button: 2 })
-      fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("tree.newNote") }))
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: i18n.t("tree.nest") }), {
+        key: "ArrowRight",
+      })
+      fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("filesPanel.newNote") }))
 
       expect(onNewFile).not.toHaveBeenCalled()
       await act(async () => {

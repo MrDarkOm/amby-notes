@@ -49,6 +49,18 @@ describe("vault window lifecycle", () => {
     ).toEqual({ kind: "idle" })
   })
 
+  it("does not reopen the browser demo after a known vault has been detached", () => {
+    expect(
+      planVaultStartup({
+        isDesktop: false,
+        windowLabel: "main",
+        lastOpened: null,
+        reopenLastVault: true,
+        hasRecentVaults: true,
+      }),
+    ).toEqual({ kind: "idle" })
+  })
+
   it("keeps same-path activation events so their generation can be updated", () => {
     const payload = { path: "/vault/current", generation: 9 }
     expect(activationMatchesCurrentVault(payload, "/vault/current")).toBe(true)

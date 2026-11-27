@@ -52,6 +52,15 @@ function ambyEsc(this: EscapeState | void, str: string, startOfLine?: boolean): 
       // Only a reference the Markdown parser really decodes is escaped: `AT&T;` is text.
       entityProbe.utils.unescapeAll(reference) === reference ? reference : `\\${reference}`,
     )
+  // Text that would be read as markup in the middle of a line. `](` is where a link or an
+  // image takes its address (`[draft](todo)` typed as text); a `<` followed by a letter,
+  // `/`, `!` or `?` opens a tag, a comment or an autolink. Only these are escaped, so
+  // brackets and angle brackets that mean nothing stay as typed.
+  str = str
+    .replace(/\](?=\()/g, "]\\")
+    .replace(/<(?=[A-Za-z/!?])/g, "\\<")
+    // `[^1]` is a footnote reference and `^[text]` an inline note: typed as text, not as one.
+    .replace(/\[(?=\^)|(?<=\^)\[/g, "\\[")
   if (startOfLine || afterHeadingMarker) {
     const lead = /^[^\S\r\n]/u.exec(str)?.[0]
     if (lead) return referenceFor(lead) + str.slice(lead.length)
@@ -92,6 +101,18 @@ function linkTitleSource(mark: PMMark): string {
       },
     )
   return ` ${open}${escaped}${close}`
+}
+
+/**
+ * The address of a link or an image as it stands between the parentheses. An address with
+ * whitespace (or one that begins with `<`) is not read as an address without `<…>`; in the
+ * bare form only the parentheses and quotes need a backslash.
+ */
+function destinationSource(address: string, bare: RegExp): string {
+  if (/[\s]|^</u.test(address)) {
+    return `<${address.replace(/[\\<>]/g, "\\$&").replace(/\s*[\r\n]\s*/g, " ")}>`
+  }
+  return address.replace(bare, "\\$&")
 }
 
 function backticksFor(node: PMNode, side: number): string {
@@ -404,6 +425,9 @@ const nodeSerializers: Record<
     let altPart = (node.attrs.alt as string | undefined) || ""
     const width = node.attrs.width as number | string | null | undefined
     const height = node.attrs.height as number | string | null | undefined
+    const align = node.attrs.align as string | null | undefined
+    // Alignment is written as `|center` after the alt text, before the size.
+    if (align === "left" || align === "center" || align === "right") altPart = `${altPart}|${align}`
     if (width) {
       const sizeStr = height ? `${width}x${height}` : `${width}`
       if (altPart) {
@@ -416,9 +440,10 @@ const nodeSerializers: Record<
     }
     state.write(
       "![" +
-        state.esc(altPart) +
+        // The alt text stands between `[` and `]`: a bracket in it would end or open the label.
+        state.esc(altPart).replace(/[[\]]/g, "\\$&") +
         "](" +
-        String(node.attrs.src || "").replace(/[()]/g, "\\$&") +
+        destinationSource(String(node.attrs.src || ""), /[()]/g) +
         (node.attrs.title ? ' "' + String(node.attrs.title).replace(/"/g, '\\"') + '"' : "") +
         ")",
     )
@@ -503,7 +528,10 @@ const markSerializers: Record<string, MarkSerializerSpec> = {
   link: {
     open: "[",
     close: (_state, mark) =>
-      "](" + String(mark.attrs.href || "").replace(/[()"]/g, "\\$&") + linkTitleSource(mark) + ")",
+      "](" +
+      destinationSource(String(mark.attrs.href || ""), /[()"]/g) +
+      linkTitleSource(mark) +
+      ")",
     mixable: true,
   },
 }

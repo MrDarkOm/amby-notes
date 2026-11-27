@@ -9,10 +9,11 @@ permissions:
   contents: write
 
 jobs:
-  # The exact tagged commit must pass the full gate and the dependency audits
-  # before any installer is built or published.
+  # The exact tagged commit must pass the full gate and the dependency audits before any
+  # installer is built or published. The gate is the same checks as `npm run verify:full`
+  # (keep the lists in sync with package.json), split into jobs that run side by side.
   gate:
-    name: Release gate (exact tagged commit)
+    name: Release gate (tag, version, notes)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -31,6 +32,44 @@ jobs:
             echo "::error::$GITHUB_REF_NAME must be tagged on a commit of $branch"
             exit 1
           fi
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run version:check
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Release notes exist (updates/upd_<version>.md)
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -s "updates/upd_${version%%-beta.*}.md"
+
+  gate-frontend:
+    name: Release gate (frontend)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:check
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run test:update-channels
+      - run: npm run format:check
+      - run: npm run knip
+
+  gate-rust:
+    name: Release gate (Rust, Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -44,24 +83,76 @@ jobs:
           components: rustfmt, clippy
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
+      - run: npm ci
+      - run: npm run rust:fmt
+      - run: npm run rust:clippy
+      - run: npm run rust:test
+      # `rust:test` regenerates src/lib/bindings.ts in this clean checkout: any difference means the
+      # committed bindings are stale (bindings:check alone compares the file with itself here).
+      - name: Committed IPC bindings match the Rust types
+        run: git diff --exit-code -- src/lib/bindings.ts
+      - run: npm run bindings:check
+
+  gate-audit:
+    name: Release gate (dependency audits)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      # Building cargo-audit takes minutes; the binary is cached (the advisory database is
+      # fetched fresh on every run).
+      - name: Cache cargo-audit
+        id: cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
       - name: Install cargo-audit
+        if: steps.cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --locked
       - run: npm ci
-      - run: npm run version:check
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-      - name: Release notes exist (updates/upd_<version>.md)
-        shell: bash
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          test -s "updates/upd_${version%%-beta.*}.md"
-      - run: npm run verify:full
       - run: npm run audit
+
+  # The full gate above runs on Linux; the backend's Windows and macOS code (paths, trash,
+  # credentials, durable writes) and the editor in WebKit are checked on their own systems.
+  gate-platforms:
+    name: Release gate (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            platform: windows-latest
+            browser: false
+          - name: macOS
+            platform: macos-latest
+            browser: true
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - run: npm ci
+      - run: npm run rust:test
+      - if: matrix.browser
+        run: npm run test:browser:install
+      - if: matrix.browser
+        run: npm run test:browser
 
   publish:
     name: Build ${{ matrix.name }}
-    needs: gate
+    needs: [gate, gate-frontend, gate-rust, gate-audit, gate-platforms]
     strategy:
       fail-fast: false
       matrix:
@@ -79,17 +170,28 @@ jobs:
             # AppImage updates require no package-manager authorization dialog.
             args: --config src-tauri/tauri.release.conf.json --bundles appimage
             rust-targets: ""
+          # Built natively on an arm64 runner: AppImage tooling does not cross-compile.
+          - name: Linux arm64
+            platform: ubuntu-22.04-arm
+            args: --config src-tauri/tauri.release.conf.json --bundles appimage --target aarch64-unknown-linux-gnu
+            rust-targets: aarch64-unknown-linux-gnu
           - name: Windows x64
             platform: windows-latest
             args: --config src-tauri/tauri.release.conf.json
             rust-targets: ""
+          # Cross-compiled on x64 Windows, as macOS x64 is on arm64 macOS. WiX (MSI) has no
+          # arm64 support, so this build ships only the NSIS installer, which is also its update.
+          - name: Windows arm64
+            platform: windows-latest
+            args: --config src-tauri/tauri.release.conf.json --bundles nsis --target aarch64-pc-windows-msvc
+            rust-targets: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
@@ -99,18 +201,46 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
+      # Cargo builds with the toolchain pinned in rust-toolchain.toml, so the cross-compilation
+      # target must be added to that toolchain, not to `stable`.
+      - name: Set up Rust (rust-toolchain.toml)
+        shell: bash
+        env:
+          RUST_TARGETS: ${{ matrix.rust-targets }}
+        run: |
+          rustup toolchain install
+          if [ -n "$RUST_TARGETS" ]; then rustup target add $RUST_TARGETS; fi
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: . -> target
+          # The two Windows builds share a runner image; their caches must not overwrite each other.
+          key: ${{ matrix.rust-targets }}
+
+      # ring and aws-lc build their arm64 assembly for Windows with clang (LLVM on the image).
+      - name: Put clang on the path
+        if: matrix.rust-targets == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          & "C:\Program Files\LLVM\bin\clang.exe" --version
 
       - run: npm ci
       - run: npm run version:check
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+
+      - name: Prepare release identity and installer version
+        id: release_config
+        shell: bash
+        env:
+          AMBY_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          config_path="$(node scripts/update-channels.mjs config \
+            --tag "$AMBY_RELEASE_TAG" \
+            --output "$RUNNER_TEMP/tauri release ${GITHUB_RUN_ID}.json")"
+          echo "AMBY_RELEASE_TAG=$AMBY_RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "path=$config_path" >> "$GITHUB_OUTPUT"
 
       # The text of the release and of the in-app update: the version's notes without their
       # title line (the title is the release name), then the shared installation footer.
@@ -122,7 +252,7 @@ jobs:
           {
             echo "body<<AMBY_RELEASE_NOTES"
             if [[ "$GITHUB_REF_NAME" == *-beta.* ]]; then
-              echo "> **Пробная версия для обкатки.** Автообновление её не ставит: она скачивается вручную."
+              echo "> **Beta version for testing.**"
               echo
             fi
             tail -n +2 "updates/upd_${version%%-beta.*}.md"
@@ -131,7 +261,9 @@ jobs:
             echo "AMBY_RELEASE_NOTES"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: tauri-apps/tauri-action@v1
+      # Holds the signing key: pinned to the commit the `v1` tag pointed at on 2026-11-16
+      # (the tag moves; Dependabot proposes the next commit, see .github/dependabot.yml).
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -142,21 +274,119 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-beta.') }}
-          args: ${{ matrix.args }}
+          args: --config src-tauri/tauri.cli.conf.json ${{ matrix.args }} --config "${{ steps.release_config.outputs.path }}"
+
+  validate-release-manifest:
+    name: Validate signed release manifest
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download the completed draft manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-candidate"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/release-candidate"
+      - name: Validate manifest before publishing the release
+        env:
+          AMBY_RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          node scripts/update-channels.mjs feeds \
+            --tag "$AMBY_RELEASE_TAG" \
+            --manifest "$RUNNER_TEMP/release-candidate/latest.json" \
+            --feed-dir "$RUNNER_TEMP/empty channel feeds"
 
   publish-release:
     name: Publish GitHub Release
-    needs: publish
+    needs: validate-release-manifest
     runs-on: ubuntu-latest
     steps:
       - name: Publish the complete multi-platform release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        # A pre-release never becomes "latest": the in-app updater reads only the latest release.
+        # Keep GitHub's stable latest release independent from the generated channel feeds.
         run: |
           if [[ "$RELEASE_TAG" == *-beta.* ]]; then
             gh release edit "$RELEASE_TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
           else
             gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
+
+  publish-update-feeds:
+    name: Publish signed update channel feeds
+    needs: publish-release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: amby-update-feed
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Download the completed release manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-candidate"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$RUNNER_TEMP/release-candidate"
+      - name: Update the orphaned feed branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          feed_dir="$RUNNER_TEMP/update-feed-worktree"
+          if git ls-remote --exit-code --heads origin update-feed >/dev/null; then
+            git fetch origin refs/heads/update-feed:refs/remotes/origin/update-feed
+            git worktree add --detach "$feed_dir" refs/remotes/origin/update-feed
+            git -C "$feed_dir" switch -c update-feed
+          else
+            ls_remote_status=$?
+            if [[ "$ls_remote_status" -ne 2 ]]; then
+              echo "Unable to check the update-feed branch (git ls-remote exited $ls_remote_status)." >&2
+              exit "$ls_remote_status"
+            fi
+            git worktree add --orphan -b update-feed "$feed_dir"
+          fi
+
+          node scripts/update-channels.mjs feeds \
+            --tag "$RELEASE_TAG" \
+            --manifest "$RUNNER_TEMP/release-candidate/latest.json" \
+            --feed-dir "$feed_dir"
+
+          git -C "$feed_dir" config user.name "github-actions[bot]"
+          git -C "$feed_dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for feed in stable.json beta.json; do
+            if [[ -f "$feed_dir/$feed" ]]; then
+              git -C "$feed_dir" add -- "$feed"
+            fi
+          done
+          if git -C "$feed_dir" diff --cached --quiet; then
+            echo "Update feed is already current."
+            exit 0
+          fi
+          git -C "$feed_dir" commit -m "Update release feed for $RELEASE_TAG"
+          git -C "$feed_dir" push origin HEAD:update-feed

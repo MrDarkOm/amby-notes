@@ -1,7 +1,15 @@
 "use client"
 
 import * as React from "react"
-import { ChevronLeft, ChevronRight, Image as ImageIcon } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  File as FileIcon,
+  FileAudio,
+  FileText,
+  FileVideo,
+  Image as ImageIcon,
+} from "lucide-react"
 import { motion } from "motion/react"
 import { useTranslation } from "react-i18next"
 
@@ -9,31 +17,55 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { toAssetUrl } from "@/lib/storage"
+import { openAttachment, toAssetUrl } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
+import { reportExternalFailure } from "../tiptap/external-open"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import type { AttachmentItem, PanelRenderProps } from "../panel-registry"
+import { useDocStore } from "../use-doc-store"
 import { PanelHeader, PanelSearch } from "./panel-header"
 
-/** Displays nested notes and local images referenced by the current note. */
+const IMAGE_FILE_RE = /\.(?:png|jpe?g|gif|webp|bmp|avif|svg)$/iu
+const AUDIO_FILE_RE = /\.(?:mp3|wav|ogg|m4a|flac|aac|opus)$/iu
+const VIDEO_FILE_RE = /\.(?:mp4|webm|mov|m4v|mkv|ogv)$/iu
+const PDF_FILE_RE = /\.pdf$/iu
+
+function isImageAttachment(item: AttachmentItem): boolean {
+  return IMAGE_FILE_RE.test(item.name) || Boolean(item.path && IMAGE_FILE_RE.test(item.path))
+}
+
+function FileAttachmentGlyph({ name }: { name: string }) {
+  if (PDF_FILE_RE.test(name)) return <FileText className="size-4 text-muted-foreground" />
+  if (AUDIO_FILE_RE.test(name)) return <FileAudio className="size-4 text-muted-foreground" />
+  if (VIDEO_FILE_RE.test(name)) return <FileVideo className="size-4 text-muted-foreground" />
+  return <FileIcon className="size-4 text-muted-foreground" />
+}
+
+/** Displays nested notes and local files referenced by the current note. */
 export function AttachmentsPanel({
   attachments = [],
   attachmentImages = [],
+  currentDocId,
   onSelectLink,
 }: PanelRenderProps) {
   const { t } = useTranslation()
+  const currentDocPath = useDocStore((state) =>
+    currentDocId ? state.openDocs[currentDocId]?.path : undefined,
+  )
   const [query, setQuery] = React.useState("")
   const [activeTab, setActiveTab] = React.useState("notes")
   const notes = attachments.filter((attachment) => attachment.kind !== "image")
-  const images = attachmentImages
+  const files = attachmentImages
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleNotes = notes.filter((attachment) =>
     attachment.name.toLocaleLowerCase().includes(normalizedQuery),
   )
-  const visibleImages = images.filter((attachment) =>
+  const visibleFiles = files.filter((attachment) =>
     attachment.name.toLocaleLowerCase().includes(normalizedQuery),
   )
-  const total = notes.length + images.length
+  const visibleImages = visibleFiles.filter(isImageAttachment)
+  const total = notes.length + files.length
   const [imageUrls, setImageUrls] = React.useState<Record<string, string>>({})
   const [failedImageIds, setFailedImageIds] = React.useState<Set<string>>(() => new Set())
   const [previewImage, setPreviewImage] = React.useState<AttachmentItem | null>(null)
@@ -45,9 +77,10 @@ export function AttachmentsPanel({
     let cancelled = false
     setImageUrls({})
     setFailedImageIds(new Set())
-    if (!images.length) return
+    const imageFiles = files.filter(isImageAttachment)
+    if (!imageFiles.length) return
     void Promise.all(
-      images.map(async (image) => {
+      imageFiles.map(async (image) => {
         if (!image.path) return [image.id, ""] as const
         try {
           return [image.id, await toAssetUrl(image.path)] as const
@@ -62,13 +95,13 @@ export function AttachmentsPanel({
     return () => {
       cancelled = true
     }
-  }, [images])
+  }, [files])
 
   React.useEffect(() => {
-    if (previewImage && !images.some((image) => image.id === previewImage.id)) {
+    if (previewImage && !files.some((file) => file.id === previewImage.id)) {
       setPreviewImage(null)
     }
-  }, [images, previewImage])
+  }, [files, previewImage])
 
   React.useEffect(() => {
     if (!previewImage || previewIndex < 0 || visibleImages.length < 2) return
@@ -100,57 +133,67 @@ export function AttachmentsPanel({
     )
   }
 
-  function renderItems(items: AttachmentItem[], emptyMessage: string, imagesOnly = false) {
+  function renderItems(items: AttachmentItem[], emptyMessage: string, filesMode = false) {
     if (!items.length) return renderEmpty(emptyMessage)
-    return items.map((attachment) => (
-      <button
-        key={attachment.id}
-        type="button"
-        aria-label={imagesOnly ? attachment.name : undefined}
-        title={imagesOnly ? attachment.name : undefined}
-        className={cn(
-          "flex w-full min-w-0 items-start gap-2 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent",
-          imagesOnly && "justify-center",
-        )}
-        onClick={() => {
-          if (imagesOnly) setPreviewImage(attachment)
-          else onSelectLink?.(attachment.id)
-        }}
-      >
-        {imagesOnly ? (
-          <span className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-muted/40">
-            {imageUrls[attachment.id] && !failedImageIds.has(attachment.id) ? (
-              <img
-                src={imageUrls[attachment.id]}
-                alt=""
-                className="size-full object-cover"
-                draggable={false}
-                loading="lazy"
-                onError={() => handleImageError(attachment.id)}
-              />
-            ) : (
-              <ImageIcon className="size-5 text-muted-foreground" />
-            )}
-          </span>
-        ) : (
-          <IconValue
-            value={
-              attachment.icon &&
-              !["file", "supernote", "supercanvas", "supersketch"].includes(attachment.icon)
-                ? attachment.icon
-                : undefined
+    return items.map((attachment) => {
+      const isImage = filesMode && isImageAttachment(attachment)
+      return (
+        <button
+          key={attachment.id}
+          type="button"
+          title={attachment.name}
+          className={cn(
+            "flex w-full min-w-0 items-center gap-2.5 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent",
+          )}
+          onClick={() => {
+            if (!filesMode) {
+              onSelectLink?.(attachment.id)
+            } else if (isImage) {
+              setPreviewImage(attachment)
+            } else if (currentDocPath && attachment.path) {
+              void openAttachment(currentDocPath, attachment.path).catch(reportExternalFailure)
             }
-            fallback="📄"
-            className="mt-0.5 size-4 shrink-0"
-          />
-        )}
-        {!imagesOnly && (
+          }}
+        >
+          {filesMode ? (
+            isImage ? (
+              <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded border border-border bg-muted/40">
+                {imageUrls[attachment.id] && !failedImageIds.has(attachment.id) ? (
+                  <img
+                    src={imageUrls[attachment.id]}
+                    alt=""
+                    className="size-full object-cover"
+                    draggable={false}
+                    loading="lazy"
+                    onError={() => handleImageError(attachment.id)}
+                  />
+                ) : (
+                  <ImageIcon className="size-4 text-muted-foreground" />
+                )}
+              </span>
+            ) : (
+              <span className="flex size-10 shrink-0 items-center justify-center rounded border border-border bg-muted/40">
+                <FileAttachmentGlyph name={attachment.name} />
+              </span>
+            )
+          ) : (
+            <IconValue
+              value={
+                attachment.icon &&
+                !["file", "supernote", "supercanvas", "supersketch"].includes(attachment.icon)
+                  ? attachment.icon
+                  : undefined
+              }
+              fallback={<EmojiGlyph value="📄" />}
+              className="mt-0.5 size-4 shrink-0"
+            />
+          )}
           <span className="min-w-0 flex-1 whitespace-normal break-words leading-4 [overflow-wrap:anywhere]">
             {attachment.name}
           </span>
-        )}
-      </button>
-    ))
+        </button>
+      )
+    })
   }
 
   const previewUrl = previewImage ? imageUrls[previewImage.id] : undefined
@@ -164,24 +207,15 @@ export function AttachmentsPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader
-        title={t("attachmentsPanel.title")}
-        actions={
-          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-            {total}
-          </span>
-        }
+      <PanelHeader title={t("attachmentsPanel.title")} count={total} />
+      <PanelSearch
+        value={query}
+        onChange={setQuery}
+        ariaLabel={t("attachmentsPanel.search")}
+        placeholder={t("attachmentsPanel.search")}
       />
-      {total > 0 && (
-        <PanelSearch
-          value={query}
-          onChange={setQuery}
-          ariaLabel={t("attachmentsPanel.search")}
-          placeholder={t("attachmentsPanel.search")}
-        />
-      )}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-2">
+        <TabsList className="mx-4 mb-3 grid h-8 w-auto grid-cols-2">
           <TabsTrigger
             value="notes"
             title={t("attachmentsPanel.notes")}
@@ -191,12 +225,12 @@ export function AttachmentsPanel({
             <span className="truncate">{t("attachmentsPanel.notes")}</span>
           </TabsTrigger>
           <TabsTrigger
-            value="images"
-            title={t("attachmentsPanel.images")}
-            aria-label={t("attachmentsPanel.images")}
+            value="files"
+            title={t("attachmentsPanel.files")}
+            aria-label={t("attachmentsPanel.files")}
             className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <span className="truncate">{t("attachmentsPanel.images")}</span>
+            <span className="truncate">{t("attachmentsPanel.files")}</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="notes" className="min-h-0">
@@ -209,12 +243,12 @@ export function AttachmentsPanel({
             </div>
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="images" className="min-h-0">
+        <TabsContent value="files" className="min-h-0">
           <ScrollArea className="h-full">
             <div className="space-y-1.5 px-4 pb-4">
               {renderItems(
-                visibleImages,
-                images.length ? t("attachmentsPanel.noResults") : t("attachmentsPanel.emptyImages"),
+                visibleFiles,
+                files.length ? t("attachmentsPanel.noResults") : t("attachmentsPanel.emptyFiles"),
                 true,
               )}
             </div>

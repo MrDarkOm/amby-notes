@@ -27,8 +27,10 @@ import { IconValue } from "../../icon-value"
 import { Accordion } from "./accordion"
 import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
+import { writeTextPageLevel } from "./write-text-page-level"
 import { InlineCreateRow } from "./inline-create-row"
-import { StoryHeader } from "./story-header"
+import { WHOLE_WORKSHOP } from "../creative-scope-storage"
+import { StoryHeader, type UniverseSwitch } from "./story-header"
 import { ItemMenu, type ArrangeMenu, type PlotChoice, type PlotMenu } from "./item-menu"
 import { LinkAction } from "./link-action"
 import { PageMarksView, RowError } from "./page-marks"
@@ -46,7 +48,6 @@ import {
 } from "./plot-model"
 import type { PlotBinding } from "./use-plot-binding"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { projectErrorText } from "../project-error"
 import { standaloneTargetId, universeTargetId } from "../project-tree-model"
 import { formatModified } from "../../workspace-tree-utils"
 import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"
@@ -61,16 +62,23 @@ import {
   buildTextTree,
   canHaveChildPage,
   countNodes,
+  findNode,
   descendantIds,
   pageMoves,
   pageStatusDotClass,
+  assessPageMove,
+  pageLevelChoices,
   planMove,
+  startLevelId,
+  type MoveRefusal,
   resolvePageStatus,
   textOrder,
   type DropZone,
   type MovePlan,
   type TextNode,
 } from "./text-tree-model"
+import { projectErrorText } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface WorksTabProps {
   workshop: WorkshopSummary
@@ -80,6 +88,8 @@ interface WorksTabProps {
   selectedStoryId: string | null
   /** The universe chosen in the card below, if any: where the open button leads without a story. */
   selectedUniverseId?: string | null
+  /** The universes the bar above chooses among. */
+  universe?: UniverseSwitch | null
   onSelectStory: (storyId: string | null) => void
   /** Which accordion parts are unfolded. */
   open: Record<WorksSection, boolean>
@@ -136,6 +146,8 @@ interface WorksTabProps {
 export interface PlotPart {
   /** The anchors that belong to the story (a "Stories" relation, or bound to its text). */
   anchors: DatabaseRow[]
+  anchorsFootnote?: React.ReactNode
+  storyLinkOf?: (row: DatabaseRow) => React.ReactNode
   /** The arcs that belong to the story. */
   arcs: DatabaseRow[]
   /** What each page of the story's text is bound to. */
@@ -190,6 +202,10 @@ interface TreeContext {
   onAddPage: (parent: TextNode) => void
   /** Whether a page may have pages under it (the last level of the schema may not). */
   canAddChild: (node: TextNode) => boolean
+  canWrite: boolean
+  changeLevelOf?: (node: TextNode) => React.ComponentProps<typeof ItemMenu>["changeLevel"]
+  refusal: { noteId: string; reason: MoveRefusal } | null
+  onDragLeave: (noteId: string) => void
   activeNoteId: string | null
   stats: Record<string, TextPageStat>
   /** Words of a page together with every page below it. */
@@ -212,7 +228,7 @@ interface TreeContext {
   /** An anchor or an arc was dropped on a page. */
   onPlotDrop?: (pageId: string, kind: PlotKind, targetId: string) => void
   /** The failure of the last binding, shown under the row it belongs to. */
-  plotError: { rowId: string; message: string } | null
+  plotError: { rowId: string; text: string } | null
 }
 
 function TreeRows({
@@ -234,6 +250,7 @@ function TreeRows({
         const active = context.activeNoteId === node.noteId
         const leaf = node.children.length === 0
         const words = context.wordsOf(node)
+        const canAdd = context.canAddChild(node)
         const draftHere = context.draftParentId === node.noteId
         const statusOption = resolvePageStatus(context.statusOptions, node.statusOptionId)
         const dotClass = pageStatusDotClass(context.statusOptions, node.statusOptionId, words)
@@ -256,6 +273,7 @@ function TreeRows({
                   : undefined
               }
               plot={context.plotMenuOf?.(node)}
+              changeLevel={context.changeLevelOf?.(node)}
               arrange={context.arrangeOf ? () => context.arrangeOf?.(node) ?? null : undefined}
             >
               <div
@@ -267,6 +285,14 @@ function TreeRows({
                   context.onDragStart(node.noteId)
                 }}
                 onDragOver={(event) => context.onDragOver(event, node.noteId)}
+                onDragLeave={(event) => {
+                  if (
+                    event.relatedTarget instanceof Node &&
+                    event.currentTarget.contains(event.relatedTarget)
+                  )
+                    return
+                  context.onDragLeave(node.noteId)
+                }}
                 onDrop={(event) => context.onDrop(event, node.noteId)}
                 onDragEnd={context.onDragEnd}
                 className={cn(
@@ -336,22 +362,35 @@ function TreeRows({
                     </span>
                   )}
                 </button>
-                {context.canAddChild(node) && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-5 text-muted-foreground opacity-50 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
-                    title={t("creative.workshop.addChildPage")}
-                    aria-label={t("creative.workshop.addChildPage", { name: node.title })}
-                    onClick={() => context.onAddPage(node)}
-                  >
-                    <Plus className="size-3.5" />
-                  </Button>
+                {context.canWrite && (
+                  <span title={canAdd ? undefined : t("creative.workshop.noDeeperLevels")}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-5 text-muted-foreground opacity-50 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+                      disabled={!canAdd}
+                      title={canAdd ? t("creative.workshop.addChildPage") : undefined}
+                      aria-label={t(
+                        canAdd
+                          ? "creative.workshop.addChildPage"
+                          : "creative.workshop.noDeeperLevels",
+                      )}
+                      onClick={() => context.onAddPage(node)}
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </span>
                 )}
               </div>
             </ItemMenu>
+            {context.refusal?.noteId === node.noteId && (
+              <RowError
+                message={t(`creative.workshop.dropRefusal.${context.refusal.reason}`)}
+                indent={treeIndent(depth + 1)}
+              />
+            )}
             {context.plotError?.rowId === node.noteId && (
-              <RowError message={context.plotError.message} indent={treeIndent(depth + 1)} />
+              <RowError message={context.plotError.text} indent={treeIndent(depth + 1)} />
             )}
             {open && (node.children.length > 0 || draftHere) && (
               <>
@@ -426,6 +465,7 @@ function StoryWorks({
   const toggle = useCreativeNavStore((state) => state.toggleCollapsed)
   const [dragId, setDragId] = React.useState<string | null>(null)
   const [hint, setHint] = React.useState<DropHint | null>(null)
+  const [refusal, setRefusal] = React.useState<TreeContext["refusal"]>(null)
   const [moveError, setMoveError] = React.useState<string | null>(null)
 
   const text = story.text
@@ -481,6 +521,7 @@ function StoryWorks({
   const reset = () => {
     setDragId(null)
     setHint(null)
+    setRefusal(null)
   }
 
   // Anchors and arcs: the order of the text, the titles for the marks, the menus of the rows.
@@ -567,6 +608,15 @@ function StoryWorks({
 
   const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
 
+  const draftLevel =
+    draft?.kind === "page"
+      ? levels.find(
+          (level) =>
+            level.id ===
+            startLevelId(levels, draft.parentId ? findNode(roots, draft.parentId) : null),
+        )
+      : undefined
+
   const context: TreeContext = {
     levels,
     statusOptions,
@@ -596,7 +646,25 @@ function StoryWorks({
     onToggle: (noteId) => toggle(`page:${noteId}`),
     onOpenNote,
     onAddPage: (parent) => onAddPage(story, parent),
-    canAddChild: (node) => canHaveChildPage(levels, node),
+    canAddChild: (node) => canHaveChildPage(levels, node) && startLevelId(levels, node) !== null,
+    canWrite,
+    changeLevelOf:
+      canWrite && text?.databaseId && vaultGeneration !== null
+        ? (node) => ({
+            choices: pageLevelChoices(roots, levels, node.noteId),
+            onSelect: (levelId) => {
+              setMoveError(null)
+              void writeTextPageLevel(text, vaultGeneration, node, levelId)
+                .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+                .finally(onMoved)
+            },
+          })
+        : undefined,
+    refusal,
+    onDragLeave: (noteId) => {
+      setRefusal((current) => (current?.noteId === noteId ? null : current))
+      setHint((current) => (current?.noteId === noteId ? null : current))
+    },
     activeNoteId,
     stats,
     wordsOf: (node) => subtreeWords.get(node.noteId) ?? 0,
@@ -605,6 +673,9 @@ function StoryWorks({
       <InlineCreateRow
         depth={depth}
         icon={<FileText className="size-3.5" />}
+        label={
+          draftLevel ? t("creative.workshop.newPageAtLevel", { level: draftLevel.name }) : undefined
+        }
         placeholder={t("creative.workshop.newPagePlaceholder")}
         onSubmit={onCommitDraft}
         onCancel={onCancelDraft}
@@ -627,10 +698,18 @@ function StoryWorks({
       }
       if (!canWrite || !dragId) return
       const zone = zoneOf(event)
-      if (plan(noteId, zone) === null) {
+      const result = assessPageMove(roots, levels, dragId, noteId, zone)
+      if ("reason" in result) {
         setHint(null)
+        event.dataTransfer.dropEffect = "none"
+        setRefusal((current) =>
+          current?.noteId === noteId && current.reason === result.reason
+            ? current
+            : { noteId, reason: result.reason },
+        )
         return
       }
+      setRefusal(null)
       // Dropping is only allowed where the move is valid: the cursor says so.
       event.preventDefault()
       event.dataTransfer.dropEffect = "move"
@@ -705,7 +784,7 @@ function StoryWorks({
     const reorder = pageIds.length === 0 && canWrite
     const over = reorder && anchorDrag?.overId === row.noteId ? anchorDrag.placement : null
     const pageTitles = pageIds.map(pageTitleOf)
-    const error = plot.binding?.error?.rowId === row.noteId ? plot.binding.error.message : null
+    const error = plot.binding?.error?.rowId === row.noteId ? plot.binding.error.text : null
     return (
       <React.Fragment key={row.noteId}>
         <ItemMenu
@@ -789,6 +868,7 @@ function StoryWorks({
             )}
           </button>
         </ItemMenu>
+        {plot.storyLinkOf?.(row)}
         {error && <RowError message={error} indent={treeIndent(1)} />}
       </React.Fragment>
     )
@@ -863,9 +943,7 @@ function StoryWorks({
             />
           )}
           {plot.linkAnchors?.error && (
-            <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-              {plot.linkAnchors.error}
-            </p>
+            <NoticeLine role="alert" text={plot.linkAnchors.error} className="px-2 py-1" />
           )}
           {anchorRows.length === 0 && draft?.kind !== "anchor" ? (
             canWrite ? (
@@ -892,6 +970,7 @@ function StoryWorks({
             </>
           )}
           {anchorDraftRow}
+          {plot.anchorsFootnote}
         </>
       ),
     },
@@ -906,11 +985,7 @@ function StoryWorks({
 
   return (
     <div ref={rootRef}>
-      {moveError && (
-        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-          {moveError}
-        </p>
-      )}
+      {moveError && <NoticeLine role="alert" text={moveError} className="px-2 py-1" />}
       <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
         {t("creative.groups.work")}
       </h3>
@@ -945,6 +1020,7 @@ export function WorksTab({
   stories,
   selectedStoryId,
   selectedUniverseId = null,
+  universe = null,
   onSelectStory,
   open,
   onToggleSection,
@@ -988,18 +1064,27 @@ export function WorksTab({
         latestAt = at
       }
     }
-    if (!latest || latest.noteId === activeNoteId) return null
-    return { noteId: latest.noteId, title: latest.title, when: formatModified(latestAt) ?? "" }
+    if (!latest) return null
+    return {
+      noteId: latest.noteId,
+      title: latest.title,
+      when: formatModified(latestAt) ?? "",
+      active: latest.noteId === activeNoteId,
+    }
   }, [activeNoteId, stats, textRows])
 
-  const handleOpenTarget = () => {
-    if (selectedStoryId) {
-      onOpenProject(selectedStoryId)
+  const handleOpenScope = () => {
+    if (selectedUniverseId === WHOLE_WORKSHOP) {
+      onOpenProject(workshop.workshopId)
     } else if (selectedUniverseId) {
       onOpenProject(universeTargetId(selectedUniverseId))
     } else {
       onOpenProject(standaloneTargetId(workshop.workshopId))
     }
+  }
+  const handleOpenTarget = () => {
+    if (selectedStoryId) onOpenProject(selectedStoryId)
+    else handleOpenScope()
   }
 
   return (
@@ -1015,6 +1100,8 @@ export function WorksTab({
         onOpenTarget={handleOpenTarget}
         resume={resume}
         onOpenNote={onOpenNote}
+        universe={universe}
+        onOpenScope={handleOpenScope}
       />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
         {status === "error" && (

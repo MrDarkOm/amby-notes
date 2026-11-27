@@ -3,7 +3,9 @@
   "app": {
     "windows": [
       {
-        "decorations": false
+        "decorations": false,
+        "minWidth": 720,
+        "minHeight": 480
       }
     ]
   }

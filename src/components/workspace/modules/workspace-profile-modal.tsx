@@ -40,20 +40,27 @@ export function WorkspaceProfileModal({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
-      <DialogContent className="max-w-2xl border-border bg-card p-6 shadow-xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto gap-5 border-border bg-card p-6 shadow-xl sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="text-base font-semibold text-foreground">
-            {workspaceName
-              ? `${t("profiles.initialSelection.title")}: ${workspaceName}`
-              : t("profiles.initialSelection.title")}
+          <DialogTitle className="pr-6 text-xl font-semibold text-foreground">
+            {t("profiles.initialSelection.title")}
+            {workspaceName && (
+              <span
+                className="mt-1 block truncate text-sm font-normal text-muted-foreground"
+                title={workspaceName}
+              >
+                {workspaceName}
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription className="mt-1 text-xs text-muted-foreground">
             {t("profiles.initialSelection.description")}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-4">
+        <div>
           <ProfileSelector
+            showDetails={false}
             selectedProfileId={selectedProfile}
             onSelectProfile={setSelectedProfile}
           />

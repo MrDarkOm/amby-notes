@@ -3,7 +3,8 @@ import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useDatabaseStore } from "../database/database-store"
 import { catalog, project } from "./project-fixtures.test-support"
-import { useProjectStore } from "./project-store"
+import { useCreativeSettingsStore } from "./creative-settings-store"
+import { refreshAfterWorkshopMove, useProjectStore } from "./project-store"
 import { useProjectController } from "./use-project-controller"
 
 const storage = vi.hoisted(() => ({
@@ -14,7 +15,10 @@ const storage = vi.hoisted(() => ({
 const events = vi.hoisted(() => ({
   handler: null as null | ((event: { payload: unknown }) => void),
 }))
-vi.mock("@/lib/storage", () => storage)
+vi.mock("@/lib/storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/storage")>()),
+  ...storage,
+}))
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (_name: string, handler: (event: { payload: unknown }) => void) => {
     events.handler = handler
@@ -92,6 +96,37 @@ describe("useProjectController", () => {
     ])
   })
 
+  it("keeps the explicitly configured workshop when its folder is renamed", async () => {
+    const settings = useCreativeSettingsStore.getState()
+    const setter = vi.fn(async (value: string | null) => {
+      useCreativeSettingsStore.setState({ workshopPath: value })
+    })
+    useCreativeSettingsStore.setState({
+      workshopPath: "Old",
+      load: async () => undefined,
+      setWorkshopPath: setter,
+    })
+    try {
+      storage.listProjects.mockResolvedValue(catalog([project("a", { path: "Old" })]))
+      storage.refreshProjects.mockResolvedValue(
+        catalog([project("a", { path: "New" }), project("b", { path: "Other" })]),
+      )
+      act(() => useDatabaseStore.getState().setCatalog([]))
+      renderHook(() => useProjectController({ enabled: true, vaultGeneration: 1 }))
+      await flush()
+      expect(useProjectStore.getState().catalog?.workshops[0]?.path).toBe("Old")
+      await act(async () => {
+        refreshAfterWorkshopMove("/vault", [
+          { oldPath: "/vault/Old/amby-workshop.json", newPath: "/vault/New/amby-workshop.json" },
+        ])
+      })
+      expect(setter).toHaveBeenCalledWith("New")
+      expect(useProjectStore.getState().catalog?.workshops[0]?.path).toBe("New")
+    } finally {
+      useCreativeSettingsStore.setState(settings)
+    }
+  })
+
   it("ignores events of another vault generation", async () => {
     act(() => useDatabaseStore.getState().setCatalog([]))
     renderHook(() => useProjectController({ enabled: true, vaultGeneration: 1 }))
@@ -111,7 +146,8 @@ describe("useProjectController", () => {
     await act(async () => {
       await useProjectStore.getState().refresh?.(true)
     })
-    expect(useProjectStore.getState().error).toBe("index busy")
+    expect(useProjectStore.getState().error).toContain("unknown")
+    expect(useProjectStore.getState().error).not.toContain("index busy")
     expect(useProjectStore.getState().catalog?.workshops).toHaveLength(1)
   })
 

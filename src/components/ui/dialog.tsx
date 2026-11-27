@@ -50,9 +50,10 @@ function DialogContent({
   children,
   showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
-}) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> &
+  Pick<React.ComponentProps<typeof MotionDialogContent>, "initial" | "transition"> & {
+    showCloseButton?: boolean
+  }) {
   const verticalOffset =
     typeof className === "string" && className.includes("translate-y-0") ? 0 : "-50%"
 
@@ -74,12 +75,11 @@ function DialogContent({
         {showCloseButton && (
           <MotionDialogClose
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs focus:ring-1 focus:ring-offset-1 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-            initial={{ opacity: 0.7 }}
-            whileHover={{ opacity: 1 }}
+            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring absolute top-[19px] right-3.5 flex size-7 items-center justify-center rounded-md outline-hidden focus-visible:ring-1 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            whileTap={{ scale: 0.92 }}
             transition={motionTransitions.fast}
           >
-            <XIcon />
+            <XIcon strokeWidth={1.75} />
             <span className="sr-only">{i18n.t("common.close")}</span>
           </MotionDialogClose>
         )}

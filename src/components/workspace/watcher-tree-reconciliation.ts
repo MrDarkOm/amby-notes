@@ -68,6 +68,7 @@ export function filterLocalTreeWatcherChanges<
 interface OpenDocumentLocation {
   path: string
   title: string
+  noteId?: string
 }
 
 /** Folder events and root-level rescan notifications also cover open descendants. */
@@ -133,15 +134,45 @@ export function planOpenDocumentTreeChanges(
   const filesById = indexFiles(tree)
   const changes: OpenDocumentTreeChange[] = []
   for (const [fileId, document] of Object.entries(openDocs)) {
-    const item = filesById.get(fileId)
+    // A previously opened database tab can still use its database ID. Its Markdown layer
+    // has a separate stable note ID, which attached containers now retain in the tree.
+    const item =
+      filesById.get(fileId) ??
+      (document.noteId &&
+      !document.path.endsWith(".canvas") &&
+      !document.path.endsWith(".excalidraw")
+        ? filesById.get(document.noteId)
+        : undefined)
     if (!item || item.type === "folder") {
       changes.push({ kind: "deleted", fileId })
     } else if (
-      item.id === fileId &&
+      (item.id === fileId || item.id === document.noteId) &&
       (item.path !== document.path || item.name !== document.title)
     ) {
       changes.push({ kind: "relocated", fileId, path: item.path, title: item.name })
     }
   }
   return changes
+}
+
+/**
+ * A refresh of a few paths can miss where a note went: the old path is read and the new one is not
+ * yet. Before a note is called deleted, its id is looked for in the whole vault (Д70а); a note found
+ * at another path moved, and the tab follows it with no notice of deletion.
+ */
+export function confirmDeletionAgainstFullTree(
+  changes: OpenDocumentTreeChange[],
+  openDocs: Record<string, OpenDocumentLocation>,
+  fullTree: TreeItem[],
+): OpenDocumentTreeChange[] {
+  const result: OpenDocumentTreeChange[] = []
+  for (const change of changes) {
+    const document = change.kind === "deleted" ? openDocs[change.fileId] : undefined
+    if (!document) {
+      result.push(change)
+      continue
+    }
+    result.push(...planOpenDocumentTreeChanges({ [change.fileId]: document }, fullTree))
+  }
+  return result
 }

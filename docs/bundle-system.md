@@ -1,81 +1,126 @@
-# Спецификация гибридной системы управления знаниями (Bundle Note + SQLite)
+# Specification of the Hybrid Knowledge Management System (Bundle Note + SQLite)
 
-## 1. Концепция "Bundle Note"
+## 1. The "Bundle Note" Concept
 
-Система устраняет избыточность папок на ранних этапах создания контента. Заметка создается как одиночный файл `Name.md`. Переход к структуре "бандла" (папки) происходит только при необходимости хранения дополнительных слоев данных.
+The system eliminates redundant folders in the early stages of content creation. A note is created as a single `Name.md` file. The transition to a "bundle" structure (a folder) happens only when additional data layers need to be stored.
 
-## 2. Триггеры трансформации (Lazy Transformation)
+### Workspace module
 
-Преобразование файла `Name.md` в директорию `Name/Name.md` происходит автоматически при наступлении одного из событий:
+`amby.supernotes` controls the workspace commands for bundle creation, nesting via a
+document target, and layer management. Standard and pre-existing non-Minimal
+workspaces inherit it. With the module off, existing bundles appear as folders
+with separate rows for the main document and its layers. Their physical paths,
+identifiers, and local assets are preserved. Open and edit content from its file
+row. Deleting or archiving a file row acts on that file, preserving the directory
+and its other contents. A database stays a separate file row inside the folder
+even after its Markdown layer is removed. Selecting the folder row acts on
+the whole folder. With the module on, deleting a bundle's main document acts
+on the whole bundle.
+Rename and move linked files as a group from the folder row.
 
-- **Drop-событие:** Импорт медиа-файлов (картинки, PDF) в редактор.
-- **Смена слоя:** Активация визуальных режимов (Canvas, Excalidraw, Database) кнопки рядом с сменой вида редактирования.
-- **Ручное вложение:** Добавление вложенного файла через контекстное меню.
+### Module boundary audit (2026-11-22)
 
-### Структура хранения на диске
+Every entry point that creates, converts or widens an operation to a bundle, and how it
+follows the module:
+
+| Entry point                                                                                                                                                                      | With Supernotes off                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sidebar menus, tree drag and drop, document header and menu, layer buttons, folder conversion                                                                                    | Hidden (`supernotesEnabled` through `workspace-orchestration`); the tree projects bundle folders.                                                                                                                                                                                  |
+| Desktop commands (`ensure_bundle`, `create_layer`, `attach_*`, `unlink_layer`, `delete_layer`, nesting `create_note`, `move_item`, `rename_item`, `delete_item`, `archive_item`) | Refuse with `moduleDisabled`, or act on the exact file.                                                                                                                                                                                                                            |
+| Browser adapter (`web-adapter-core.ts`)                                                                                                                                          | Same refusals.                                                                                                                                                                                                                                                                     |
+| CLI, MCP tools and AI-panel proposals: rename, move, archive and delete (`structural/plan.rs`, `vault_tools/delete.rs`)                                                          | Gap, closed 2026-11-22: they used to resolve a bundle's main note to the whole folder. A file row now stands for that file alone (delete, archive); renaming or moving the file alone is refused with `moduleDisabled`; the folder row still renames, moves and removes the group. |
+| Creative Studio story creation (`create_story`)                                                                                                                                  | Intentionally unchanged: it has its own workflow and module.                                                                                                                                                                                                                       |
+| Data when the module is toggled                                                                                                                                                  | Nothing is rewritten; the switch only changes the projection and which operations are offered.                                                                                                                                                                                     |
+
+Remaining by design: reading and indexing bundles (links, search, backlinks) is not gated,
+so existing bundles stay readable with the module off.
+
+The canonical tree and its incremental patches carry bundle membership from the
+filesystem. The workspace projects it without rewriting files. A same-named
+Markdown file written into a folder is still recognized by its layout, including
+after a remote move, restoration, or creation in another application. Creative
+Studio creates story bundles through its own workflow.
+
+## 2. Transformation Triggers (Lazy Transformation)
+
+Creating a child note, moving a document onto a note, or creating a missing
+layer can move `Name.md` to `Name/Name.md`. Converting a folder creates the
+same-named main note inside it. Attaching a standalone Canvas or Excalidraw also
+creates a bundle.
+
+Adding a text layer to a database or an existing bundle creates the Markdown
+file beside the other layers. The sidebar uses the files on disk to decide
+which layers it can add, regardless of the layer used for the row's icon.
+Removing a layer from the document menu sends that file to the system trash
+and makes its attachment action available again.
+
+Media imported into a standalone note uses the vault's shared `assets/`.
+An existing bundle uses its local `assets/`.
+
+### Storage structure on disk
 
 ```plaintext
 MyVault/
-└── Название_Заметки/
-    ├── Название_Заметки.md         <-- Основной текст (Markdown)
-    ├── Название_Заметки.canvas     <-- Визуальная карта (JSON)
-    ├── Название_Заметки.excalidraw <-- Схемы и наброски
-    └── assets/                     <-- Локальные медиа-ресурсы
+└── Note_Name/
+    ├── Note_Name.md         <-- Main text (Markdown)
+    ├── Note_Name.canvas     <-- Visual map (JSON)
+    ├── Note_Name.excalidraw <-- Diagrams and sketches
+    └── assets/              <-- Local media resources
 ```
 
-## 3. Многослойный интерфейс (Multi-View)
+## 3. Multi-Layer Interface (Multi-View)
 
-Пользователь работает в едином окне, переключаясь между представлениями через табы.
+The user works in a single window, switching between views via tabs.
 
-| **Режим**    | **Файл-источник**      | **Технология**           |
+| **Mode**     | **Source file**        | **Technology**           |
 | ------------ | ---------------------- | ------------------------ |
 | **Editor**   | `Name.md`              | CodeMirror / TipTap      |
 | **Canvas**   | `Name.canvas`          | React Flow / Svelte Flow |
 | **Database** | `Metadata.md` / SQLite | Custom Form UI           |
 | **Sketch**   | `Name.excalidraw`      | @excalidraw/excalidraw   |
 
-## 4. Логика управления файлами (Backend: Rust/Tauri)
+## 4. File Management Logic (Backend: Rust/Tauri)
 
-### Атомарное переименование
+### Atomic rename
 
-При изменении названия сущности в UI, backend выполняет транзакцию на уровне FS:
+When an entity's name is changed in the UI, the backend performs a transaction at the FS level:
 
-1. Переименование файла `.md`.
-2. Переименование связанных файлов слоев (`.canvas`, `.excalidraw`).
-3. Переименование родительской директории бандла.
+1. Rename the `.md` file.
+2. Rename the related layer files (`.canvas`, `.excalidraw`).
+3. Rename the bundle's parent directory.
 
-### Drag-and-Drop поглощение
+### Drag-and-Drop absorption
 
-При перемещении `A.md` на `B.md`:
+When `A.md` is moved onto `B.md`:
 
-1. Создается директория `B/` (если не существовала).
-2. `A.md` (вместе с его бандлом) перемещается внутрь `B/`.
-3. В интерфейсе `A` отображается как дочерняя страница `B`.
+1. The `B/` directory is created (if it did not exist).
+2. `A.md` (together with its bundle) is moved inside `B/`.
+3. In the interface, `A` is displayed as a child page of `B`.
 
-## 5. Целостность и восстановление (Ctrl+Z)
+## 5. Integrity and Recovery (Ctrl+Z)
 
-- **Правило сохранения контейнера:** При удалении всех файлов из бандла папка не удаляется автоматически для предотвращения конфликтов при откате действий (Undo).
-- **Команда очистки:** Полное удаление пустых контейнеров вынесено в отдельную сервисную операцию.
-- **Логика восстановления:** При отмене удаления файла `Doc.md` система проверяет наличие одноименной папки. Если папка была восстановлена ранее, файл автоматически перемещается внутрь для восстановления целостности бандла.
+- **Container preservation rule:** When all files are removed from a bundle, the folder is not deleted automatically, to prevent conflicts when actions are rolled back (Undo).
+- **Cleanup command:** Fully removing empty containers is moved into a separate service operation.
+- **Recovery logic:** When the deletion of the `Doc.md` file is undone, the system checks for a folder with the same name. If the folder was restored earlier, the file is automatically moved inside it to restore the bundle's integrity.
 
-## 6. Интеграция динамических баз данных
+## 6. Integration of Dynamic Databases
 
-Используется гибридный подход для хранения структурированных данных.
+A hybrid approach is used to store structured data.
 
-- **Embedded DB:** Внутри `.md` файла используется блок кода с метаданными. Фронтенд интерпретирует его как виджет таблицы.
-- **SQLite Sync:** Изменения в UI (ввод данных в таблицу) вызывают SQL-запрос `UPDATE`. Данные синхронизируются между Markdown-метаданными и локальной базой данных SQLite для обеспечения возможности сложных выборок и фильтрации.
+- **Embedded DB:** Inside the `.md` file, a code block with metadata is used. The frontend interprets it as a table widget.
+- **SQLite Sync:** Changes in the UI (entering data into a table) trigger an `UPDATE` SQL query. The data is synchronized between the Markdown metadata and the local SQLite database to enable complex queries and filtering.
 
-## 7. Технический стек
+## 7. Technical Stack
 
-| **Компонент** | **Технология** | **Роль**                                     |
-| ------------- | -------------- | -------------------------------------------- |
-| **Backend**   | Rust (Tauri)   | FS Access, SQLite (rusqlite), индексация     |
-| **Frontend**  | TS + React/Vue | Рендеринг интерфейса, логика виджетов        |
-| **Database**  | SQLite         | Индексация связей, метаданные, быстрый поиск |
-| **Events**    | Notify (Rust)  | Мониторинг изменений ФС в реальном времени   |
+| **Component** | **Technology** | **Role**                               |
+| ------------- | -------------- | -------------------------------------- |
+| **Backend**   | Rust (Tauri)   | FS Access, SQLite (rusqlite), indexing |
+| **Frontend**  | TS + React/Vue | Interface rendering, widget logic      |
+| **Database**  | SQLite         | Link indexing, metadata, fast search   |
+| **Events**    | Notify (Rust)  | Real-time monitoring of FS changes     |
 
-## 8. Ключевые преимущества
+## 8. Key Advantages
 
-1. **Порядок в ФС:** Отсутствие россыпи файлов в корневых директориях.
-2. **Портативность:** Перемещение папки бандла сохраняет все связи и медиа-активы.
-3. **Масштабируемость:** Возможность начать с простого текста и нарастить функционал до базы данных без смены сущности.
+1. **Order in the FS:** No scattering of files across root directories.
+2. **Portability:** Moving a bundle folder preserves all links and media assets.
+3. **Scalability:** The ability to start with plain text and grow the functionality up to a database without changing the entity.

@@ -1,4 +1,4 @@
-import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs"
+import type { StateInline } from "markdown-it"
 
 // Inline math (`$E = mc^2$`). TeX is full of backslashes that Markdown would read as
 // escapes (`\{`, `\,`, `\\`) and write back differently, so the text between the dollars

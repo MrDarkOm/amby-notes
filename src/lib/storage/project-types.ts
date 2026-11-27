@@ -1,6 +1,6 @@
 import type { ProjectError } from "@/lib/bindings"
 
-// The contract lives in Rust (`src-tauri/src/project/model.rs`); the types are
+// The contract lives in Rust (`crates/amby-core/src/project/model.rs`); the types are
 // the generated ones so the two sides cannot drift apart.
 export type {
   AddStoryLinksRequest,
@@ -21,12 +21,24 @@ export type {
   CreateTextPageRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierLayout,
+  DossierSection,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
+  TextLinkPart,
   InitWorkshopRequest,
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
   Notebook,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
+  ImportSource,
+  ImportPreview,
+  ImportSelection,
+  ImportedNote,
   PlotLinksTarget,
   ReferenceDirection,
   ProjectCatalog,

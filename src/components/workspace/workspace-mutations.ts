@@ -55,7 +55,10 @@ export function planMutation(result: FsMutationResult): {
 
   return {
     deletedIds: [...deleted],
-    remapFn: (path: string) => remapPath(path, changes),
+    remapFn: (path: string) => {
+      if (path.startsWith("folder:")) return `folder:${remapPath(path.slice(7), changes)}`
+      return remapPath(path, changes)
+    },
     hasChanges: changes.length > 0 || deleted.size > 0,
   }
 }
@@ -70,9 +73,7 @@ export function isTargetDeleted(idOrPath: string, deleted: Iterable<string>): bo
   const deletedSet = deleted instanceof Set ? deleted : new Set(deleted)
   if (deletedSet.has(idOrPath)) return true
   const normPath = idOrPath.replace(/\\/g, "/").replace(/\/+$/, "")
-  const cleanId = idOrPath.startsWith("database:")
-    ? idOrPath.slice("database:".length).replace(/\\/g, "/").replace(/\/+$/, "")
-    : ""
+  const cleanId = normPath.replace(/^(database|folder|canvas|sketch):/u, "")
   for (const del of deletedSet) {
     if (!del) continue
     const normDel = del.replace(/\\/g, "/").replace(/\/+$/, "")
@@ -98,11 +99,10 @@ export function filterDeletedTabs(
       return true
     })
     .map((tab) => {
-      const remappedFileId =
-        remapFn && (tab.kind === "canvas" || tab.kind === "sketch")
-          ? remapFn(tab.fileId)
-          : tab.fileId
-      const remappedHistory = tab.history.filter((item) => !isTargetDeleted(item, deletedSet))
+      const remappedFileId = remapFn?.(tab.fileId) ?? tab.fileId
+      const remappedHistory = tab.history
+        .filter((item) => !isTargetDeleted(item, deletedSet))
+        .map((item) => remapFn?.(item) ?? item)
       return {
         ...tab,
         fileId: remappedFileId,
@@ -157,7 +157,10 @@ export function applySessionRemap(
 
   // Favorites / locked: remap + filter to existing ids.
   const favorites = session.favorites.map(remap).filter((id) => allIds.has(id))
-  const lockedFileIds = session.locked.map(remap).filter((id) => allIds.has(id))
+  // A workshop page is not a file of the tree: its read mode is kept under `creative:<project>`.
+  const lockedFileIds = session.locked
+    .map(remap)
+    .filter((id) => allIds.has(id) || id.startsWith("creative:"))
   const closedTreeIds = (session.closedTreeIds ?? []).map(remap).filter((id) => allIds.has(id))
 
   // View modes: remap + filter.
@@ -285,7 +288,10 @@ function treeParentPath(item: TreeItem, itemsByPath: ReadonlyMap<string, TreeIte
 
   // A bundle main note represents its containing directory in the visual tree,
   // so its parent lives one filesystem level above that directory.
-  if (item.type === "file" && itemPath === `${containerDir}/${basename(containerDir)}.md`) {
+  if (
+    item.bundleMembers ||
+    (item.type === "file" && itemPath === `${containerDir}/${basename(containerDir)}.md`)
+  ) {
     containerDir = dirname(containerDir)
     if (!containerDir) return null
   }
@@ -293,8 +299,12 @@ function treeParentPath(item: TreeItem, itemsByPath: ReadonlyMap<string, TreeIte
   // Regular files and folders inside a bundle are children of the bundle's
   // main note, not root rows. Checking this for every item type is important:
   // folder rows were previously detached whenever a mutation rebuilt the tree.
-  const bundleMain = `${containerDir}/${basename(containerDir)}.md`
-  if (itemsByPath.has(bundleMain)) return bundleMain
+  const stem = `${containerDir}/${basename(containerDir)}`
+  if (itemsByPath.has(`${stem}.md`)) return `${stem}.md`
+  for (const extension of ["canvas", "excalidraw"]) {
+    const path = `${stem}.${extension}`
+    if (itemsByPath.get(path)?.bundleMembers) return path
+  }
   return itemsByPath.has(containerDir) ? containerDir : null
 }
 
@@ -337,6 +347,7 @@ function reuseUnchangedTreeItems(previous: TreeItem[], next: TreeItem[]): TreeIt
       candidate.icon === item.icon &&
       candidate.created === item.created &&
       candidate.modified === item.modified &&
+      candidate.bundleMembers === item.bundleMembers &&
       childrenMatch
     ) {
       return candidate
@@ -369,7 +380,8 @@ function insertCreatedNote(items: TreeItem[], note: TreeItem): TreeItem[] {
         !inserted &&
         parentDir &&
         (normalizeTreePath(item.path) === parentDir ||
-          normalizeTreePath(item.path) === bundleParentPath)
+          normalizeTreePath(item.path) === bundleParentPath ||
+          (item.bundleMembers && dirname(item.path) === parentDir))
       ) {
         inserted = true
         changed = true
@@ -394,6 +406,21 @@ function insertCreatedNote(items: TreeItem[], note: TreeItem): TreeItem[] {
 
   const next = visit(items)
   return inserted ? next : [...items, note].sort(compareTreeItems)
+}
+
+/**
+ * Every path a mutation touched, for asking the backend to refresh exactly those (the same set
+ * the backend collects as `mutation_paths`).
+ */
+export function mutationPaths(result: FsMutationResult): string[] {
+  const paths = new Set<string>()
+  if (result.primaryPath) paths.add(result.primaryPath)
+  for (const change of result.pathChanges) {
+    if (change.oldPath) paths.add(change.oldPath)
+    if (change.newPath) paths.add(change.newPath)
+  }
+  for (const deleted of result.deletedPaths) paths.add(deleted)
+  return [...paths]
 }
 
 /**
@@ -483,15 +510,39 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
       (oldPath === oldFolder || oldPath.startsWith(`${oldFolder}/`))
         ? `${newFolder}${oldPath.slice(oldFolder.length)}`
         : oldPath)
+    const members = item.bundleMembers
+      ?.filter((member) => !deletedPaths.has(normalizeTreePath(member.path)))
+      .map((member) => {
+        const path = remapPath(member.path, result.pathChanges)
+        if (path === member.path) return member
+        const id =
+          member.id === member.path
+            ? path
+            : member.id === `${member.type}:${member.path}`
+              ? `${member.type}:${path}`
+              : member.id
+        return {
+          ...member,
+          path,
+          id,
+          name: member.type === "database" ? member.name : displayName(path),
+        }
+      })
+    const membersUnchanged =
+      members?.length === item.bundleMembers?.length &&
+      members?.every((member, index) => member === item.bundleMembers?.[index])
     return {
       ...item,
       id:
         item.type === "folder"
           ? `folder:${nextPath}`
-          : item.type === "canvas"
-            ? `canvas:${nextPath}`
-            : item.id,
+          : item.bundleMembers && item.id === item.path
+            ? nextPath
+            : item.type === "canvas" || item.type === "sketch"
+              ? `${item.type}:${nextPath}`
+              : item.id,
       path: nextPath,
+      bundleMembers: membersUnchanged ? item.bundleMembers : members,
       name: displayName(nextPath),
       children: undefined,
     }
@@ -499,9 +550,11 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
 
   if (result.primaryPath) {
     const path = normalizeTreePath(result.primaryPath)
-    const alreadyPresent = result.primaryId
-      ? next.some((item) => item.id === result.primaryId)
-      : next.some((item) => normalizeTreePath(item.path) === path)
+    const alreadyPresent = next.some(
+      (item) =>
+        (result.primaryId ? item.id === result.primaryId : normalizeTreePath(item.path) === path) ||
+        (item.bundleMembers && dirname(item.path) === path),
+    )
     if (!alreadyPresent) {
       next.push({
         // A missing primary id means the index is degraded; the path remains

@@ -1,0 +1,509 @@
+import * as React from "react"
+import { useTranslation } from "react-i18next"
+import { RefreshCw, CircleCheck, Cloud, TriangleAlert } from "lucide-react"
+
+import { MotionSpinner } from "@/lib/motion"
+import { refreshSyncState } from "./use-refresh-sync"
+import { BackupPanel } from "../backup/backup-panel"
+import { useVaultStore } from "../use-vault-store"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { formatWait, syncCodeMessage, syncErrorMessage } from "@/lib/sync/sync-errors"
+import {
+  SyncPortError,
+  type ApprovalKind,
+  type ConflictChoice,
+  type NotePick,
+  type SpaceView,
+  type SyncPort,
+  type VaultSyncStatus,
+} from "@/lib/sync/sync-port"
+import { propertyStorageStatus } from "@/lib/properties/property-groups-port"
+import { SyncCompareDialog } from "./sync-compare-dialog"
+import { ConflictList, StopNotice, SyncVaultFooter, UnsyncedList } from "./sync-vault-parts"
+import { clearSyncListenFailed, reportSyncListenFailed } from "./listen-failure"
+import { SubscriptionOffer } from "./subscription-offer"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
+
+const LISTEN_RETRIES = 3
+const LISTEN_RETRY_MS = 10_000
+
+export interface SyncVaultPanelProps {
+  /** The port to use. */
+  port: SyncPort
+  vault?: string | null
+  onConnectionChange?: () => void
+}
+
+type Mode = "new" | "existing"
+
+/**
+ * Sync of the open vault (docs/sync-plan.md, stage Э4): switching it on, the status, the answers to
+ * the stops of Р8, the list of conflicts and the list of files that are not synchronised.
+ *
+ */
+export function SyncVaultPanel({
+  port,
+  vault: givenVault,
+  onConnectionChange,
+}: SyncVaultPanelProps) {
+  const { t, i18n } = useTranslation()
+  const storedVault = useVaultStore((state) => state.vault)
+  const vault = givenVault === undefined ? storedVault : givenVault
+  const [status, setStatus] = React.useState<VaultSyncStatus | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  // The code behind `error`: the answer "your plan has no room for another storage" offers a way on.
+  const [errorCode, setErrorCode] = React.useState<string | null>(null)
+  const [busy, setBusy] = React.useState(false)
+  const [resolving, setResolving] = React.useState<string | null>(null)
+  // The comparison of the settings is a window of its own: the choice between two versions is made there.
+  const [comparingId, setComparingId] = React.useState<string | null>(null)
+  const [mode, setMode] = React.useState<Mode>("new")
+  const [name, setName] = React.useState("")
+  const [spaces, setSpaces] = React.useState<SpaceView[] | null>(null)
+  const [spaceId, setSpaceId] = React.useState<string | null>(null)
+  // A guard that does not wait for a render: two clicks in one tick are one request.
+  const working = React.useRef(false)
+
+  // An old version of Amby still writes the old file of properties (З22, З37).
+  const [oldVersionWarning, setOldVersionWarning] = React.useState<string | null>(null)
+  const lastSyncMs = status?.lastSyncMs ?? null
+  React.useEffect(() => {
+    let alive = true
+    propertyStorageStatus()
+      .then((next) => alive && setOldVersionWarning(next?.oldVersionWarning ?? null))
+      .catch(() => alive && setOldVersionWarning(null))
+    return () => {
+      alive = false
+    }
+  }, [lastSyncMs])
+
+  // The status is pushed to this screen. When the subscription fails, the screen cannot tell how sync is
+  // doing, so it says so (instead of the last state it saw) and subscribes again, a few times, later.
+  const [listenFailed, setListenFailed] = React.useState(false)
+  const [listenAttempt, setListenAttempt] = React.useState(0)
+  React.useEffect(() => {
+    let alive = true
+    let unlisten: (() => void) | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    port
+      .vaultStatus()
+      .then((next) => alive && setStatus((current) => current ?? next))
+      .catch((caught) => alive && setError(syncErrorMessage(caught, t)))
+    port
+      .onVaultStatus((next) => alive && setStatus(next))
+      .then((off) => {
+        if (alive) unlisten = off
+        else off()
+        if (alive) {
+          setListenFailed(false)
+          clearSyncListenFailed()
+        }
+      })
+      .catch((error: unknown) => {
+        if (!alive) return
+        reportSyncListenFailed(error)
+        setListenFailed(true)
+        if (listenAttempt < LISTEN_RETRIES) {
+          retryTimer = setTimeout(() => setListenAttempt((count) => count + 1), LISTEN_RETRY_MS)
+        }
+      })
+    return () => {
+      alive = false
+      clearTimeout(retryTimer)
+      unlisten?.()
+    }
+  }, [port, t, listenAttempt])
+
+  const act = async (action: () => Promise<void>): Promise<void> => {
+    if (working.current) return
+    working.current = true
+    setBusy(true)
+    setError(null)
+    setErrorCode(null)
+    try {
+      await action()
+    } catch (caught) {
+      setError(syncErrorMessage(caught, t))
+      setErrorCode(caught instanceof SyncPortError ? caught.code : null)
+    } finally {
+      working.current = false
+      setBusy(false)
+    }
+  }
+
+  const chooseExisting = () => {
+    setMode("existing")
+    if (spaces !== null) return
+    void act(async () => {
+      const listed = await port.listSpaces()
+      setSpaces(listed)
+      // Nothing to connect to: the way on is to create the first space (owner's request).
+      if (listed.length === 0) setMode("new")
+    })
+  }
+
+  const backupPath = status?.backupPath ?? null
+  // Shown while the vault is linked to sync, not only while the current copy exists: older copies and
+  // leftovers of an interrupted copy stay visible and can be deleted after the current one is gone.
+  const backupInfo =
+    backupPath || status?.backupMissing || status?.linked ? (
+      <BackupPanel vault={vault} missing={status?.backupMissing ?? false} />
+    ) : null
+  const target = mode === "new" ? ({ kind: "new", name: name.trim() } as const) : null
+  const canEnable = !busy && (mode === "new" || spaceId !== null)
+
+  const enable = () =>
+    act(async () => {
+      const chosen = target ?? { kind: "existing" as const, spaceId: spaceId ?? "" }
+      setStatus(await port.enableVault(chosen))
+      onConnectionChange?.()
+    })
+
+  // Only a binding of this server and account is resumed, with its own space (the target is
+  // ignored by the application).
+  const resumeAfterOff = () =>
+    act(async () => {
+      setStatus(await port.enableVault({ kind: "new", name: "" }))
+      onConnectionChange?.()
+    })
+
+  const disable = () =>
+    act(async () => {
+      setStatus(await port.disableVault())
+      onConnectionChange?.()
+    })
+
+  const approve = (kind: ApprovalKind) => act(() => port.approve(kind))
+
+  const resolve = (id: string, choice: ConflictChoice) => {
+    if (working.current) return
+    working.current = true
+    setResolving(id)
+    setError(null)
+    port
+      .resolveConflict(id, choice)
+      .catch((caught) => setError(syncErrorMessage(caught, t)))
+      .finally(() => {
+        working.current = false
+        setResolving(null)
+      })
+  }
+
+  const groupActions = React.useMemo(
+    () => ({
+      read: (id: string) => port.readGroupConflict(id),
+      resolve: (id: string, picks: Record<string, NotePick>, stamp: string) => {
+        setError(null)
+        return port.resolveGroupConflict(id, picks, stamp)
+      },
+      onError: (caught: unknown) => setError(syncErrorMessage(caught, t)),
+    }),
+    [port, t],
+  )
+
+  const errorLine = error && (
+    <div className="space-y-1.5">
+      <NoticeLine role="alert" text={error} />
+      {errorCode === "subscription_required" && <SubscriptionOffer disabled={busy} />}
+      {errorCode === "space_limit" && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => {
+            setError(null)
+            setErrorCode(null)
+            chooseExisting()
+          }}
+        >
+          {t("sync.notices.chooseExisting")}
+        </Button>
+      )}
+    </div>
+  )
+
+  const syncControl = (
+    <label className="sync-enable-control">
+      <span>{t(status?.enabled ? "sync.layout.enabled" : "sync.layout.disabled")}</span>
+      <Switch
+        aria-label={t("sync.title")}
+        checked={status?.enabled ?? false}
+        disabled={!status || busy || (!status.enabled && !status.resumable)}
+        title={!status?.enabled && !status?.resumable ? t("sync.vault.connectFirst") : undefined}
+        onCheckedChange={(enabled) => {
+          if (!enabled) void disable()
+          else if (status?.resumable) void resumeAfterOff()
+        }}
+      />
+    </label>
+  )
+  const frame = (content: React.ReactNode, controlInCard = false) => (
+    <section className="sync-zone" aria-labelledby="sync-zone-storage">
+      <div className="sync-zone-heading">
+        <h2 id="sync-zone-storage" className="sync-zone-title">
+          {t("sync.layout.zoneStorage")}
+        </h2>
+        {!controlInCard && syncControl}
+      </div>
+      <div className="sync-vault-zone">{content}</div>
+    </section>
+  )
+
+  if (!status) {
+    return frame(
+      <section data-testid="sync-vault" className="sync-vault-card space-y-2">
+        {errorLine}
+      </section>,
+    )
+  }
+
+  // ----- not switched on -----
+  if (!status.enabled) {
+    if (status.linked && status.resumable) {
+      return frame(
+        <section data-testid="sync-vault" className="sync-vault-card space-y-2">
+          <div className="sync-vault-heading">
+            <div className="sync-vault-symbol">
+              <Cloud aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="sync-vault-name">
+                {status.spaceName ?? t("sync.vault.unnamedSpace")}
+              </h3>
+            </div>
+            {syncControl}
+            <Button type="button" size="sm" disabled={busy} onClick={() => void resumeAfterOff()}>
+              {t("sync.vault.resume")}
+            </Button>
+          </div>
+          <p className="text-[13px]">{t("sync.vault.off")}</p>
+          {status.errorCode && (
+            <NoticeLine
+              role="alert"
+              text={t("sync.vault.cannotStart", {
+                reason: syncCodeMessage(status.errorCode, t),
+              })}
+            />
+          )}
+          <SyncVaultFooter items={[]} backups={backupInfo} />
+          {errorLine}
+        </section>,
+        true,
+      )
+    }
+    return frame(
+      <section data-testid="sync-vault" className="sync-vault-card space-y-3">
+        <p
+          data-testid="sync-backup-before-enable"
+          className="rounded-lg border border-border bg-card/40 px-3 py-2 text-[12px] leading-5 text-muted-foreground"
+        >
+          {t("sync.vault.backupBeforeEnable")}
+        </p>
+        <SyncVaultFooter items={[]} backups={backupInfo} />
+        <fieldset className="space-y-2">
+          <legend className="mb-1 text-[12px] font-medium">{t("sync.vault.spaceLegend")}</legend>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="radio"
+              name="sync-space-mode"
+              checked={mode === "new"}
+              onChange={() => setMode("new")}
+            />
+            {t("sync.vault.createNew")}
+          </label>
+          {mode === "new" && (
+            <div className="space-y-1 pl-6">
+              <label htmlFor="sync-space-name" className="text-[12px] font-medium">
+                {t("sync.vault.nameLabel")}
+              </label>
+              <Input
+                id="sync-space-name"
+                value={name}
+                maxLength={64}
+                placeholder={t("sync.vault.namePlaceholder")}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="radio"
+              name="sync-space-mode"
+              checked={mode === "existing"}
+              onChange={chooseExisting}
+            />
+            {t("sync.vault.connectExisting")}
+          </label>
+          {spaces !== null && spaces.length === 0 && (
+            <div className="space-y-1.5 pl-6">
+              <p className="text-[12px] text-muted-foreground">{t("sync.vault.noSpaces")}</p>
+              <p className="text-[12px] text-muted-foreground">{t("sync.vault.noSpacesHint")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => setMode("new")}>
+                {t("sync.vault.noSpacesCreate")}
+              </Button>
+            </div>
+          )}
+          {mode === "existing" && spaces !== null && (
+            <div className="space-y-1 pl-6">
+              {spaces.map((space) => (
+                <label key={space.spaceId} className="flex items-center gap-2 text-[13px]">
+                  <input
+                    type="radio"
+                    name="sync-space-choice"
+                    checked={spaceId === space.spaceId}
+                    onChange={() => setSpaceId(space.spaceId)}
+                  />
+                  {space.name ?? t("sync.vault.unnamedSpace")}
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("sync.vault.spaceChanges", { count: space.seq })}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </fieldset>
+        {errorLine}
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canEnable}
+          aria-busy={busy}
+          onClick={() => void enable()}
+        >
+          {busy && (
+            <MotionSpinner>
+              <RefreshCw />
+            </MotionSpinner>
+          )}
+          {t(busy ? "sync.vault.working" : "sync.vault.enable")}
+        </Button>
+      </section>,
+    )
+  }
+
+  // ----- switched on -----
+  const comparing = status.conflicts.find((item) => item.id === comparingId)
+  const lastSync = status.lastSyncMs === null ? null : new Date(status.lastSyncMs)
+  let line: string
+  switch (status.phase) {
+    case "running":
+      line = t("sync.vault.status.running")
+      break
+    case "waiting":
+      line = t("sync.vault.status.waiting", {
+        wait: formatWait(status.nextTrySecs ?? 1, t),
+      })
+      break
+    case "stopped":
+      line = t("sync.vault.status.stopped")
+      break
+    default:
+      line = t("sync.vault.status.idle")
+  }
+  const state = listenFailed ? "unknown" : refreshSyncState(status)
+  const StatusIcon = state === "problem" ? TriangleAlert : state === "synced" ? CircleCheck : Cloud
+  if (state === "unknown") line = t("sync.vault.status.unknown")
+  else if (state === "problem" && status.phase === "idle") line = t("sync.layout.attention")
+  if (state === "pending") line = t("sync.refresh.pending")
+  return frame(
+    <section data-testid="sync-vault" className="sync-vault-card" data-sync-state={state}>
+      <div className="sync-vault-heading">
+        <div className="sync-vault-symbol">
+          <StatusIcon aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="sync-vault-name">{status.spaceName ?? t("sync.vault.unnamedSpace")}</h3>
+          <div data-testid="sync-status" role="status" className="sync-vault-status">
+            <p className="sync-status-line">
+              <span className="sync-status-dot" />
+              {line}
+            </p>
+            {status.phase === "idle" && (
+              <p className="sync-status-time">
+                {lastSync
+                  ? t("sync.vault.status.lastSync", {
+                      date: lastSync.toLocaleString(i18n.language),
+                    })
+                  : t("sync.vault.status.never")}
+              </p>
+            )}
+            {status.phase === "waiting" && status.errorCode && (
+              <p data-testid="sync-status-detail" className="sync-status-time">
+                {syncCodeMessage(status.errorCode, t)}
+              </p>
+            )}
+            {oldVersionWarning && (
+              <p role="status" className="sync-vault-old-version">
+                {oldVersionWarning}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="sync-vault-actions">
+          {syncControl}
+          <Button
+            type="button"
+            size="sm"
+            variant={state === "problem" || state === "pending" ? "default" : "outline"}
+            disabled={busy || status.phase === "running"}
+            onClick={() => void act(() => port.runNow())}
+          >
+            {busy || status.phase === "running" ? (
+              <MotionSpinner>
+                <RefreshCw />
+              </MotionSpinner>
+            ) : (
+              <RefreshCw />
+            )}
+            {t("sync.vault.runNow")}
+          </Button>
+        </div>
+      </div>
+      {status.stop && (
+        <StopNotice
+          stop={status.stop}
+          busy={busy}
+          onApprove={(kind) => void approve(kind)}
+          onCheckAgain={() => void act(() => port.runNow())}
+        />
+      )}
+      {status.outgoingPaused && (
+        <p className="text-[12px] text-muted-foreground">{t("sync.vault.outgoingPaused")}</p>
+      )}
+      {status.itemErrors > 0 && (
+        <p className="text-[12px] text-muted-foreground">
+          {t("sync.vault.itemErrors", { count: status.itemErrors })}
+        </p>
+      )}
+      {status.needsUpdate && (
+        <p role="note" className="text-[12px] text-muted-foreground">
+          {t("sync.vault.needsUpdate")}
+        </p>
+      )}
+      {errorLine}
+
+      <ConflictList
+        items={status.conflicts}
+        busyId={resolving}
+        onResolve={resolve}
+        onCompare={setComparingId}
+        groups={groupActions}
+      />
+      {comparing && (
+        <SyncCompareDialog port={port} conflict={comparing} onClose={() => setComparingId(null)} />
+      )}
+      <UnsyncedList items={status.unsynced} />
+
+      <SyncVaultFooter
+        items={status.unsynced}
+        backups={backupInfo}
+        onRefresh={() => void act(() => port.runNow())}
+        refreshing={busy || status.phase === "running"}
+      />
+    </section>,
+    true,
+  )
+}

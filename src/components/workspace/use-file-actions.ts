@@ -3,6 +3,7 @@ import {
   useDocumentLoading,
   useDocumentMutations,
   useMarkdownAutosave,
+  useNoteModuleActions,
   useWikiNavigation,
   type UseFileActionsParams,
 } from "./file-actions"
@@ -21,6 +22,11 @@ export function useFileActions(params: UseFileActionsParams) {
     ...markdownAutosave,
     handleSelect: loading.handleSelect,
   })
+  const noteModules = useNoteModuleActions({
+    ...params,
+    ...markdownAutosave,
+    handleSelect: loading.handleSelect,
+  })
   const mutations = useDocumentMutations({
     ...params,
     ...markdownAutosave,
@@ -31,6 +37,7 @@ export function useFileActions(params: UseFileActionsParams) {
   return {
     ...loading,
     ...wikiNavigation,
+    ...noteModules,
     ...crud,
     ...mutations,
     handleContentChange: markdownAutosave.handleContentChange,

@@ -10,9 +10,11 @@
 //! The webview passes the note and the address of the attachment as the note wrote it;
 //! everything else is decided here.
 
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::paths;
+use crate::system_open::{self, plain_path, ERR_OPEN_FAILED};
 use crate::vault_context::VaultContext;
 
 /// What may be handed to the system program. Documents and media, no archives, no
@@ -32,7 +34,11 @@ pub const ERR_NOT_FOUND: &str = "AttachmentNotFound";
 pub const ERR_OUTSIDE_ASSETS: &str = "AttachmentOutsideAssets";
 pub const ERR_TYPE_NOT_ALLOWED: &str = "AttachmentTypeNotAllowed";
 pub const ERR_ADDRESS_NOT_ALLOWED: &str = "AddressNotAllowed";
-pub const ERR_OPEN_FAILED: &str = "OpenFailed";
+pub const ERR_VAULT_NOT_KNOWN: &str = "VaultNotKnown";
+pub const ERR_VAULT_FOLDER_MISSING: &str = "VaultFolderMissing";
+
+/// The file in the app-data folder that lists the vaults the person has opened (`recent`).
+const WORKSPACES_FILE: &str = "workspaces.json";
 
 fn extension_allowed(path: &Path) -> bool {
     path.extension()
@@ -139,30 +145,6 @@ pub(crate) fn parse_web_address(address: &str) -> Result<String, &'static str> {
     Ok(url.into())
 }
 
-/// Windows returns `\\?\C:\...` for a real path; the shell wants the plain form.
-fn plain_path(path: &Path) -> PathBuf {
-    let text = path.to_string_lossy();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
-        _ => path.to_path_buf(),
-    }
-}
-
-fn hand_to_system(target: &std::ffi::OsStr) -> Result<(), &'static str> {
-    #[cfg(target_os = "windows")]
-    let mut command = std::process::Command::new("explorer");
-    #[cfg(target_os = "macos")]
-    let mut command = std::process::Command::new("open");
-    #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-    let mut command = std::process::Command::new("xdg-open");
-    let mut child = command.arg(target).spawn().map_err(|_| ERR_OPEN_FAILED)?;
-    // Reap the helper so it does not stay a zombie; its exit code says nothing useful.
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
-}
-
 /// Opens an attachment of a note with the system's program for its type.
 #[tauri::command]
 #[specta::specta]
@@ -175,7 +157,93 @@ pub fn open_attachment(
     let vault = context.root()?;
     let file = resolve_openable_attachment(&vault, &note, &attachment_path)
         .map_err(|code| code.to_string())?;
-    hand_to_system(plain_path(&file).as_os_str()).map_err(|code| code.to_string())
+    system_open::open_path(&file).map_err(|code| code.to_string())
+}
+
+/// The folder of a known vault, by the id the list of vaults gives it. The list is the app's own
+/// `workspaces.json`; a path from the webview is never taken, so an id is all that can be asked for.
+/// The folder must exist, be a folder, and is returned in its real (canonical) form.
+pub(crate) fn vault_folder_from_registry(
+    registry: &str,
+    id: &str,
+) -> Result<PathBuf, &'static str> {
+    let registry: serde_json::Value =
+        serde_json::from_str(registry).map_err(|_| ERR_VAULT_NOT_KNOWN)?;
+    let path = registry
+        .get("recent")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|vault| vault.get("id").and_then(serde_json::Value::as_str) == Some(id))
+        .and_then(|vault| vault.get("path"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|path| !path.is_empty())
+        .ok_or(ERR_VAULT_NOT_KNOWN)?;
+    let real = fs::canonicalize(path).map_err(|_| ERR_VAULT_FOLDER_MISSING)?;
+    if !real.is_dir() {
+        return Err(ERR_VAULT_FOLDER_MISSING);
+    }
+    Ok(plain_path(&real))
+}
+
+/// Shows the folder of a known vault in the system's file manager. Works on the start screen and for a
+/// vault that is not the open one: the folder is found in the list of known vaults, not in the open vault.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_vault_folder(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let registry = match fs::read_to_string(crate::app_data::app_root(&app)?.join(WORKSPACES_FILE))
+    {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return Err(ERR_OPEN_FAILED.to_string()),
+    };
+    let folder = vault_folder_from_registry(&registry, &id).map_err(|code| code.to_string())?;
+    system_open::open_path(&folder).map_err(|code| code.to_string())
+}
+
+/// Shows the app's own data folder (settings, the list of vaults) in the system's file manager.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_app_data_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let root = crate::app_data::app_root(&app)?;
+    system_open::open_path(&root).map_err(|code| code.to_string())
+}
+
+/// Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
+/// a re-encoded picture. The attachment is judged by the same rules as for opening it.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_attachment_copy(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, VaultContext>,
+    note_path: String,
+    attachment_path: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let note = paths::guard(&context, &note_path)?;
+    let vault = context.root()?;
+    let file = resolve_openable_attachment(&vault, &note, &attachment_path)
+        .map_err(|code| code.to_string())?;
+    let default_name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "attachment".to_string());
+
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(&default_name)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(chosen) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let destination = chosen.to_string();
+    fs::copy(&file, &destination).map_err(|e| e.to_string())?;
+    Ok(Some(destination))
 }
 
 /// Opens a web address in the system's browser.
@@ -183,7 +251,7 @@ pub fn open_attachment(
 #[specta::specta]
 pub fn open_web_address(address: String) -> Result<(), String> {
     let address = parse_web_address(&address).map_err(|code| code.to_string())?;
-    hand_to_system(std::ffi::OsStr::new(&address)).map_err(|code| code.to_string())
+    system_open::open_address(&address).map_err(|code| code.to_string())
 }
 
 /// The title and the description of the page at a web address, fetched once because the
@@ -445,5 +513,91 @@ mod tests {
         ] {
             assert!(!OPENABLE_EXTENSIONS.contains(&ext), "{ext}");
         }
+    }
+    fn registry_for(vaults: &[(&str, &Path)]) -> String {
+        let recent: Vec<serde_json::Value> = vaults
+            .iter()
+            .map(|(id, path)| {
+                serde_json::json!({ "id": id, "name": id, "path": path.to_string_lossy() })
+            })
+            .collect();
+        serde_json::json!({ "schemaVersion": 1, "recent": recent, "lastOpened": null }).to_string()
+    }
+
+    #[test]
+    fn finds_the_folder_of_a_known_vault_that_is_not_the_open_one() {
+        let first = temp_dir("reg-first");
+        let second = temp_dir("reg-second");
+        let registry = registry_for(&[("v1", &first), ("v2", &second)]);
+        // No vault is open here at all: the answer comes from the list of known vaults.
+        assert_eq!(
+            vault_folder_from_registry(&registry, "v2")
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            second.canonicalize().unwrap()
+        );
+        assert_eq!(
+            vault_folder_from_registry(&registry, "v1")
+                .unwrap()
+                .canonicalize()
+                .unwrap(),
+            first.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn an_unknown_id_is_refused() {
+        let vault = temp_dir("reg-unknown");
+        let registry = registry_for(&[("v1", &vault)]);
+        assert_eq!(
+            vault_folder_from_registry(&registry, "nope"),
+            Err(ERR_VAULT_NOT_KNOWN)
+        );
+        assert_eq!(
+            vault_folder_from_registry("", "v1"),
+            Err(ERR_VAULT_NOT_KNOWN)
+        );
+        assert_eq!(
+            vault_folder_from_registry("{not json", "v1"),
+            Err(ERR_VAULT_NOT_KNOWN)
+        );
+    }
+
+    #[test]
+    fn a_path_is_not_accepted_in_place_of_an_id() {
+        let vault = temp_dir("reg-path");
+        let elsewhere = temp_dir("reg-elsewhere");
+        let registry = registry_for(&[("v1", &vault)]);
+        for given in [
+            vault.to_string_lossy().to_string(),
+            elsewhere.to_string_lossy().to_string(),
+            "/".to_string(),
+            "..".to_string(),
+            String::new(),
+        ] {
+            assert_eq!(
+                vault_folder_from_registry(&registry, &given),
+                Err(ERR_VAULT_NOT_KNOWN),
+                "{given:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vault_whose_folder_is_gone_or_is_a_file_is_refused() {
+        let gone = temp_dir("reg-gone").join("deleted");
+        let dir = temp_dir("reg-file");
+        let file = dir.join("note.md");
+        fs::write(&file, "x").unwrap();
+        let registry = registry_for(&[("gone", &gone), ("file", &file)]);
+        assert_eq!(
+            vault_folder_from_registry(&registry, "gone"),
+            Err(ERR_VAULT_FOLDER_MISSING)
+        );
+        assert_eq!(
+            vault_folder_from_registry(&registry, "file"),
+            Err(ERR_VAULT_FOLDER_MISSING)
+        );
     }
 }

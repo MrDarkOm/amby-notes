@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Reorder } from "motion/react"
+import { NoticeLine } from "../notices/notice-line"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { ChevronRight, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -31,6 +32,8 @@ import { ReorderableRow } from "./reorderable-row"
 import { RollupSettings } from "./rollup-settings"
 import type { RollupDraft } from "./rollup-model"
 import { DATE_FORMAT_IDS, dateDisplayOf, formatDateValue } from "./value-format"
+import { reportOperationError, ShownError } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
 
 /** What a settings change sets; the rest of the request is the property's identity. */
 export type PropertyConfigPatch = Omit<
@@ -143,14 +146,14 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
     if (found) {
       const message = t(`databaseOptions.${found.problem}`)
       setProblem(message)
-      throw new Error(message)
+      throw new ShownError(message)
     }
     setProblem(null)
     setBusy(true)
     try {
       await onSave(next)
     } catch (failure) {
-      setProblem(failure instanceof Error ? failure.message : String(failure))
+      setProblem(reportOperationError(failure))
       setOrder(drafts)
       throw failure
     } finally {
@@ -166,6 +169,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
         property.propertyType === "multiSelect",
       ),
     )
+  // The failure is already shown under the element by `save` (setProblem); this only stops the
+  // rejection.
   const changed = (next: OptionDraft[]) => void save(next).catch(() => {})
   const moveBy = (index: number, offset: -1 | 1) => {
     const next = [...orderRef.current]
@@ -196,6 +201,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
       },
     ])
       .then(() => setNewName(""))
+      // The failure is already shown under the element by `save` (setProblem); this only stops the
+      // rejection.
       .catch(() => {})
   }
   // A Status is shown by stage: each stage has its own rows, its own "+", and rows are dragged
@@ -232,6 +239,8 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
         setGroupName("")
         setAddingGroup(null)
       })
+      // The failure is already shown under the element by `save` (setProblem); this only stops the
+      // rejection.
       .catch(() => {})
   }
   const moveInGroup = (group: StatusGroup, draft: OptionDraft, offset: -1 | 1) => {
@@ -303,7 +312,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
                   onChange={(event) => setGroupName(event.target.value)}
                   onBlur={() => addToGroup(group)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") {
+                    if (isEnterKey(event)) {
                       event.preventDefault()
                       addToGroup(group)
                     }
@@ -318,11 +327,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             </section>
           )
         })}
-        {problem && (
-          <p role="alert" className="text-xs leading-snug text-destructive">
-            {problem}
-          </p>
-        )}
+        {problem && <NoticeLine text={problem} />}
         <p className="pt-1 text-[11px] leading-snug text-muted-foreground">
           {t("databaseOptions.removeHint")}
         </p>
@@ -370,10 +375,10 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             maxLength={80}
             aria-label={t("databaseOptions.newOption")}
             placeholder={t("databaseOptions.newOption")}
-            className="h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
+            className="amby-inset-icon-input h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
             onChange={(event) => setNewName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key !== "Enter") return
+              if (!isEnterKey(event)) return
               event.preventDefault()
               add()
             }}
@@ -392,11 +397,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
           {t("databaseOptions.addShort")}
         </button>
       </div>
-      {problem && (
-        <p role="alert" className="text-xs leading-snug text-destructive">
-          {problem}
-        </p>
-      )}
+      {problem && <NoticeLine text={problem} />}
       <p className="text-[11px] leading-snug text-muted-foreground">
         {t("databaseOptions.removeHint")}
       </p>
@@ -450,7 +451,7 @@ export function PropertyConfigEditor({
     try {
       await change()
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(reportOperationError(failure))
     } finally {
       setBusy(false)
     }
@@ -594,11 +595,7 @@ export function PropertyConfigEditor({
   return (
     <div className={cn("space-y-3.5 text-[13px]", className)}>
       {body}
-      {error && (
-        <p role="alert" className="text-xs leading-snug text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <NoticeLine text={error} />}
     </div>
   )
 }

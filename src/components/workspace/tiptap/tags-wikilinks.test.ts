@@ -183,3 +183,35 @@ describe("tag and wikilink decorations", () => {
     expect(tag.dataset.ambySource).toBe("#tag")
   })
 })
+
+describe("clicking a tag", () => {
+  function clickTag(editable: boolean, modifiers: Partial<MouseEvent> = {}) {
+    editor?.destroy()
+    const tags: string[] = []
+    const target = new Editor({
+      element: document.body.appendChild(document.createElement("div")),
+      extensions: [
+        ...schemaExtensions,
+        TagsWikilinks.configure({
+          callbacks: { current: { onTagClick: (tag) => tags.push(tag) } },
+        }),
+      ],
+      content: markdownToDoc("Learning #finnish today"),
+      editable,
+    })
+    editor = target
+    const tagStart = target.state.doc.textContent.indexOf("#finnish") + 1
+    const event = new MouseEvent("click", modifiers)
+    const handled = target.view.someProp("handleClick", (f) => f(target.view, tagStart + 3, event))
+    return { tags, handled: Boolean(handled) }
+  }
+
+  it("shows the tag from a read-only note on a plain click", () => {
+    expect(clickTag(false)).toEqual({ tags: ["finnish"], handled: true })
+  })
+
+  it("places the caret while editing and follows the tag on Cmd/Ctrl-click", () => {
+    expect(clickTag(true)).toEqual({ tags: [], handled: false })
+    expect(clickTag(true, { metaKey: true })).toEqual({ tags: ["finnish"], handled: true })
+  })
+})

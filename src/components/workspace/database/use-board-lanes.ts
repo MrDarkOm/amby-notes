@@ -10,6 +10,7 @@ import {
 import { useDatabaseStore } from "./database-store"
 import { safeOptionColor } from "./value-format"
 import { EMPTY_BOARD_LANE, moveRowToBoardLane } from "./layouts/board-model"
+import { reportOperationError } from "@/lib/operation-errors"
 
 const LANE_PAGE_SIZE = 50
 const MAX_GROUPS = 256
@@ -63,7 +64,7 @@ function withLane(
   return filter ? { kind: "group", operator: "and", children: [filter, lane] } : lane
 }
 
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const message = (error: unknown) => reportOperationError(error)
 
 /**
  * Board data that does not depend on which rows happen to be loaded: group
@@ -83,8 +84,9 @@ export function useBoardLanes({
 }: UseBoardLanesOptions) {
   const generation = useDatabaseStore((state) => state.vaultGeneration)
   const invalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
-  const [counts, setCounts] = React.useState<Record<string, number>>({})
-  const [data, setData] = React.useState<Record<string, LaneData>>({})
+  // Lane keys are option ids and stored values, so they live in Maps, not plain objects.
+  const [counts, setCounts] = React.useState<Map<string, number>>(() => new Map())
+  const [data, setData] = React.useState<Map<string, LaneData>>(() => new Map())
   const [status, setStatus] = React.useState<"idle" | "loading" | "ready" | "error">("idle")
   const [error, setError] = React.useState<string | null>(null)
   const [retryTick, setRetryTick] = React.useState(0)
@@ -145,16 +147,13 @@ export function useBoardLanes({
           contextPageId,
         })
         if (mine !== token.current) return
-        const nextCounts: Record<string, number> = {}
-        for (const group of aggregate.groups) nextCounts[group.key] = group.count
-        const keys = new Set([
-          ...options.map((option) => option.optionId),
-          ...Object.keys(nextCounts),
-        ])
+        const nextCounts = new Map<string, number>()
+        for (const group of aggregate.groups) nextCounts.set(group.key, group.count)
+        const keys = new Set([...options.map((option) => option.optionId), ...nextCounts.keys()])
         keys.add(EMPTY_BOARD_LANE)
         const loaded = await Promise.all(
           [...keys].map(async (key): Promise<[string, LaneData]> => {
-            if (!nextCounts[key])
+            if (!nextCounts.get(key))
               return [key, { rows: [], cursor: null, status: "ready", error: null }]
             try {
               const page = await fetchLane(groupPropertyId, generation, key, null)
@@ -169,7 +168,7 @@ export function useBoardLanes({
         )
         if (mine !== token.current) return
         setCounts(nextCounts)
-        setData(Object.fromEntries(loaded))
+        setData(new Map(loaded))
         setStatus("ready")
       } catch (failure) {
         if (mine !== token.current) return
@@ -192,34 +191,34 @@ export function useBoardLanes({
 
   const loadMore = React.useCallback(
     (key: string) => {
-      const lane = stateRef.current.data[key]
+      const lane = stateRef.current.data.get(key)
       if (!enabled || !groupPropertyId || generation === null) return
       if (!lane || !lane.cursor || lane.status !== "ready") return
       const mine = token.current
-      setData((current) => ({ ...current, [key]: { ...lane, status: "loadingMore" } }))
+      setData((current) => new Map(current).set(key, { ...lane, status: "loadingMore" }))
       fetchLane(groupPropertyId, generation, key, lane.cursor).then(
         (page) => {
           if (mine !== token.current) return
           setData((current) => {
-            const previous = current[key] ?? lane
+            const previous = current.get(key) ?? lane
             const known = new Set(previous.rows.map((row) => row.noteId))
-            return {
-              ...current,
-              [key]: {
-                rows: [...previous.rows, ...page.rows.filter((row) => !known.has(row.noteId))],
-                cursor: page.nextCursor,
-                status: "ready",
-                error: null,
-              },
-            }
+            return new Map(current).set(key, {
+              rows: [...previous.rows, ...page.rows.filter((row) => !known.has(row.noteId))],
+              cursor: page.nextCursor,
+              status: "ready",
+              error: null,
+            })
           })
         },
         (failure) => {
           if (mine !== token.current) return
-          setData((current) => ({
-            ...current,
-            [key]: { ...(current[key] ?? lane), status: "error", error: message(failure) },
-          }))
+          setData((current) =>
+            new Map(current).set(key, {
+              ...(current.get(key) ?? lane),
+              status: "error",
+              error: message(failure),
+            }),
+          )
         },
       )
     },
@@ -233,44 +232,42 @@ export function useBoardLanes({
       const field = { kind: "property" as const, propertyId: groupPropertyId }
       const [moved] = moveRowToBoardLane([row], row.noteId, field, toKey)
       setData((current) => {
-        const from = current[fromKey]
-        const to = current[toKey]
+        const from = current.get(fromKey)
+        const to = current.get(toKey)
         if (!from || !to) return current
-        return {
-          ...current,
-          [fromKey]: {
+        return new Map(current)
+          .set(fromKey, {
             ...from,
             rows: from.rows.filter((candidate) => candidate.noteId !== row.noteId),
-          },
-          [toKey]: {
+          })
+          .set(toKey, {
             ...to,
             rows: [moved, ...to.rows.filter((candidate) => candidate.noteId !== row.noteId)],
-          },
-        }
+          })
       })
-      setCounts((current) => ({
-        ...current,
-        [fromKey]: Math.max(0, (current[fromKey] ?? 1) - 1),
-        [toKey]: (current[toKey] ?? 0) + 1,
-      }))
+      setCounts((current) =>
+        new Map(current)
+          .set(fromKey, Math.max(0, (current.get(fromKey) ?? 1) - 1))
+          .set(toKey, (current.get(toKey) ?? 0) + 1),
+      )
     },
     [groupPropertyId],
   )
 
   const lanes = React.useMemo<BoardLaneState[]>(() => {
     const known = new Set(options.map((option) => option.optionId))
-    const extra = Object.keys(data).filter((key) => key !== EMPTY_BOARD_LANE && !known.has(key))
+    const extra = [...data.keys()].filter((key) => key !== EMPTY_BOARD_LANE && !known.has(key))
     const describe = (key: string): Pick<BoardLaneState, "label" | "color"> => {
       const option = options.find((candidate) => candidate.optionId === key)
       return { label: option?.name ?? null, color: option ? safeOptionColor(option.color) : null }
     }
     return [...options.map((option) => option.optionId), ...extra, EMPTY_BOARD_LANE].map((key) => {
-      const lane = data[key]
+      const lane = data.get(key)
       return {
         key,
         ...describe(key),
         rows: lane?.rows ?? [],
-        count: counts[key] ?? 0,
+        count: counts.get(key) ?? 0,
         hasMore: Boolean(lane?.cursor),
         status: lane?.status ?? "loading",
         error: lane?.error ?? null,

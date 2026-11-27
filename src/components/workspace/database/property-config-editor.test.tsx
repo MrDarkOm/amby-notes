@@ -6,6 +6,8 @@ import "@/lib/i18n"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import { PropertyConfigEditor } from "./property-config-editor"
 import { hasPropertySettings } from "./property-settings"
+import { ShownError } from "@/lib/operation-errors"
+import i18n from "@/lib/i18n"
 
 const property = (
   propertyType: string,
@@ -126,13 +128,15 @@ describe("PropertyConfigEditor", () => {
   it("shows why a change was refused", async () => {
     editor(property("date", { includeTime: false }), {
       onUpdateConfig: async () => {
-        throw new Error(
-          "Date time and range settings can only change after the existing values are cleared",
-        )
+        throw new ShownError(i18n.t("databaseErrors.dateValues"))
       },
     })
     fireEvent.click(screen.getByRole("switch", { name: "Хранить время" }))
-    expect((await screen.findByRole("alert")).textContent).toContain("existing values are cleared")
+    const line = await screen.findByTestId("notice-line")
+    expect(line.textContent).toContain("Хранение времени")
+    // A refusal is a line of a level (docs/notices.md, section 8), not a red text.
+    expect(line.getAttribute("data-level")).toBe("warning")
+    expect(line.className).not.toContain("destructive")
   })
 
   it("edits a formula and does not save it unchanged", async () => {
@@ -209,7 +213,7 @@ describe("PropertyConfigEditor", () => {
       const name = await screen.findByLabelText("Название варианта")
       fireEvent.change(name, { target: { value: "done" } })
       fireEvent.blur(name)
-      expect((await screen.findByRole("alert")).textContent).toContain("повторяться")
+      expect((await screen.findByTestId("notice-line")).textContent).toContain("повторяться")
       expect(onSaveOptions).not.toHaveBeenCalled()
     })
 

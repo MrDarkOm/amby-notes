@@ -13,6 +13,10 @@ export interface TreeItem {
   created?: number
   modified?: number
   children?: TreeItem[]
+  /** Other documents named as part of this on-disk bundle. An empty array marks a bundle. */
+  bundleMembers?: TreeItem[]
+  /** Display only. The containing folder owns rename and move for these files. */
+  bundleMember?: true
 }
 
 export interface FileMetadata {
@@ -25,6 +29,8 @@ export interface FrontmatterProperty {
   key: string
   value: string
   valueKind: string
+  /** The items when the value is a YAML list, as they are; the browser adapter leaves it out. */
+  items?: string[]
 }
 
 export interface CustomProperty {
@@ -80,10 +86,8 @@ export interface HistoryCleanupPreview {
   remaining: HistoryStats
 }
 
-export interface RefactorPreview {
-  notes: number
-  replacements: number
-}
+/** A file of the hidden archive `.amby/archive/` (docs/sync-plan.md, К6). */
+export type { ArchiveEntry } from "../bindings"
 
 export interface TrashEntry {
   id: string
@@ -131,6 +135,8 @@ export interface VaultPreflight {
   duplicateIds: string[]
   plannedIdWrites: string[]
   unfinishedMigrations: IdMigrationRecovery[]
+  /** Notes that could not be read (not UTF-8, no access): left out and never written. */
+  unreadableNotes: string[]
 }
 
 type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
@@ -162,6 +168,77 @@ export interface FsMutationResult {
   pathChanges: PathChange[]
   deletedPaths: string[]
   deletedIds?: string[]
+  /**
+   * What the sidebar tree has to change after this mutation, built by the backend from the disk.
+   * Absent when the change cannot be expressed as a patch: the caller reloads the tree.
+   */
+  treePatch?: TreePatch | null
+  /**
+   * How to undo this operation exactly, when it changed other notes (a rename or a move that rewrote
+   * links, a merge). Kept with the journal entry and handed back to `undoMutation` unchanged.
+   */
+  undo?: UndoRecord
+}
+
+/** A file an operation rewrote: where it is now, the version with its old bytes, a digest of the new. */
+interface RewrittenNote {
+  path: string
+  snapshotId: string
+  digest: string
+}
+
+/** Mirrors `UndoRecord` of the bindings (docs/notices.md, section 9). */
+export type UndoRecord =
+  | {
+      kind: "rename"
+      originalPath: string
+      primaryPath: string
+      pathChanges: PathChange[]
+      extraRenames: PathChange[]
+      rewritten: RewrittenNote[]
+    }
+  | {
+      kind: "move"
+      sourcePath: string
+      targetPath: string
+      primaryPath: string
+      pathChanges: PathChange[]
+      rewritten: RewrittenNote[]
+    }
+  | {
+      kind: "merge"
+      target: RewrittenNote
+      sourcePath: string
+      archiveId: string
+      sourceDigest: string | null
+    }
+
+/** One change of the tree; applied in order (see `applyTreePatchOps`). */
+export type TreePatchOp =
+  | {
+      kind: "remove"
+      /** The item holding the entry, `null` for the vault root. */
+      parentPath: string | null
+      /** Alternative paths of one entry: itself, or its main layer file. */
+      paths: string[]
+    }
+  | {
+      kind: "upsert"
+      parentPath: string | null
+      item: TreeItem
+      /** Off: the item keeps the children it already has (only its own fields change). */
+      replaceChildren: boolean
+    }
+
+export interface TreePatch {
+  ops: TreePatchOp[]
+}
+
+/** The answer to a refresh of a few paths. */
+export interface PathsRefresh {
+  generation: number
+  patch: TreePatch
+  sync: SyncReport
 }
 
 type IndexState = "healthy" | "degraded" | "rebuildRequired"
@@ -257,8 +334,18 @@ export interface ImportedAsset {
   kind: "image" | "file"
 }
 
+/** What a drop of files from the system onto the tree brought in, and what it left out. */
+export interface ImportFilesResult {
+  /** Absolute paths of the copies (a folder counts once). */
+  imported: string[]
+  skipped: Array<{
+    name: string
+    reason: "hidden" | "too_large" | "unreadable" | "link" | "into_itself" | "too_many"
+  }>
+}
+
 /** Where deleting an item sends it; `permanent` keeps no copy at all. */
-export type DeleteMode = "system" | "vault" | "permanent"
+export type DeleteMode = "system" | "archive" | "permanent"
 
 export type SettingsReadResult<T> =
   | { status: "found"; data: T }
@@ -270,3 +357,5 @@ export interface CredentialInfo {
   exists: boolean
   masked: string | null
 }
+
+export type { TrashPreview } from "../bindings"

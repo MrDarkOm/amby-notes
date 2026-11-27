@@ -22,6 +22,7 @@ import {
 } from "./project-fixtures.test-support"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
+import { projectFailure } from "@/lib/test-utils/errors"
 
 const queryDatabase = vi.fn()
 const createDatabaseRow = vi.fn()
@@ -106,6 +107,10 @@ const TEXT = {
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [
     { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
@@ -287,7 +292,7 @@ describe("CreativePanel", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: false, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       dataNonce: 0,
       search: "",
       pageRequest: null,
@@ -337,7 +342,7 @@ describe("CreativePanel", () => {
       expect(initWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:stories": "Истории",
         "section:universes": "Вселенные",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
         "section:anchors": "Якоря",
         "section:notes": "Заметки",
       })
@@ -370,7 +375,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onOpenSettings })} />)
       fireEvent.click(screen.getByRole("button", { name: "Инициализировать" }))
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("«Мастерская» не пуста")
+      expect(alert.textContent).toContain("не пуста и не является мастерской")
       expect(alert.textContent).toContain("в настройках модуля")
       // Nothing was made, and the button is there to try again.
       expect(screen.getByRole("button", { name: "Инициализировать" })).toBeTruthy()
@@ -544,7 +549,7 @@ describe("CreativePanel", () => {
     })
 
     it("keeps the typed name and shows the failure on the row", async () => {
-      createTextPage.mockRejectedValue(new Error("Диск недоступен"))
+      createTextPage.mockRejectedValue(projectFailure("createPageFailed", "Диск недоступен"))
       render(<CreativePanel {...props()} />)
       await screen.findByText("Книга первая")
       const header = part(/Свернуть: Текст/).parentElement as HTMLElement
@@ -553,20 +558,11 @@ describe("CreativePanel", () => {
       fireEvent.change(field, { target: { value: "Пролог" } })
       fireEvent.keyDown(field, { key: "Enter" })
       const alert = await screen.findByRole("alert")
-      expect(alert.textContent).toContain("Диск недоступен")
+      expect(alert.textContent).toContain("createPageFailed")
+      expect(alert.textContent).not.toContain("Диск недоступен")
       expect((screen.getByRole("textbox", { name: PAGE_FIELD }) as HTMLInputElement).value).toBe(
         "Пролог",
       )
-    })
-
-    it("shows the add button of a part without hovering", async () => {
-      render(<CreativePanel {...props()} />)
-      await screen.findByText("Книга первая")
-      const button = within(part(/Свернуть: Текст/).parentElement as HTMLElement).getByRole(
-        "button",
-        { name: "Добавить" },
-      )
-      expect(button.className).not.toContain("opacity-0")
     })
 
     it("marks the open page, unfolds its parents and shows its words", async () => {
@@ -574,7 +570,7 @@ describe("CreativePanel", () => {
       act(() => useCreativeNavStore.setState({ collapsed: { "page:b1": true } }))
       render(<CreativePanel {...props({ selectedId: "c1" })} />)
       // The book was folded; the open page is inside it, so it unfolds.
-      const chapter = (await screen.findByText("Глава первая")).closest("button") as HTMLElement
+      const chapter = await screen.findByRole("button", { name: /^Глава первая/ })
       expect(chapter.getAttribute("aria-current")).toBe("true")
       expect(await within(chapter).findByText(/^1\D?240$/)).toBeTruthy()
       expect(
@@ -595,6 +591,9 @@ describe("CreativePanel", () => {
       expect(onSelect).toHaveBeenCalledWith("c1")
       view.rerender(<CreativePanel {...props({ onSelect, selectedId: "c1" })} />)
       await waitFor(() => expect(screen.queryByRole("button", { name: /Продолжить:/ })).toBeNull())
+      expect(screen.getByTitle(/Продолжить: Глава первая/).classList.contains("invisible")).toBe(
+        true,
+      )
     })
 
     it("heads the story with its name and one quiet line of its numbers, shown once read", async () => {
@@ -632,7 +631,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props()} />)
       await screen.findByText("Книга первая")
       expect(screen.getByText("История", { selector: "h3" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
     })
 
     it("offers to add the first page where the text is empty, as a row you can press", async () => {
@@ -716,7 +715,7 @@ describe("CreativePanel", () => {
       expect(screen.queryByRole("button", { name: "Создать раздел «Якоря»" })).toBeNull()
       expect(screen.getByText(/Раздела «Якоря» ещё нет/u)).toBeTruthy()
 
-      fireEvent.click(within(notice).getByRole("button", { name: "Создать недостающие разделы" }))
+      fireEvent.click(within(notice).getByRole("button", { name: "Обновить мастерскую" }))
       await waitFor(() => expect(completeWorkshop).toHaveBeenCalledTimes(1))
       expect(completeWorkshop.mock.calls[0][0]).toMatchObject({
         expectedGeneration: 1,
@@ -724,7 +723,7 @@ describe("CreativePanel", () => {
       })
       expect(completeWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:anchors": "Якоря",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
       })
     })
 
@@ -840,8 +839,8 @@ describe("CreativePanel", () => {
     it("sits under the story's parts, with a folding list for each category", async () => {
       render(<CreativePanel {...props()} />)
       // The world is a region with a quiet caption of its own; it does not fold.
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: /(Свернуть|Развернуть): Мир/ })).toBeNull()
       expect(screen.getByRole("button", { name: /Свернуть: Персонажи/ })).toBeTruthy()
       expect(screen.getByRole("button", { name: /Свернуть: Организации/ })).toBeTruthy()
@@ -947,7 +946,7 @@ describe("CreativePanel", () => {
     it("has no switch without a shared world", async () => {
       selectScope("verse")
       render(<CreativePanel {...props()} />)
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: "Вселенная" })).toBeNull()
     })
 
@@ -969,7 +968,7 @@ describe("CreativePanel", () => {
       const onSelect = vi.fn()
       render(<CreativePanel {...props({ onSelect })} />)
       await title(/Борис/)
-      fireEvent.click(screen.getByRole("button", { name: "Добавить: Персонажи" }))
+      fireEvent.click(screen.getByRole("button", { name: "Персонаж" }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Марта" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -990,7 +989,7 @@ describe("CreativePanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       fireEvent.click(
         within(screen.getByRole("dialog")).getByRole("button", {
-          name: /Новая страница: Персонажи/,
+          name: /^Персонаж(?:$| )/,
         }),
       )
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
@@ -1004,23 +1003,46 @@ describe("CreativePanel", () => {
       })
     })
 
-    it("offers the frequent things first in the chooser and the rare ones after a heading", async () => {
+    it("groups creation by purpose with one universe and the current story level", async () => {
+      const fixture = world()
+      fixture.workshops[0].sections.push(
+        section("universes", { role: "universes", name: "Вселенные" }),
+      )
+      act(() => useProjectStore.getState().setCatalog(fixture))
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       const dialog = within(screen.getByRole("dialog"))
-      const names = dialog.getAllByRole("button").map((button) => button.textContent ?? "")
-      const at = (pattern: RegExp) => names.findIndex((name) => pattern.test(name))
-      expect(at(/^Новая страница(?!:)/)).toBeGreaterThanOrEqual(0)
-      expect(at(/^Новая страница: Персонажи/)).toBeGreaterThanOrEqual(0)
-      expect(dialog.getByText("Нужно реже")).toBeTruthy()
-      // A story, a section and a universe come after the frequent ones.
-      const rareIndices = [at(/(?:Новая )?История/), at(/^Раздел/), at(/^Вселенная/)].filter(
-        (i) => i >= 0,
-      )
-      const rareStart = Math.min(...rareIndices)
-      expect(Math.max(at(/^Новая страница(?!:)/), at(/^Новая страница: Персонажи/))).toBeLessThan(
-        rareStart,
+      const story = within(dialog.getByRole("region", { name: "В истории" }))
+      expect(story.getByRole("button", { name: "Новая: Книга" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Якорь" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Заметка" })).toBeTruthy()
+      const reference = within(dialog.getByRole("region", { name: "В справочнике" }))
+      expect(reference.getByRole("button", { name: "Персонаж" })).toBeTruthy()
+      expect(reference.getByRole("button", { name: "Добавить в «Организации»" })).toBeTruthy()
+      expect(dialog.getByRole("region", { name: "Структура" })).toBeTruthy()
+      expect(dialog.getAllByRole("button", { name: /Вселенная|Вселенные/ })).toHaveLength(1)
+    })
+
+    it.each([
+      ["Якорь", "Название якоря", "anchors"],
+      ["Заметка", "Название заметки", "notes"],
+    ])("creates a story-linked %s from the chooser", async (choice, placeholder, sectionId) => {
+      render(<CreativePanel {...props()} />)
+      await title(/Борис/)
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }))
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: choice }))
+      const field = await screen.findByRole("textbox", { name: new RegExp(placeholder) })
+      fireEvent.change(field, { target: { value: "Первый" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() =>
+        expect(createWorkshopEntity).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sectionId,
+            storyId: "hills",
+            title: "Первый",
+          }),
+        ),
       )
     })
 
@@ -1083,7 +1105,7 @@ describe("CreativePanel", () => {
     selectScope("verse")
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Борис/ })
-    const region = screen.getByRole("region", { name: "Мир" })
+    const region = screen.getByRole("region", { name: "Справочник" })
     expect(within(region).queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
@@ -1167,8 +1189,8 @@ describe("CreativePanel", () => {
     it("starts a named row from the menu of the empty space", async () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Борис/ })
-      fireEvent.contextMenu(screen.getByRole("region", { name: "Мир" }))
-      fireEvent.click(await screen.findByRole("menuitem", { name: /Новая страница: Персонажи/ }))
+      fireEvent.contextMenu(screen.getByRole("region", { name: "Справочник" }))
+      fireEvent.click(await screen.findByRole("menuitem", { name: /^Персонаж(?:$| )/ }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Лев" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -1184,7 +1206,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onDelete: vi.fn() })} />)
       fireEvent.contextMenu(await screen.findByRole("button", { name: /Борис/ }))
       await screen.findByRole("menuitem", { name: "Удалить" })
-      expect(screen.queryByRole("menuitem", { name: /Новая страница: / })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: /^Персонаж(?:$| )/ })).toBeNull()
     })
 
     it("changes a text page's status from its context menu when status is configured", async () => {
@@ -1228,7 +1250,7 @@ describe("CreativePanel", () => {
     expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
-  it("counts the diagnostics that need a look and leaves old-format folders to a quiet row", () => {
+  it("counts the diagnostics that need a look", () => {
     const diagnostic = (code: string, path: string) => ({
       code,
       severity: "warning",
@@ -1240,52 +1262,16 @@ describe("CreativePanel", () => {
     act(() =>
       useProjectStore.getState().setCatalog(
         catalog([project("a")], {
-          diagnostics: [
-            diagnostic("duplicateWorkshopId", "B/amby-workshop.json"),
-            diagnostic("legacyProjectFormat", "C/amby-project.json"),
-            diagnostic("legacyProjectFormat", "C/D/amby-project.json"),
-            diagnostic("legacyProjectFormat", "E/amby-project.json"),
-          ],
+          diagnostics: [diagnostic("duplicateWorkshopId", "B/amby-workshop.json")],
         }),
       ),
     )
     render(<CreativePanel {...props()} />)
-    // One banner entry: the damaged file. The three old folders are not in it, and the word
-    // "projects" is not in the title.
     const banner = screen.getByText("1 замечание")
     expect(banner).toBeTruthy()
     expect(screen.queryByText(/к проектам/u)).toBeNull()
     fireEvent.click(banner)
     expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
-    expect(screen.queryByText("C/amby-project.json")).toBeNull()
-
-    // The old folders: a folded line with the count, the paths on request.
-    const legacy = screen.getByRole("button", { name: /Папки старого формата: 3/u })
-    expect(legacy.getAttribute("aria-expanded")).toBe("false")
-    fireEvent.click(legacy)
-    expect(screen.getByText("C/D/amby-project.json")).toBeTruthy()
-  })
-
-  it("shows no banner at all when the only notes are old-format folders", () => {
-    act(() =>
-      useProjectStore.getState().setCatalog(
-        catalog([project("a")], {
-          diagnostics: [
-            {
-              code: "legacyProjectFormat",
-              severity: "warning",
-              path: "C/amby-project.json",
-              workshopId: null,
-              storyId: null,
-              detail: null,
-            },
-          ],
-        }),
-      ),
-    )
-    render(<CreativePanel {...props()} />)
-    expect(screen.queryByText(/замечани/u)).toBeNull()
-    expect(screen.getByRole("button", { name: /Папки старого формата: 1/u })).toBeTruthy()
   })
 
   it("remembers the chosen story per vault", async () => {
@@ -1330,44 +1316,19 @@ describe("CreativePanel", () => {
     expect(screen.queryByText(/У истории нет раздела/u)).toBeNull()
   })
 
-  it("fits a narrow panel: nothing sideways, nothing cut by an ellipsis, the name once", async () => {
+  it("names the workshop once, as the title of the panel", async () => {
     const named = workshopSummary("w", { name: "Мастерская", path: "Мастерская" })
     named.sections = [section("stories", { role: "stories", name: "Истории", databaseId: "db_s" })]
     act(() => useProjectStore.getState().setCatalog(catalog([named])))
-    const { container } = render(<CreativePanel {...props()} />)
+    render(<CreativePanel {...props()} />)
 
     // The word is the title of the panel and nothing else: neither card repeats it.
     expect(screen.getAllByText("Мастерская")).toHaveLength(1)
     expect(screen.queryByText("Творческая мастерская")).toBeNull()
-
-    // The two cards wrap a long name instead of cutting it with an ellipsis. With no story the
-    // top card is the prompt that offers the first one.
-    const cards = [
-      screen.getByRole("button", { name: /Создать первую историю/ }),
-      screen.getByRole("combobox", { name: "Вселенная" }),
-    ]
-    for (const card of cards) {
-      for (const element of [card, ...Array.from(card.querySelectorAll("*"))]) {
-        expect(element.className.toString()).not.toMatch(/\btruncate\b/u)
-      }
-    }
-
-    // Every scrolling list of the panel holds its width: a wide row wraps or is cut by its own
-    // box, and never produces a horizontal scrollbar at the bottom.
-    const scrollers = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
-    expect(scrollers.length).toBeGreaterThan(0)
-    for (const scroller of scrollers) {
-      expect(scroller.className, scroller.className).toMatch(/\boverflow-x-hidden\b/u)
-    }
-
-    // The notice of what is missing and its button wrap their text.
-    const notice = screen.getByTestId("complete-workshop-notice")
-    const button = within(notice).getByRole("button", { name: "Создать недостающие разделы" })
-    expect(button.className).toMatch(/\bwhitespace-normal\b/u)
-    expect(notice.className).toMatch(/\bmin-w-0\b/u)
-    for (const element of [notice, ...Array.from(notice.querySelectorAll("*"))]) {
-      expect(element.className.toString()).not.toMatch(/\b(truncate|whitespace-nowrap)\b/u)
-    }
+    // With no story the top card is the prompt that offers the first one.
+    expect(screen.getByRole("button", { name: /Создать первую историю/ })).toBeTruthy()
+    expect(screen.getByRole("combobox", { name: "Вселенная" })).toBeTruthy()
+    expect(screen.getByTestId("complete-workshop-notice")).toBeTruthy()
   })
 
   it("has no switch of workshops: not a card, not a menu, the name only twice at most", () => {

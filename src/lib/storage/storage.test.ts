@@ -30,6 +30,10 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
 
     runStorageContract("browser", () => ({ adapter, vaultPath: "web-vault" }))
 
+    it("refuses filesystem archive previews in the browser adapter", async () => {
+      await expect(adapter.readTrashPreview("trash-id", "")).rejects.toThrow()
+    })
+
     it("returns the authoritative active vault identity with refresh data", async () => {
       await expect(adapter.loadActiveVaultData()).resolves.toMatchObject({
         vaultPath: "web-vault",
@@ -220,6 +224,23 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       setStorageAdapter(adapter)
     })
 
+    it("delegates archive previews by trash ID and payload-relative path", async () => {
+      const preview = {
+        path: "Nested/Note.md",
+        directory: false,
+        text: "archived",
+        children: [],
+        truncated: false,
+      }
+      const command = vi
+        .spyOn(commands, "readTrashPreview")
+        .mockResolvedValue({ status: "ok", data: preview })
+      await expect(adapter.readTrashPreview("trash-id", "Nested/Note.md")).resolves.toEqual(preview)
+      expect(command).toHaveBeenCalledExactlyOnceWith("trash-id", "Nested/Note.md")
+      command.mockResolvedValue({ status: "error", error: "entry missing" })
+      await expect(adapter.readTrashPreview("trash-id", "")).rejects.toThrow("entry missing")
+    })
+
     it("asks the backend to keep the replaced file when a save rewrites source", async () => {
       const writeSpy = vi.spyOn(commands, "writeNote").mockResolvedValue({
         status: "ok",
@@ -234,6 +255,21 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       )
       await notesRepository.writeNote("/vault", "note-1", "text", 5, "r2", "main", "op")
       expect(writeSpy.mock.lastCall?.[0]).not.toHaveProperty("rewritesSource")
+    })
+
+    it("opens a note with a single-note identity step, never the full-vault migration", async () => {
+      const full = vi.mocked(commands.applyIdMigration)
+      full.mockClear()
+      const single = vi
+        .spyOn(commands, "applyNoteIdMigration")
+        .mockResolvedValue({ status: "ok", data: null })
+      vi.spyOn(commands, "readNote").mockResolvedValue({
+        status: "ok",
+        data: { content: "c", revision: "r", source: "c" },
+      })
+      await notesRepository.readNote("/vault", "note-ulid-1")
+      expect(single).toHaveBeenCalledExactlyOnceWith("note-ulid-1")
+      expect(full).not.toHaveBeenCalled()
     })
 
     it("delegates readNote and writeNote to generated commands", async () => {

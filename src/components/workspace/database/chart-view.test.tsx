@@ -6,6 +6,7 @@ import * as storage from "@/lib/storage"
 import type { DatabaseFilterNode } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { ChartView } from "./chart-view"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const result = (label: string, count: number) => ({
   databaseId: "db",
@@ -92,10 +93,13 @@ describe("ChartView", () => {
   })
 
   it("shows an error with retry instead of an empty chart", async () => {
-    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(new Error("projection unavailable"))
+    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(
+      databaseFailure("failed", "projection unavailable", "projectionReadFailed"),
+    )
     render(<ChartView databaseId="db" expectedGeneration={1} enabled category={category} />)
     await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toContain("projection unavailable"),
+      expect(screen.getByRole("alert").textContent).toContain("projectionReadFailed"),
     )
+    expect(screen.getByRole("alert").textContent).not.toContain("projection unavailable")
   })
 })

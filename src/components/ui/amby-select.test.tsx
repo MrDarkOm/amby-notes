@@ -170,4 +170,31 @@ describe("AmbySelect", () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onValueChange).not.toHaveBeenCalled()
   })
+
+  it("shows an option's icon before its label, in the list and without adding text", async () => {
+    render(
+      <AmbySelect
+        aria-label="Letter"
+        value="a"
+        options={[
+          { value: "a", label: "Alpha", icon: <svg data-testid="icon-a" /> },
+          { value: "b", label: "Beta", icon: <svg data-testid="icon-b" /> },
+        ]}
+        onValueChange={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole("combobox", { name: "Letter" }))
+    const items = await screen.findAllByRole("option")
+    expect(items.map((item) => item.textContent)).toEqual(["Alpha", "Beta"])
+    for (const [index, id] of ["icon-a", "icon-b"].entries()) {
+      const icon = items[index].querySelector(`[data-testid="${id}"]`)
+      const label = Array.from(items[index].querySelectorAll("span")).find((node) =>
+        node.textContent?.startsWith(index === 0 ? "Alpha" : "Beta"),
+      )
+      expect(icon).not.toBeNull()
+      expect(
+        Boolean(icon!.compareDocumentPosition(label!) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true)
+    }
+  })
 })

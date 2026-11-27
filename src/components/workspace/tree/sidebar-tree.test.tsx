@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SidebarTree } from "./sidebar-tree"
 import { useViewStateStore } from "../use-view-state-store"
+import { useSettingsStore } from "../use-settings-store"
+import { DEFAULT_PREFS } from "../app-config"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -39,6 +41,127 @@ afterEach(() => {
   useViewStateStore.setState({ closedTreeIds: new Set() })
 })
 
+describe("SidebarTree folder click (TREE-02)", () => {
+  const child = { id: "c", path: "/vault/F/c.md", name: "c", type: "file" as const }
+  const folder = {
+    id: "f",
+    path: "/vault/F",
+    name: "F",
+    type: "folder" as const,
+    children: [child],
+  }
+  const bundle = {
+    id: "b",
+    path: "/vault/B/B.md",
+    name: "B",
+    type: "file" as const,
+    children: [{ id: "bc", path: "/vault/B/bc.md", name: "bc", type: "file" as const }],
+  }
+  const setToggle = (on: boolean) =>
+    useSettingsStore.setState({
+      prefs: { ...DEFAULT_PREFS, files: { ...DEFAULT_PREFS.files, folderClickToggles: on } },
+    })
+  const row = (c: HTMLElement, id: string) =>
+    c.querySelector(`[data-tree-item-id="${id}"]`) as HTMLElement
+  afterEach(() => setToggle(false))
+
+  it("by default a click on a folder opens it and does not toggle", () => {
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"))
+    expect(onSelect).toHaveBeenCalledWith("f")
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("when on, a click toggles aria-expanded and opens nothing", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(row(container, "f"))
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+  })
+
+  it("when on, Enter toggles the folder and Cmd-click only selects", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"), { metaKey: true })
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("true")
+    fireEvent.keyDown(row(container, "f"), { key: "Enter" })
+    expect(row(container, "f").getAttribute("aria-expanded")).toBe("false")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("when on, a note with its own folder still opens as a note", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const { container } = render(
+      <SidebarTree items={[bundle]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "b"))
+    expect(onSelect).toHaveBeenCalledWith("b")
+  })
+
+  it.each([[], undefined])(
+    "when on, an empty or JSON-only folder opens nothing (%s)",
+    (children) => {
+      setToggle(true)
+      const onSelect = vi.fn()
+      const { container } = render(
+        <SidebarTree items={[{ ...folder, children }]} selectedId={null} onSelect={onSelect} />,
+      )
+      fireEvent.click(row(container, "f"))
+      fireEvent.keyDown(row(container, "f"), { key: "Enter" })
+      fireEvent.keyDown(row(container, "f"), { key: " " })
+      expect(onSelect).not.toHaveBeenCalled()
+    },
+  )
+
+  it("when on, Space toggles and Shift-click only selects a range", () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const other = { ...folder, id: "other", path: "/vault/Other", name: "Other" }
+    const { container } = render(
+      <SidebarTree items={[folder, other]} selectedId={null} onSelect={onSelect} />,
+    )
+    fireEvent.click(row(container, "f"), { metaKey: true })
+    fireEvent.click(row(container, "other"), { shiftKey: true })
+    expect(row(container, "other").getAttribute("aria-expanded")).toBe("true")
+    expect(row(container, "f").getAttribute("aria-selected")).toBe("true")
+    expect(row(container, "other").getAttribute("aria-selected")).toBe("true")
+    fireEvent.keyDown(row(container, "other"), { key: " " })
+    expect(row(container, "other").getAttribute("aria-expanded")).toBe("false")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it("when on, the context menu still opens the folder in a tab", async () => {
+    setToggle(true)
+    const onSelect = vi.fn()
+    const onOpenInNewTab = vi.fn()
+    const { container } = render(
+      <SidebarTree
+        items={[folder]}
+        selectedId={null}
+        onSelect={onSelect}
+        onOpenInNewTab={onOpenInNewTab}
+      />,
+    )
+    fireEvent.contextMenu(row(container, "f"))
+    fireEvent.click(await screen.findByText("Открыть в новой вкладке"))
+    expect(onOpenInNewTab).toHaveBeenCalledWith("f")
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+})
+
 describe("SidebarTree rename trigger", () => {
   it.each([
     ["note", { id: "note-1", path: "/vault/Note.md", name: "Note", type: "file" as const }],
@@ -52,7 +175,7 @@ describe("SidebarTree rename trigger", () => {
         children: [],
       },
     ],
-  ])("starts renaming a %s on double click", async (_, item) => {
+  ])("does not start renaming a %s on double click", async (_, item) => {
     const onRename = vi.fn()
     const { container } = render(
       <SidebarTree items={[item]} selectedId={item.id} onSelect={() => {}} onRename={onRename} />,
@@ -65,17 +188,8 @@ describe("SidebarTree rename trigger", () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    const input = container.querySelector("input") as HTMLInputElement
-    expect(input).not.toBeNull()
-    expect(document.activeElement).toBe(input)
-    expect(input.className).toContain("p-0")
-    expect(input.className).not.toContain("px-1")
-    expect(input.selectionStart).toBe(0)
-    expect(input.selectionEnd).toBe(item.name.length)
-
-    fireEvent.change(input, { target: { value: `${item.name} renamed` } })
-    fireEvent.keyDown(input, { key: "Enter" })
-    expect(onRename).toHaveBeenCalledWith(item.id, `${item.name} renamed`)
+    expect(container.querySelector("input")).toBeNull()
+    expect(onRename).not.toHaveBeenCalled()
   })
 
   it("keeps root and leaf icons on the compact tree grid", () => {
@@ -321,6 +435,8 @@ describe("SidebarTree rename trigger", () => {
     expect(row).not.toBeNull()
 
     fireEvent.contextMenu(row as HTMLElement)
+    const nestTrigger = await screen.findByText("Вложить")
+    fireEvent.click(nestTrigger)
     const createItem = await screen.findByText("Новая заметка")
     fireEvent.click(createItem)
 
@@ -422,6 +538,7 @@ describe("SidebarTree rename trigger", () => {
       fireEvent.contextMenu(
         container.querySelector(`[data-tree-item-id="${item.id}"]`) as HTMLElement,
       )
+      fireEvent.click(await screen.findByText("Вложить"))
       fireEvent.click(await screen.findByText("Новая заметка"))
 
       await act(async () => {
@@ -431,4 +548,37 @@ describe("SidebarTree rename trigger", () => {
       expect(screen.queryByText("Root action")).toBeNull()
     },
   )
+
+  it("shows Convert to note only for folders and invokes onConvertFolderToNote", async () => {
+    const folder = {
+      id: "folder-1",
+      path: "/vault/Projects",
+      name: "Projects",
+      type: "folder" as const,
+      children: [],
+    }
+    const note = {
+      id: "note-1",
+      path: "/vault/Note.md",
+      name: "Note",
+      type: "file" as const,
+    }
+    const onConvertFolderToNote = vi.fn()
+    const { container } = render(
+      <SidebarTree
+        items={[folder, note]}
+        selectedId={folder.id}
+        onSelect={() => {}}
+        onConvertFolderToNote={onConvertFolderToNote}
+      />,
+    )
+
+    fireEvent.contextMenu(container.querySelector('[data-tree-item-id="note-1"]') as HTMLElement)
+    await screen.findByText("Вложить")
+    expect(screen.queryByText("Преобразовать в заметку")).toBeNull()
+
+    fireEvent.contextMenu(container.querySelector('[data-tree-item-id="folder-1"]') as HTMLElement)
+    fireEvent.click(await screen.findByText("Преобразовать в заметку"))
+    expect(onConvertFolderToNote).toHaveBeenCalledWith("folder-1")
+  })
 })

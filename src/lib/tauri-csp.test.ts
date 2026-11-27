@@ -21,7 +21,20 @@ describe("content security policy", () => {
   it("lets media come only from the app and the local asset protocol", () => {
     expect(policy.has("media-src")).toBe(false)
     expect([...(policy.get("default-src") ?? [])].sort()).toEqual(
-      ["'self'", "asset:", "https://asset.localhost"].sort(),
+      ["'self'", "asset:", "http://asset.localhost", "https://asset.localhost"].sort(),
+    )
+  })
+
+  it("allows local images on Windows and Unix without allowing arbitrary HTTP images", () => {
+    expect([...(policy.get("img-src") ?? [])].sort()).toEqual(
+      [
+        "'self'",
+        "asset:",
+        "http://asset.localhost",
+        "https://asset.localhost",
+        "data:",
+        "blob:",
+      ].sort(),
     )
   })
 

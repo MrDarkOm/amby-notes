@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -175,6 +175,11 @@ impl OperationGuard {
     pub fn succeed(mut self) {
         self.complete = true;
         self.record("succeeded", None);
+    }
+    /// Ends the operation as failed with a code the journal may keep (`sanitized_error_code`).
+    pub fn fail(mut self, code: &str) {
+        self.complete = true;
+        self.record("failed", Some(code));
     }
     pub fn operation_id(&self) -> Option<&str> {
         self.operation_id.as_deref()
@@ -767,6 +772,39 @@ pub fn init_logging() {
     let _ = subscriber.try_init();
 }
 
+/// The event name and dotted target of a backend tracing event. Amby's own events carry an explicit
+/// `event`. A record of a dependency carries none: one bridged from the `log` crate has target `log`
+/// and its real crate in `log.target`, and a dependency's own tracing event has its crate as target.
+/// Both are stored as `dependency.log` (an unknown name would become `diagnostic.invalid_event` and
+/// hide that something happened); the bridge's `log.*` fields are dropped, and the free-text message
+/// never survives metadata sanitizing.
+fn backend_event_name(target: &str, fields: &mut Map<String, Value>) -> (String, String) {
+    let bridged_target = if target == "log" {
+        fields
+            .get("log.target")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    fields.retain(|key, _| !key.starts_with("log."));
+    let real_target = bridged_target
+        .as_deref()
+        .unwrap_or(target)
+        .replace("::", ".");
+    let name = match fields
+        .remove("event")
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        Some(name) => name,
+        None if real_target == "amby_notes" || real_target.starts_with("amby_notes.") => {
+            real_target.clone()
+        }
+        None => "dependency.log".to_owned(),
+    };
+    (name, real_target)
+}
+
 struct DiagnosticsLayer(Arc<DebugRuntime>);
 #[derive(Clone)]
 struct CorrelationContext {
@@ -818,11 +856,7 @@ where
         event.record(&mut visitor);
         let metadata = event.metadata();
         let mut fields = visitor.values;
-        let target = metadata.target().replace("::", ".");
-        let event_name = fields
-            .remove("event")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_else(|| target.clone());
+        let (event_name, target) = backend_event_name(metadata.target(), &mut fields);
         let operation_id = fields
             .remove("operation_id")
             .and_then(|value| value.as_str().map(str::to_owned))
@@ -928,219 +962,20 @@ fn sanitize_event(event: &mut DebugEvent, session: &str) {
     event.session_id = Some(effective_session);
 }
 
+/// The privacy allow-list of event names, shared with the frontend filter: one name per line, `#` comments.
+fn allowed_event_names() -> &'static HashSet<&'static str> {
+    static NAMES: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        include_str!("../../src/lib/debug/allowed-events.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect()
+    })
+}
+
 fn allowed_event(value: &str) -> bool {
-    const ALLOWED_EVENTS: &[&str] = &[
-        "app_starting",
-        "apply_database_value_batch",
-        "autosave.error_dialog_failed",
-        "autosave.failed",
-        "autosave.queue",
-        "autosave.rejected_document_mismatch",
-        "autosave.save.started",
-        "autosave.start",
-        "autosave.success",
-        "canvas.save_failed",
-        "change_database_property_type",
-        "create_database_property",
-        "create_database_row",
-        "create_folder",
-        "create_note",
-        "note.read",
-        "note.write",
-        "database.aggregate",
-        "database.change_property_type",
-        "database.change_property_type_failed",
-        "database.commit_cell",
-        "database.commit_cell_failed",
-        "database.create_property",
-        "database.create_property_failed",
-        "database.create_relation_row",
-        "database.create_relation_row_failed",
-        "database.create_row",
-        "database.create_row_failed",
-        "database.create_view",
-        "database.delete_property",
-        "database.delete_property_failed",
-        "database.delete_view",
-        "database.duplicate_view",
-        "database.duplicate_row",
-        "database.duplicate_row_failed",
-        "database.move_row_failed",
-        "database.delete_row_failed",
-        "database.mutate_view_failed",
-        "database.projection_rebuild_failed",
-        "database.query",
-        "database.rebuild",
-        "database.refresh",
-        "database.rename_property",
-        "database.rename_property_failed",
-        "database.rename_view",
-        "database.reorder_views",
-        "database.row_index_update_failed",
-        "database.set_default_view",
-        "database.sync_yaml",
-        "database.update_property_config",
-        "database.update_property_config_failed",
-        "database.update_property_options",
-        "database.update_property_options_failed",
-        "database.update_view_config",
-        "database.view_action_failed",
-        "database_projection_rebuild_failed",
-        "database_row_index_update_failed",
-        "debug.invalid_event",
-        "debug.invalid_subsystem",
-        "delete_custom_property",
-        "delete_database_property",
-        "delete_item",
-        "duplicate_database_row",
-        "deleted_note_restore_index_failed",
-        "diagnostic.invalid_event",
-        "diagnostic.legacy_event",
-        "diagnostic.legacy_line",
-        "doc.load",
-        "document.restore_deleted_failed",
-        "editor.toggle_lock",
-        "editor.view_mode",
-        "external_conflict.keep_local_failed",
-        "external_conflict.save_copy_failed",
-        "file.attach_canvas",
-        "file.attach_canvas_failed",
-        "file.attach_sketch",
-        "file.attach_sketch_failed",
-        "file.create_canvas",
-        "file.create_canvas_failed",
-        "file.create_folder",
-        "file.create_folder_failed",
-        "file.create_note",
-        "file.create_note_failed",
-        "file.create_sketch",
-        "file.create_sketch_failed",
-        "file.delete",
-        "file.move",
-        "file.move_failed",
-        "file.rename",
-        "file.rename_failed",
-        "file.set_icon",
-        "file.toggle_favorite",
-        "frontend_started",
-        "history.operation_failed",
-        "index.load",
-        "index.rebuild",
-        "index.refresh",
-        "index_update_failed",
-        "layer.switch",
-        "manual_save.failed",
-        "media_drop.import_failed",
-        "note_saved",
-        "note_write_event_failed",
-        "note_written.listen_failed",
-        "note_written.open_document_reload_failed",
-        "property.delete",
-        "property.reorder",
-        "property.upsert",
-        "read_note",
-        "read_note.failed",
-        "read_note.started",
-        "read_note.succeeded",
-        "refresh_vault.database_sync_failed",
-        "refresh_vault.failed",
-        "refresh_vault.flush_failed",
-        "rename_database_property",
-        "update_database_property_config",
-        "update_database_property_options",
-        "rename_item",
-        "reorder_custom_properties",
-        "reorder_database_properties",
-        "restore_window_failed",
-        "restored_note_tree_event_failed",
-        "session.document_load_failed",
-        "search.notes",
-        "settings.credential_migration_failed",
-        "settings.save_failed",
-        "sketch.save_failed",
-        "sketch_render_error",
-        "startup.failure",
-        "startup.error",
-        "startup_error",
-        "startup_failure",
-        "storage.apply_database_value_batch",
-        "storage.archive_item",
-        "storage.attach_canvas",
-        "storage.attach_sketch",
-        "storage.change_database_property_type",
-        "storage.create_canvas",
-        "storage.create_database",
-        "storage.create_database_property",
-        "storage.create_database_row",
-        "storage.create_database_view",
-        "storage.create_folder",
-        "storage.create_note",
-        "storage.create_sketch",
-        "storage.delete_custom_property",
-        "storage.delete_database_property",
-        "storage.delete_database_view",
-        "storage.delete_item",
-        "storage.duplicate_database_row",
-        "storage.move_item",
-        "storage.read_file",
-        "storage.read_note",
-        "storage.rename_database_property",
-        "storage.rename_database_view",
-        "storage.rename_item",
-        "storage.reorder_custom_properties",
-        "storage.reorder_database_properties",
-        "storage.write_file",
-        "storage.write_note",
-        "storage.update_database_property_config",
-        "storage.update_database_property_options",
-        "storage.update_database_relation_value",
-        "storage.upsert_custom_property",
-        "tab.close",
-        "tab.close_all",
-        "tab.open_item",
-        "tab.open_singleton",
-        "tab.switch",
-        "tab.toggle_split",
-        "tree.activate_tab",
-        "tree.open_file",
-        "tree.select",
-        "unhandled_promise_rejection",
-        "unhandled_window_error",
-        "updater.automatic_update_failed",
-        "updater.version_read_failed",
-        "upsert_custom_property",
-        "vault_switch.activation_failed",
-        "vault_switch.autosave_flush_failed",
-        "vault_switch.broadcast_failed",
-        "vault_switch.broadcast_listen_failed",
-        "vault_switch.error_dialog_failed",
-        "vault_tree.reload_failed",
-        "visibilitychange.autosave_flush_failed",
-        "watcher.event_received",
-        "watcher.external_change_callback_failed",
-        "watcher.listen_failed",
-        "watcher.open_document_reload_failed",
-        "watcher.process",
-        "watcher.refresh_failed",
-        "watcher.start",
-        "watcher.start_failed",
-        "watcher.stop",
-        "watcher.stop_failed",
-        "window_close.autosave_flush_failed",
-        "window_close.autosave_recovery_retained",
-        "window_close.failed",
-        "window_close.listen_failed",
-        "window_state.flush_failed",
-        "window_state.read_size_failed",
-        "window_state.resize_listen_failed",
-        "window_state.restore_failed",
-        "window_state.save_failed",
-        "write_note",
-        "write_note.failed",
-        "write_note.started",
-        "write_note.succeeded",
-    ];
-    if ALLOWED_EVENTS.contains(&value) {
+    if allowed_event_names().contains(value) {
         return true;
     }
     let Some((base, suffix)) = value.rsplit_once('.') else {
@@ -1258,10 +1093,41 @@ fn numeric_key(key: &str) -> bool {
 fn code_key(key: &str) -> bool {
     matches!(
         key,
-        "errorCode" | "errorType" | "code" | "kind" | "reason" | "outcome" | "state" | "status"
+        "errorCode"
+            | "errorType"
+            | "failureCode"
+            | "code"
+            | "kind"
+            | "reason"
+            | "outcome"
+            | "state"
+            | "status"
     )
 }
+/// The code of a failed operation (`operationErrorCode` in the interface): a reason, a kind or a
+/// command code, never a sentence.
+fn is_failure_code(value: &str) -> bool {
+    let mut chars = value.chars();
+    (2..=64).contains(&value.len())
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+/// The value of `errorCode` after the privacy filter: a known code as it is, anything else
+/// `UnknownError`.
+#[cfg(test)]
+pub(crate) fn sanitized_error_code(value: &str) -> Option<String> {
+    safe_code(value, "errorCode")
+}
 fn safe_code(value: &str, key: &str) -> Option<String> {
+    if key == "failureCode" {
+        return Some(if is_failure_code(value) {
+            value.to_owned()
+        } else {
+            "unknown".to_owned()
+        });
+    }
     let allowed = match key {
         "errorCode" => matches!(
             value,
@@ -1278,6 +1144,7 @@ fn safe_code(value: &str, key: &str) -> Option<String> {
                 | "FlushTimedOut"
                 | "LockPoisoned"
                 | "OperationFailed"
+                | "NoteNotIndexed"
         ),
         "errorType" => matches!(
             value,
@@ -1444,21 +1311,39 @@ fn valid_timestamp(value: &str) -> bool {
             .enumerate()
             .all(|(i, b)| [4, 7, 10, 13, 16, 19, 23].contains(&i) || b.is_ascii_digit())
 }
+/// Key for pseudonyms: random for each run, kept only in memory and never written to a record, so
+/// a log (or a debug report) alone cannot be used to check a guessed path or name against it.
+/// Pseudonyms are for matching events within a run (and one session); they are not a protection
+/// against someone who can run this process, and they do not match across restarts.
+fn pseudonym_key() -> &'static ring::hmac::Key {
+    static KEY: OnceLock<ring::hmac::Key> = OnceLock::new();
+    KEY.get_or_init(|| {
+        ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &ring::rand::SystemRandom::new())
+            .unwrap_or_else(|_| {
+                // The system generator is unavailable: fall back to ULID randomness.
+                let mut seed = ulid::Ulid::generate().to_bytes().to_vec();
+                seed.extend_from_slice(&ulid::Ulid::generate().to_bytes());
+                ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &seed)
+            })
+    })
+}
 fn pseudonym(value: &str, session: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    session.hash(&mut hasher);
-    value.hash(&mut hasher);
     if value.len() == 19
         && value.starts_with("id_")
         && value[3..]
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
-        value.to_owned()
-    } else {
-        format!("id_{:016x}", hasher.finish())
+        return value.to_owned();
     }
+    let mut context = ring::hmac::Context::with_key(pseudonym_key());
+    context.update(session.as_bytes());
+    context.update(&[0]);
+    context.update(value.as_bytes());
+    let tag = context.sign();
+    let mut short = [0u8; 8];
+    short.copy_from_slice(&tag.as_ref()[..8]);
+    format!("id_{:016x}", u64::from_be_bytes(short))
 }
 fn chrono_timestamp() -> String {
     let duration = std::time::SystemTime::now()
@@ -1500,6 +1385,64 @@ mod tests {
     }
 
     #[test]
+    fn the_allow_list_file_gates_event_names() {
+        assert!(allowed_event_names().len() > 100);
+        assert!(allowed_event("diagnostic.invalid_event"));
+        assert!(allowed_event("autosave.start"));
+        assert!(allowed_event("read_note.started"));
+        assert!(!allowed_event("not.a.listed_event"));
+        assert!(!allowed_event("# Names of the events"));
+    }
+
+    #[test]
+    fn a_dependency_log_record_keeps_a_known_name_instead_of_becoming_invalid() {
+        // The updater plugin reports a failed update check through the `log` crate: tracing sees
+        // target `log` and the real crate in `log.target`, with no `event` field. Such a record must
+        // be stored as `dependency.log`, never as `diagnostic.invalid_event`, and keep no free text.
+        let mut fields = serde_json::json!({
+            "log.target": "tauri_plugin_updater::updater",
+            "log.module_path": "tauri_plugin_updater::updater",
+            "log.file": "/Users/alice/.cargo/registry/src/tauri-plugin-updater/src/updater.rs",
+            "log.line": 642,
+            "message": "update endpoint did not respond with a successful status code"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let (name, target) = backend_event_name("log", &mut fields);
+        assert_eq!(name, "dependency.log");
+        assert_eq!(target, "tauri_plugin_updater.updater");
+        assert!(fields.keys().all(|key| !key.starts_with("log.")));
+
+        let runtime = DebugRuntime::new();
+        let mut event = sample(LogLevel::Error);
+        event.event = name;
+        event.source = LogSource::Backend;
+        event.metadata = Some(sanitize_metadata(fields, "session"));
+        let stored = runtime.ingest(event).unwrap();
+        assert_eq!(stored.event, "dependency.log");
+        assert!(!serde_json::to_string(&stored)
+            .unwrap()
+            .contains("did not respond"));
+
+        // A tracing event of another crate without `event` is a dependency record too.
+        let mut fields = Map::new();
+        assert_eq!(
+            backend_event_name("tao::platform_impl", &mut fields).0,
+            "dependency.log"
+        );
+        // Amby's own events keep their explicit name.
+        let mut fields = serde_json::json!({ "event": "vault.opened" })
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            backend_event_name("amby_notes::vault", &mut fields).0,
+            "vault.opened"
+        );
+    }
+
+    #[test]
     fn sanitizes_before_buffer_and_keeps_frontend_ids() {
         let runtime = DebugRuntime::new();
         runtime.ingest(sample(LogLevel::Error)).unwrap();
@@ -1533,6 +1476,46 @@ mod tests {
         assert_eq!(metadata.get("title"), None);
         assert_eq!(metadata["errorCode"], "UnknownError");
         assert_eq!(runtime.recent().len(), 0);
+    }
+
+    #[test]
+    fn failure_codes_of_notice_events_reach_the_log_and_free_text_does_not() {
+        // The frontend logs a failed operation as `operation.failed` with a stable code
+        // (docs/notices.md §13); the sentence of the failure itself is never kept.
+        let runtime = DebugRuntime::new();
+        for (index, name) in [
+            "operation.failed",
+            "modules.install_failed",
+            "file.delete_failed",
+            "property.migration_failed",
+            "sync.listen_failed",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut event = sample(LogLevel::Error);
+            event.id = format!("1700000000000-abc12{index}");
+            event.event = name.into();
+            event.metadata.as_mut().unwrap().insert(
+                "failureCode".into(),
+                Value::String("revision_conflict".into()),
+            );
+            let returned = runtime.ingest(event).unwrap();
+            assert_eq!(returned.event, name);
+            assert_eq!(
+                returned.metadata.unwrap()["failureCode"],
+                "revision_conflict"
+            );
+        }
+        let mut event = sample(LogLevel::Error);
+        event.id = "1700000000000-abc129".into();
+        event.event = "operation.failed".into();
+        event.metadata.as_mut().unwrap().insert(
+            "failureCode".into(),
+            Value::String("/Users/alice/Vault/Secret.md could not be written".into()),
+        );
+        let returned = runtime.ingest(event).unwrap();
+        assert_eq!(returned.metadata.unwrap()["failureCode"], "unknown");
     }
 
     #[test]
@@ -1633,6 +1616,28 @@ mod tests {
         assert!(runtime.recent().is_empty());
         assert!(!temp.join("amby.jsonl").exists());
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn pseudonyms_cannot_be_recomputed_from_the_record_alone() {
+        use std::hash::{Hash, Hasher};
+        let (path, session) = ("/Users/alice/Vault/Secret.md", "01HZZZZZZZZZZZZZZZZZZZZZZZ");
+        // What anyone holding the log could compute when the hash was unkeyed and the salt public.
+        let mut unkeyed = std::collections::hash_map::DefaultHasher::new();
+        session.hash(&mut unkeyed);
+        path.hash(&mut unkeyed);
+        assert_ne!(
+            pseudonym(path, session),
+            format!("id_{:016x}", unkeyed.finish())
+        );
+        // Still usable for matching: stable within a run, separated by session and by value.
+        assert_eq!(pseudonym(path, session), pseudonym(path, session));
+        assert_ne!(pseudonym(path, session), pseudonym(path, "other-session"));
+        assert_ne!(
+            pseudonym(path, session),
+            pseudonym("/Users/alice/Other.md", session)
+        );
+        assert!(safe_opaque_id(&pseudonym(path, session)).is_some());
     }
 
     #[test]
@@ -1770,5 +1775,22 @@ mod tests {
             .metadata
             .as_ref()
             .is_some_and(|m| m.get("error").is_none())));
+    }
+
+    #[test]
+    fn the_reason_codes_pass_the_privacy_filter_as_they_are() {
+        for code in [
+            "NoteNotIndexed",
+            "FileNotFound",
+            "InvalidData",
+            "PermissionDenied",
+            "IoError",
+        ] {
+            assert_eq!(
+                crate::logging::sanitized_error_code(code).as_deref(),
+                Some(code),
+                "{code} must reach the journal"
+            );
+        }
     }
 }

@@ -15,6 +15,13 @@ import {
   type SettingsPatch,
   type ViewSettings,
 } from "./view-config"
+import i18n from "@/lib/i18n"
+import {
+  isRevisionConflict,
+  operationErrorCode,
+  operationErrorText,
+  reportOperationError,
+} from "@/lib/operation-errors"
 
 const SAVE_DELAY_MS = 400
 const MAX_REBASES = 4
@@ -52,14 +59,6 @@ interface ViewContext {
   timer: ReturnType<typeof setTimeout> | null
   writing: Promise<void> | null
   active: boolean
-}
-
-function isConflict(error: unknown): boolean {
-  return error instanceof Error && /revision conflict/i.test(error.message)
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -111,13 +110,14 @@ export function useSavedView({
         await latest.current.onSaved?.()
       } catch (failure) {
         ctx.pending = ctx.pending ? mergePatches(patch, ctx.pending) : patch
-        if (!isConflict(failure) || attempt === MAX_REBASES) {
+        if (!isRevisionConflict(failure) || attempt === MAX_REBASES) {
           logger.error("database.save_view_failed", {
             databaseId: ctx.databaseId,
             viewId: ctx.viewId,
             error: failure,
+            failureCode: operationErrorCode(failure),
           })
-          if (ctx.active) setError(message(failure))
+          if (ctx.active) setError(operationErrorText(failure))
           return
         }
         // Another window changed the view: take its document as the new base.
@@ -127,7 +127,7 @@ export function useSavedView({
             .find((database) => database.databaseId === ctx.databaseId)
             ?.views.find((candidate) => candidate.viewId === ctx.viewId)
           if (!current) {
-            if (ctx.active) setError("View no longer exists")
+            if (ctx.active) setError(i18n.t("databaseErrors.reason.not_found"))
             return
           }
           const fresh = await getDatabaseView({
@@ -142,7 +142,7 @@ export function useSavedView({
             setSettings(settingsAfter(parseViewSettings(fresh.configJson), ctx.pending ?? {}))
           }
         } catch (reloadFailure) {
-          if (ctx.active) setError(message(reloadFailure))
+          if (ctx.active) setError(reportOperationError(reloadFailure))
           return
         }
       }
@@ -236,7 +236,7 @@ export function useSavedView({
       },
       (failure) => {
         if (cancelled || ctxRef.current !== ctx) return
-        setError(message(failure))
+        setError(reportOperationError(failure))
         setReady(true)
       },
     )

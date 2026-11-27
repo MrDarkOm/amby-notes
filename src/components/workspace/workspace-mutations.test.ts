@@ -7,6 +7,7 @@ import {
   isPathInside,
   isTargetDeleted,
   moveTreeItemsOptimistically,
+  mutationPaths,
   planMutation,
   reconcileTreeBackedTabTitles,
   removeTreeItem,
@@ -647,6 +648,34 @@ describe("applySessionRemap", () => {
     expect(lockedFileIds).toEqual(["a"])
   })
 
+  it("keeps the read mode of a workshop page, which is no file of the tree", () => {
+    const { lockedFileIds } = applySessionRemap(
+      session({ locked: ["creative:hills", "creative:universe:u1", "gone"] }),
+      {},
+      allIds,
+      true,
+    )
+    expect(lockedFileIds).toEqual(["creative:hills", "creative:universe:u1"])
+  })
+
+  it("reads a session saved before workshop pages were part of the history", () => {
+    // Old sessions name documents only (and may hold a `creative:` entry that has no file).
+    const restored = applySessionRemap(
+      session({
+        tabs: [
+          { fileId: "a", title: "A" },
+          { fileId: "creative:hills", title: "Hills" },
+        ],
+        activeFileId: "a",
+      }),
+      {},
+      allIds,
+      true,
+    )
+    expect(restored.tabs).toEqual([{ fileId: "a", title: "A" }])
+    expect(restored.activeFileId).toBe("a")
+  })
+
   it("remaps and filters viewModes", () => {
     const { viewModes } = applySessionRemap(
       session({ viewModes: { oldA: "source", gone: "editor" } }),
@@ -867,5 +896,20 @@ describe("isPathInside and isTargetDeleted", () => {
     expect(isTargetDeleted("PaLooVerse", ["PaLooVerse"])).toBe(true)
     expect(isTargetDeleted("database:PaLooVerse/Sub", ["PaLooVerse"])).toBe(true)
     expect(isTargetDeleted("database:Other", ["PaLooVerse"])).toBe(false)
+  })
+})
+
+describe("mutationPaths", () => {
+  it("lists every path a mutation touched once, for a refresh by path", () => {
+    expect(
+      mutationPaths({
+        primaryPath: "/v/New/New.md",
+        pathChanges: [
+          { oldPath: "/v/New.md", newPath: "/v/New/New.md" },
+          { oldPath: "", newPath: "/v/New/Child.md" },
+        ],
+        deletedPaths: ["/v/Gone.md"],
+      }),
+    ).toEqual(["/v/New/New.md", "/v/New.md", "/v/New/Child.md", "/v/Gone.md"])
   })
 })

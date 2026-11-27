@@ -83,12 +83,32 @@ export interface GroupNodeData {
   [key: string]: unknown
 }
 
+interface CanvasGeometry {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface CanvasInternalData {
   __canvasNodeType?: CanvasNodeType
   __canvasExtras?: Record<string, unknown>
+  /** Geometry as read from the file: an untouched node is written back with these exact values. */
+  __canvasGeom?: CanvasGeometry
+  /** The whole node object of a type this app does not know; written back as it was read (CRE-02). */
+  __canvasRaw?: Record<string, unknown>
 }
 
-export type CanvasFlowNode = Node<TextNodeData | FileNodeData | GroupNodeData>
+/** Node data of the read-only placeholder shown for node types this app does not know. */
+export interface UnknownNodeData {
+  /** The `type` string of the original node. */
+  originalType: string
+  [key: string]: unknown
+}
+
+export type CanvasFlowNode = Node<TextNodeData | FileNodeData | GroupNodeData | UnknownNodeData>
+
+const KNOWN_NODE_TYPES = new Set(["text", "file", "link", "group"])
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
@@ -120,7 +140,8 @@ export const CANONICAL_EMPTY_CANVAS = '{\n  "nodes": [],\n  "edges": []\n}\n'
 export function validateAndSerializeCanvas(json: string): string {
   let data: unknown
   try {
-    data = JSON.parse(json)
+    // A byte order mark is not JSON. The file write puts the BOM back from the file on disk.
+    data = JSON.parse(json.replace(/^\uFEFF/u, ""))
   } catch {
     throw new Error("Canvas content must be valid JSON")
   }
@@ -131,12 +152,15 @@ export function validateAndSerializeCanvas(json: string): string {
   if (Object.keys(file).length === 0) {
     return serializeCanvas({ nodes: [], edges: [] })
   }
-  if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
+  // JSON Canvas 1.0 makes both arrays optional: a missing one is empty (SAVE-01).
+  const nodes = file.nodes ?? []
+  const edges = file.edges ?? []
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
     throw new Error("Canvas content must contain nodes and edges arrays")
   }
   // Keep future/third-party top-level fields intact; nodes and edges themselves
   // are likewise carried through untouched.
-  const { nodes, edges, ...unknownFields } = file
+  const { nodes: _nodes, edges: _edges, ...unknownFields } = file
   return JSON.stringify({ nodes, edges, ...unknownFields }, null, 2) + "\n"
 }
 
@@ -157,6 +181,24 @@ export function toReactFlow(file: CanvasFile): {
 } {
   const nodes: CanvasFlowNode[] = file.nodes.map((n) => {
     const { id, type, x, y, width, height, color, ...extras } = n
+    const geom: CanvasGeometry = { x, y, width, height }
+    if (!KNOWN_NODE_TYPES.has(type)) {
+      // Unknown type (spec extension, another app): keep the whole object and show a placeholder.
+      return {
+        id,
+        position: { x, y },
+        style: { width, height },
+        width,
+        height,
+        type: "unknown",
+        data: {
+          originalType: String(type),
+          __canvasRaw: n as unknown as Record<string, unknown>,
+          __canvasGeom: geom,
+        } as UnknownNodeData & CanvasInternalData,
+        zIndex: 1,
+      }
+    }
     const base = {
       id,
       position: { x, y },
@@ -173,6 +215,7 @@ export function toReactFlow(file: CanvasFile): {
           color,
           __canvasNodeType: type,
           __canvasExtras: extras,
+          __canvasGeom: geom,
         } as GroupNodeData & CanvasInternalData,
         // Groups render behind other nodes and never grab pointer events on body.
         zIndex: 0,
@@ -190,6 +233,7 @@ export function toReactFlow(file: CanvasFile): {
           color,
           __canvasNodeType: type,
           __canvasExtras: extras,
+          __canvasGeom: geom,
         } as FileNodeData & CanvasInternalData,
         zIndex: 1,
       }
@@ -204,6 +248,7 @@ export function toReactFlow(file: CanvasFile): {
           color,
           __canvasNodeType: type,
           __canvasExtras: extras,
+          __canvasGeom: geom,
         } as FileNodeData & CanvasInternalData,
         zIndex: 1,
       }
@@ -217,6 +262,7 @@ export function toReactFlow(file: CanvasFile): {
         color,
         __canvasNodeType: type,
         __canvasExtras: extras,
+        __canvasGeom: geom,
       } as TextNodeData & CanvasInternalData,
       zIndex: 1,
     }
@@ -278,21 +324,34 @@ function sizeOf(node: CanvasFlowNode): { width: number; height: number } {
     (node.height as number | undefined) ??
     (node.measured?.height as number | undefined) ??
     120
-  return { width: Math.round(Number(w)), height: Math.round(Number(h)) }
+  return { width: Number(w), height: Number(h) }
+}
+
+/** Round a coordinate the user changed; keep the file's exact value when it is untouched. */
+function keepOrRound(current: number, original: number | undefined): number {
+  return original !== undefined && current === original ? original : Math.round(current)
+}
+
+function geometryOf(node: CanvasFlowNode, orig: CanvasGeometry | undefined): CanvasGeometry {
+  const { width, height } = sizeOf(node)
+  return {
+    x: keepOrRound(node.position.x, orig?.x),
+    y: keepOrRound(node.position.y, orig?.y),
+    width: keepOrRound(width, orig?.width),
+    height: keepOrRound(height, orig?.height),
+  }
 }
 
 export function fromReactFlow(nodes: CanvasFlowNode[], edges: Edge[]): CanvasFile {
   const outNodes: CanvasNode[] = nodes.map((node) => {
-    const { width, height } = sizeOf(node)
-    const common = {
-      id: node.id,
-      x: Math.round(node.position.x),
-      y: Math.round(node.position.y),
-      width,
-      height,
-    }
     const data = node.data as Partial<TextNodeData & FileNodeData & GroupNodeData> &
       CanvasInternalData
+    const geom = geometryOf(node, data.__canvasGeom)
+    const common = { id: node.id, ...geom }
+    if (node.type === "unknown" && data.__canvasRaw) {
+      // Only the geometry may differ from what was read; everything else is the original.
+      return { ...data.__canvasRaw, ...common } as unknown as CanvasNode
+    }
     const extras = data.__canvasExtras ?? {}
     const originalType = data.__canvasNodeType
     if (node.type === "group") {

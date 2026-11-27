@@ -11,6 +11,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import {
   flattenVisible,
   ROOT_DROP_TARGET,
+  ancestorIds,
   treeBranchGradientColor,
   treeItemHasChildren,
   type SidebarTreeProps,
@@ -20,6 +21,10 @@ import { useViewStateStore } from "../use-view-state-store"
 import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
+import { useStableCallback } from "./use-stable-callback"
+import { renameFailureText } from "../file-actions/rename-outcome"
+import { TreeMessage } from "./tree-message"
+import { TreeScrollbar } from "./tree-scrollbar"
 
 export function SidebarTree({
   items,
@@ -29,11 +34,17 @@ export function SidebarTree({
   onDelete,
   onDeleteMany,
   onNewFile,
+  onNewFolder,
+  onNewSketch,
+  onNewDatabase,
   onAttachCanvas,
   onAttachSketch,
   onOpenInNewTab,
+  onOpenSplitRight,
+  onOpenSplitDown,
   onOpenInNewWindow,
   onCloneFile,
+  onConvertFolderToNote,
   onOpenInExplorer,
   onMoveItem,
   onReorderItems,
@@ -43,17 +54,46 @@ export function SidebarTree({
   favorites,
   onToggleFavorite,
   onAttachLayer,
+  supernotesEnabled,
   canCreateDatabaseLayer,
   linkedLayersByDoc,
   canvasEnabled,
   sketchEnabled,
-  findActiveKey,
+  autoReveal = false,
 }: SidebarTreeProps) {
   const { t } = useTranslation()
+  // Handlers reach the memoized rows with a fixed identity, so a workspace render (a tab
+  // switch, a keystroke elsewhere) no longer re-renders every visible row.
+  const stableOnSelect = useStableCallback(onSelect)
+  const stableOnRename = useStableCallback(onRename)
+  const stableOnDelete = useStableCallback(onDelete)
+  const stableOnDeleteMany = useStableCallback(onDeleteMany)
+  const stableOnNewFile = useStableCallback(onNewFile)
+  const stableOnNewFolder = useStableCallback(onNewFolder)
+  const stableOnNewSketch = useStableCallback(onNewSketch)
+  const stableOnNewDatabase = useStableCallback(onNewDatabase)
+  const stableOnAttachCanvas = useStableCallback(onAttachCanvas)
+  const stableOnAttachSketch = useStableCallback(onAttachSketch)
+  const stableOnOpenInNewTab = useStableCallback(onOpenInNewTab)
+  const stableOnOpenSplitRight = useStableCallback(onOpenSplitRight)
+  const stableOnOpenSplitDown = useStableCallback(onOpenSplitDown)
+  const stableOnOpenInNewWindow = useStableCallback(onOpenInNewWindow)
+  const stableOnCloneFile = useStableCallback(onCloneFile)
+  const stableOnConvertFolderToNote = useStableCallback(onConvertFolderToNote)
+  const stableOnOpenInExplorer = useStableCallback(onOpenInExplorer)
+  const stableOnSetIcon = useStableCallback(onSetIcon)
+  const stableOnContextMenuSelect = useStableCallback(onContextMenuSelect)
+  const stableOnToggleFavorite = useStableCallback(onToggleFavorite)
+  const stableOnAttachLayer = useStableCallback(onAttachLayer)
   const closedIds = useViewStateStore((s) => s.closedTreeIds)
   const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
   const rainbowTree = useSettingsStore((s) => s.prefs.rainbowTree)
   const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [renameHint, setRenameHint] = React.useState<{
+    id: string
+    name: string
+    text: string
+  } | null>(null)
   const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() =>
     selectedId ? new Set([selectedId]) : new Set(),
@@ -140,9 +180,16 @@ export function SidebarTree({
 
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
-      onSelect(id)
+      // Plain folders never open their cards in this mode, including empty/JSON-only folders.
+      // Notes with their own folder still open as notes; click, Enter and Space agree.
+      const picked = currentRows[currentIndex]?.item
+      if (useSettingsStore.getState().prefs.files.folderClickToggles && picked?.type === "folder") {
+        if (treeItemHasChildren(picked)) toggleOpen(id)
+        return
+      }
+      stableOnSelect(id)
     },
-    [onSelect],
+    [stableOnSelect, toggleOpen],
   )
 
   const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])
@@ -187,33 +234,50 @@ export function SidebarTree({
     closedIds,
     toggleOpen,
     selectedId,
+    selectedIds,
     keyboardFocusId,
     focusRow,
     setEditingId,
     onSelect: handleKeyboardSelect,
+    onDelete: stableOnDelete,
+    onDeleteMany: stableOnDeleteMany,
     scrollRef,
   })
 
-  // Scroll selected item into view when selection changes or "find active" fires.
+  // Scroll the selected item into view when the selection changes. With auto-reveal the
+  // folders around it are opened first (also when auto-reveal is switched on), and the
+  // scroll waits for the rows they add; folders closed by hand later stay closed.
+  const expandTreeItems = useViewStateStore((s) => s.expandTreeItems)
+  // `waitForRows`: folders were just asked to open, so the item may appear one render later.
+  const pendingRevealRef = React.useRef<{ id: string; waitForRows: boolean } | null>(null)
   const prevSelectedIdRef = React.useRef<string | null>(null)
+  const prevAutoRevealRef = React.useRef(autoReveal)
   React.useEffect(() => {
-    if (selectedId === prevSelectedIdRef.current) return
+    const switchedOn = autoReveal && !prevAutoRevealRef.current
+    prevAutoRevealRef.current = autoReveal
+    if (selectedId === prevSelectedIdRef.current && !switchedOn) return
     prevSelectedIdRef.current = selectedId
     if (!selectedId) return
-    const idx = flatRows.findIndex((r) => r.item.id === selectedId)
-    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "auto" })
+    const closedAround = autoReveal
+      ? (ancestorIds(items, selectedId) ?? []).filter((id) => closedIds.has(id))
+      : []
+    if (closedAround.length > 0) expandTreeItems(closedAround)
+    pendingRevealRef.current = { id: selectedId, waitForRows: closedAround.length > 0 }
+    // Runs only when the selection or the auto-reveal switch changes; `items` and `closedIds` are read fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId])
-
-  const prevFindActiveKeyRef = React.useRef<number | undefined>(undefined)
+  }, [selectedId, autoReveal])
   React.useEffect(() => {
-    if (findActiveKey === undefined || findActiveKey === prevFindActiveKeyRef.current) return
-    prevFindActiveKeyRef.current = findActiveKey
-    if (!selectedId) return
-    const idx = flatRows.findIndex((r) => r.item.id === selectedId)
-    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "center" })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [findActiveKey])
+    const pending = pendingRevealRef.current
+    if (!pending) return
+    const idx = flatRows.findIndex((r) => r.item.id === pending.id)
+    if (idx === -1 && pending.waitForRows) {
+      pending.waitForRows = false
+      return
+    }
+    // Shown or not (a filter may hide it), the reveal is over: no later jump to it.
+    pendingRevealRef.current = null
+    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "auto" })
+  }, [flatRows, selectedId, autoReveal, virtualizer])
 
   const { ptrDrag, onPtrDragStart } = useTreeDnd({
     onMoveItem,
@@ -232,20 +296,32 @@ export function SidebarTree({
     (id: string) => {
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
-      onContextMenuSelect?.(id)
+      stableOnContextMenuSelect?.(id)
     },
-    [onContextMenuSelect],
+    [stableOnContextMenuSelect],
   )
   const handleFinishEdit = React.useCallback(
     (id: string, newName: string | null) => {
-      if (newName) onRename?.(id, newName)
       setEditingId(null)
+      setRenameHint(null)
+      if (!newName) return
+      // A refused name opens the field again with the typed name and the reason under it
+      // (docs/notices.md, section 8); any other end leaves the row as it is.
+      void Promise.resolve(stableOnRename?.(id, newName))
+        .then((outcome) => {
+          const text = renameFailureText(outcome)
+          if (!text) return
+          setRenameHint({ id, name: newName, text })
+          setEditingId(id)
+        })
+        // The rename reports its own failure as an outcome; a throw here has nothing to show.
+        .catch(() => undefined)
     },
-    [onRename],
+    [stableOnRename],
   )
 
   return (
-    <>
+    <div className="relative h-full min-h-0">
       {/* Scroll container — owns the ref the virtualizer needs */}
       <div
         ref={scrollRef}
@@ -255,7 +331,7 @@ export function SidebarTree({
         aria-label={t("panels.files")}
         tabIndex={keyboardFocusId ? -1 : 0}
         onKeyDown={handleTreeKeyDown}
-        className="h-full overflow-y-auto select-none focus:outline-none"
+        className="amby-tree-scroll h-full overflow-y-auto select-none focus:outline-none"
         style={{ cursor: ptrDrag ? "grabbing" : undefined }}
       >
         {/* Virtualized content — absolute-positioned rows inside a sized container */}
@@ -293,22 +369,29 @@ export function SidebarTree({
                   isOpen={!closedIds.has(row.item.id)}
                   onToggleOpen={handleToggleOpen}
                   isEditing={editingId === row.item.id}
+                  renameHint={renameHint?.id === row.item.id ? renameHint : null}
                   onStartEdit={handleStartEdit}
                   onFinishEdit={handleFinishEdit}
                   selectedIds={selectedIds}
                   isKeyboardFocused={keyboardFocusId === row.item.id}
                   onKeyboardFocus={setKeyboardFocusId}
                   onSelect={handleSelect}
-                  onDelete={onDelete}
-                  onDeleteMany={onDeleteMany}
-                  onNewFile={onNewFile}
-                  onAttachCanvas={onAttachCanvas}
-                  onAttachSketch={onAttachSketch}
-                  onOpenInNewTab={onOpenInNewTab}
-                  onOpenInNewWindow={onOpenInNewWindow}
-                  onCloneFile={onCloneFile}
-                  onOpenInExplorer={onOpenInExplorer}
-                  onSetIcon={onSetIcon}
+                  onDelete={stableOnDelete}
+                  onDeleteMany={stableOnDeleteMany}
+                  onNewFile={stableOnNewFile}
+                  onNewFolder={stableOnNewFolder}
+                  onNewSketch={stableOnNewSketch}
+                  onNewDatabase={stableOnNewDatabase}
+                  onAttachCanvas={stableOnAttachCanvas}
+                  onAttachSketch={stableOnAttachSketch}
+                  onOpenInNewTab={stableOnOpenInNewTab}
+                  onOpenSplitRight={stableOnOpenSplitRight}
+                  onOpenSplitDown={stableOnOpenSplitDown}
+                  onOpenInNewWindow={stableOnOpenInNewWindow}
+                  onCloneFile={stableOnCloneFile}
+                  onConvertFolderToNote={stableOnConvertFolderToNote}
+                  onOpenInExplorer={stableOnOpenInExplorer}
+                  onSetIcon={stableOnSetIcon}
                   onContextMenuSelect={handleContextMenuSelect}
                   onPtrDragStart={onPtrDragStart}
                   isPtrDragSource={ptrDragSourceIds.has(row.item.id)}
@@ -316,8 +399,9 @@ export function SidebarTree({
                     ptrDrag?.targetId === row.item.id && ptrDrag.dropPosition === null
                   }
                   favorites={favorites}
-                  onToggleFavorite={onToggleFavorite}
-                  onAttachLayer={onAttachLayer}
+                  onToggleFavorite={stableOnToggleFavorite}
+                  onAttachLayer={stableOnAttachLayer}
+                  supernotesEnabled={supernotesEnabled}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}
@@ -362,6 +446,8 @@ export function SidebarTree({
           )}
         </div>
       </div>
+      <TreeScrollbar scrollRef={scrollRef} />
+      <TreeMessage />
 
       <AnimatePresence>
         {ptrDrag?.active && (
@@ -384,6 +470,6 @@ export function SidebarTree({
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   )
 }

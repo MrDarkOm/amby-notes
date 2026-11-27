@@ -1,16 +1,27 @@
 export type StoredDatabaseCellValue = Record<string, unknown> | null
 
+/** A row's stored values parsed once, so many cells of the row can be read from it. */
+export function parseDatabaseRowValues(valuesJson: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(valuesJson) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+export function pickDatabaseCellValue(
+  values: Record<string, unknown> | null,
+  propertyId: string,
+): StoredDatabaseCellValue {
+  const value = values?.[propertyId]
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null
+}
+
 export function readDatabaseCellValue(
   valuesJson: string,
   propertyId: string,
 ): StoredDatabaseCellValue {
-  try {
-    const values = JSON.parse(valuesJson) as Record<string, unknown>
-    const value = values[propertyId]
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : null
-  } catch {
-    return null
-  }
+  return pickDatabaseCellValue(parseDatabaseRowValues(valuesJson), propertyId)
 }
 
 /** A row's values with one cell replaced (or cleared), as the editors would see it. */

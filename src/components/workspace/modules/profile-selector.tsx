@@ -1,7 +1,15 @@
 "use client"
 
 import { useTranslation } from "react-i18next"
-import { Check, Download, HardDrive, Shield, Sparkles } from "lucide-react"
+import {
+  Check,
+  Download,
+  FileText,
+  HardDrive,
+  Layers,
+  Shield,
+  SlidersHorizontal,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatByteSize, PROFILES, type ProfileId } from "@/lib/modules"
 
@@ -9,94 +17,90 @@ export interface ProfileSelectorProps {
   selectedProfileId: ProfileId
   onSelectProfile: (id: ProfileId) => void
   isOnline?: boolean
+  showDetails?: boolean
   className?: string
 }
+
+const PROFILE_ICONS = { minimal: FileText, standard: Layers, custom: SlidersHorizontal }
+const PROFILE_LIST: ProfileId[] = ["minimal", "standard", "custom"]
 
 export function ProfileSelector({
   selectedProfileId,
   onSelectProfile,
   isOnline = true,
+  showDetails = true,
   className,
 }: ProfileSelectorProps) {
   const { t } = useTranslation()
-
-  const profileList: ProfileId[] = ["minimal", "standard", "custom"]
+  const selected = PROFILES[selectedProfileId]
 
   return (
-    <div className={cn("space-y-4", className)}>
-      <div className="grid gap-3 sm:grid-cols-3">
-        {profileList.map((id) => {
+    <div className={cn("space-y-3", className)}>
+      <div className="flex flex-col gap-2">
+        {PROFILE_LIST.map((id) => {
           const profile = PROFILES[id]
           const isSelected = selectedProfileId === id
-          const isStandard = id === "standard"
-          const isMinimal = id === "minimal"
-
+          const Icon = PROFILE_ICONS[id]
           return (
             <button
               key={id}
               type="button"
+              aria-pressed={isSelected}
               onClick={() => onSelectProfile(id)}
               className={cn(
-                "relative flex flex-col justify-between rounded-lg border p-4 text-left",
+                "flex w-full items-center gap-3 rounded-xl border p-4 text-left",
                 isSelected
                   ? "border-primary bg-primary/5 text-foreground ring-1 ring-primary"
                   : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-accent/40",
               )}
             >
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-foreground">
-                    {t(profile.labelKey)}
-                  </span>
-                  {isSelected && (
-                    <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                      <Check className="size-3" />
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Icon className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-foreground">
+                  {t(profile.labelKey)}
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
                   {t(profile.descriptionKey)}
-                </p>
-              </div>
-
-              <div className="mt-4 space-y-1.5 border-t border-border/50 pt-3 text-[11px]">
-                {isStandard && (
-                  <>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Download className="size-3" />
-                      <span>{t("profiles.details.downloadSize")}:</span>
-                      <span className="font-mono font-medium text-foreground">
-                        {formatByteSize(profile.metadata.estimatedDownloadSizeBytes)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <HardDrive className="size-3" />
-                      <span>{t("profiles.details.installedSize")}:</span>
-                      <span className="font-mono font-medium text-foreground">
-                        {formatByteSize(profile.metadata.estimatedInstalledSizeBytes)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Shield className="size-3" />
-                      <span>{t("profiles.details.permissions")}:</span>
-                      <span className="font-medium text-foreground">
-                        {profile.metadata.permissions.length}
-                      </span>
-                    </div>
-                  </>
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                  isSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border",
                 )}
-                {isMinimal && (
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <Sparkles className="size-3 text-primary" />
-                    <span className="font-medium text-foreground">{formatByteSize(0)}</span>
-                  </div>
-                )}
-              </div>
+              >
+                {isSelected && <Check className="size-3" />}
+              </span>
             </button>
           )
         })}
       </div>
-
+      {showDetails && selectedProfileId === "standard" && (
+        <div className="flex flex-wrap gap-x-4 gap-y-2 px-1 text-[11px] text-muted-foreground">
+          <span
+            className="inline-flex items-center gap-1.5 whitespace-nowrap"
+            title={t("profiles.details.downloadSize")}
+          >
+            <Download className="size-3" />
+            {formatByteSize(selected.metadata.estimatedDownloadSizeBytes)}
+          </span>
+          <span
+            className="inline-flex items-center gap-1.5 whitespace-nowrap"
+            title={t("profiles.details.installedSize")}
+          >
+            <HardDrive className="size-3" />
+            {formatByteSize(selected.metadata.estimatedInstalledSizeBytes)}
+          </span>
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <Shield className="size-3" />
+            {t("profiles.details.permissions")}: {selected.metadata.permissions.length}
+          </span>
+        </div>
+      )}
       {!isOnline && selectedProfileId === "standard" && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
           {t("profiles.details.offlineFallbackNotice")}

@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Interface emoji inherit each existing slot's optical size, never its foreground colour. */
+.amby-emoji-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -0.12em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.amby-emoji-glyph > img {
+  display: block;
+  width: 1em;
+  height: 1em;
+  max-width: none;
+  object-fit: contain;
+  user-select: none;
+}
+
 .amby-pdf-export-root {
   position: fixed;
   top: 0;
@@ -86,8 +105,7 @@
   .amby-pdf-export-root pre,
   .amby-pdf-export-root blockquote,
   .amby-pdf-export-root table,
-  .amby-pdf-export-root img,
-  .amby-pdf-export-root .amby-callout {
+  .amby-pdf-export-root img {
     break-inside: avoid;
   }
 
@@ -145,14 +163,6 @@
 /* The last pinned column of a table: a soft edge shows that the columns up to it stay put. */
 .database-frozen-edge {
   box-shadow: 6px 0 8px -6px hsl(0 0% 0% / 0.22);
-}
-
-.database-property-drop-before {
-  box-shadow: inset 0 2px 0 hsl(var(--primary));
-}
-
-.database-property-drop-after {
-  box-shadow: inset 0 -2px 0 hsl(var(--primary));
 }
 
 /* Manual tree sorting preview. The indicator lives in the virtual row so it
@@ -246,6 +256,7 @@
     --app-font-scale: 1;
     --editor-font-size: 1.02rem;
     /* Interface spacing scale; compact density sets this to 0.5 below. */
+    --amby-dock-width: 48px;
     --app-density-spacing-scale: 1;
     --app-density-padding-min: 0.25rem;
     --app-density-gap-min: 0.25rem;
@@ -320,11 +331,6 @@
     --wikilink-underline: rgba(14, 165, 233, 0.45);
 
     /* Image / drag */
-    --image-selected-border: #7c3aed;
-    --image-shadow: 0 8px 24px rgb(0 0 0 / 10%);
-    --image-selected-shadow:
-      0 0 0 2px color-mix(in srgb, var(--image-selected-border) 35%, transparent),
-      0 8px 24px rgb(0 0 0 / 12%);
     --broken-stripe-1: #f4f4f5;
     --broken-stripe-2: #e4e4e7;
 
@@ -479,7 +485,6 @@
     --wikilink-underline: rgba(56, 189, 248, 0.55);
 
     /* Image / drag */
-    --image-selected-border: #7c3aed;
     --broken-stripe-1: #1a1a1f;
     --broken-stripe-2: #232328;
 
@@ -605,6 +610,44 @@
   background: transparent;
 }
 
+/* The file tree draws its own thin scrollbar over the rows (tree-scrollbar.tsx): the native one
+   is hidden so it never takes width from them. The thumb fades in while the list scrolls or
+   while the pointer is on it (tree-scrollbar.tsx). */
+.amby-tree-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.amby-tree-scrollbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 14px;
+  pointer-events: none;
+}
+
+.amby-tree-scrollbar[hidden] {
+  display: none;
+}
+
+.amby-tree-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  width: 5px;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  /* Faded in and out by tree-scrollbar.tsx. */
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.amby-tree-scrollbar-thumb:hover,
+.amby-tree-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-hover);
+}
+
 /* Frameless Windows title-bar controls. Keep the control strip on the same
    surface as the header so no one-pixel rule appears under the buttons. */
 .amby-window-controls {
@@ -634,14 +677,6 @@
   color: #ffffff;
 }
 
-.amby-sidebar-overlay--left {
-  box-shadow: 8px 0 24px -8px rgb(15 23 42 / 0.35);
-}
-
-.amby-sidebar-overlay--right {
-  box-shadow: -8px 0 24px -8px rgb(15 23 42 / 0.35);
-}
-
 /* The note keeps its place when the scrollbar comes and goes: without a bar its
    width is padded back in (the hook sets data-scrollbar; 11px matches the bar below). */
 .amby-editor-scroll[data-scrollbar="off"] {
@@ -654,7 +689,8 @@
 }
 
 .amby-editor-scroll::-webkit-scrollbar-track {
-  margin-block: 10px;
+  margin-top: 10px;
+  margin-bottom: 60px;
   border: 4px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--scrollbar-thumb) 24%, transparent);
@@ -685,6 +721,11 @@
   border-radius: 5px;
 }
 
+.amby-table-scroll::-webkit-scrollbar-track:vertical {
+  margin-top: 8px;
+  margin-bottom: 60px;
+}
+
 .amby-table-scroll::-webkit-scrollbar-thumb {
   min-width: 48px;
   min-height: 48px;
@@ -696,225 +737,9 @@
   background: var(--scrollbar-thumb-hover);
 }
 
-.amby-table-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb)
-    color-mix(in srgb, var(--scrollbar-thumb) 18%, transparent);
-}
-
 /* The tab strip of a database shortcut scrolls without drawing a bar under the tabs. */
-.amby-tabs-scroll {
-  scrollbar-width: none;
-}
-
 .amby-tabs-scroll::-webkit-scrollbar {
   display: none;
-}
-
-/* Markdown preview styles */
-.md-body {
-  color: var(--editor-fg);
-  line-height: 1.78;
-  font-size: var(--editor-font-size, 1.02rem);
-}
-
-.amby-read-body {
-  background: var(--editor-bg);
-  padding: 1.25rem 1.5rem 5rem;
-}
-
-.md-body h1 {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: var(--editor-heading);
-  margin: 1.5rem 0 0.75rem;
-  line-height: 1.2;
-  border-bottom: 1px solid var(--rule-color);
-  padding-bottom: 0.4rem;
-}
-
-.md-body h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--editor-heading-h2);
-  margin: 1.4rem 0 0.6rem;
-  line-height: 1.3;
-  border-bottom: 1px solid var(--rule-color);
-  padding-bottom: 0.3rem;
-}
-
-.md-body h3 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--editor-heading-h3);
-  margin: 1.2rem 0 0.5rem;
-}
-
-.md-body h4 {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--editor-heading-h4);
-  margin: 1rem 0 0.4rem;
-}
-
-.md-body h5 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--editor-heading-muted);
-  margin: 0.8rem 0 0.3rem;
-}
-
-.md-body h6 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--editor-heading-muted) 86%, var(--editor-fg));
-  letter-spacing: 0.025em;
-  margin: 0.7rem 0 0.25rem;
-}
-
-.md-body p {
-  margin: 0.75rem 0;
-}
-
-.md-body strong {
-  color: var(--editor-strong);
-  font-weight: 700;
-}
-
-.md-body em {
-  color: var(--editor-em);
-  font-style: italic;
-}
-
-.md-body code {
-  background: var(--code-bg);
-  color: var(--code-fg);
-  border: 1px solid var(--code-border);
-  border-radius: 4px;
-  padding: 0.15em 0.4em;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 0.85em;
-}
-
-.md-body pre {
-  background: var(--pre-bg);
-  border: 1px solid var(--pre-border);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  overflow-x: auto;
-  margin: 1rem 0;
-}
-
-.md-body pre code {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--pre-fg);
-  font-size: 0.875em;
-}
-
-.md-body blockquote {
-  border-left: 3px solid var(--blockquote-border-color);
-  margin: 1rem 0;
-  padding: 0.25rem 1rem;
-  color: var(--blockquote-fg);
-  background: var(--blockquote-bg);
-  border-radius: 0 4px 4px 0;
-}
-
-.md-body blockquote.amby-callout {
-  border-left: 4px solid var(--blockquote-border-color);
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-  background: rgba(20, 184, 166, 0.07);
-  border-radius: 0 6px 6px 0;
-  color: var(--blockquote-fg);
-  padding: 0.75rem 1rem;
-}
-
-.md-body blockquote.amby-callout p:first-child {
-  margin-top: 0;
-  font-weight: 600;
-  color: var(--blockquote-border-color);
-}
-
-.md-body ul {
-  list-style: disc;
-  padding-left: 1.5rem;
-  margin: 0.75rem 0;
-}
-
-.md-body ol {
-  list-style: decimal;
-  padding-left: 1.5rem;
-  margin: 0.75rem 0;
-}
-
-.md-body li {
-  margin: 0.3rem 0;
-}
-
-.md-body li input[type="checkbox"] {
-  accent-color: hsl(var(--primary));
-  margin-right: 0.4rem;
-}
-
-.md-body a {
-  color: var(--link-color);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.md-body a:hover {
-  color: var(--link-hover-color);
-}
-
-.md-body u {
-  text-decoration-color: var(--underline-color);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
-
-.md-body table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  font-size: 0.9rem;
-}
-
-.md-body th {
-  background: var(--table-header-bg);
-  color: var(--table-header-fg);
-  font-weight: 600;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--table-border);
-  text-align: left;
-}
-
-.md-body td {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--table-cell-border);
-}
-
-.md-body tr:nth-child(even) {
-  background: var(--table-row-even);
-}
-
-.md-body hr {
-  border: none;
-  border-top: 1px solid var(--rule-color);
-  margin: 1.5rem 0;
-}
-
-.md-body img {
-  max-width: 100%;
-  border-radius: 6px;
-  margin: 0.75rem 0;
-}
-
-.md-body del {
-  color: var(--editor-del);
 }
 
 /* Tiptap editor (Live + Read) */
@@ -922,9 +747,30 @@
   background: transparent;
 }
 
+/* One inline inset for the body text and the page title, so their left edges line up. */
+:root {
+  --amby-editor-inline-pad: clamp(0.5rem, 1.5vw, 0.75rem);
+  /* One monospace stack for code everywhere: the fonts people install first, then each
+     system's own (macOS, Windows, Linux), so code never falls back to Courier. */
+  --font-mono:
+    "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Cascadia Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+}
+
+.amby-page-title {
+  padding-inline-start: var(--amby-editor-inline-pad);
+}
+
+/* Give the tab row breathing room when it follows the title directly. */
+.amby-page-title:has(~ * [data-note-pages-active]):not(
+    :has(~ .amby-nested-notes-top, ~ [data-dossier-frame] header)
+  ) {
+  margin-bottom: 2.25rem;
+}
+
 .amby-tiptap .ProseMirror {
   min-height: 320px;
-  padding: 0.5rem clamp(0.5rem, 1.5vw, 0.75rem) 5rem;
+  padding: 0.5rem var(--amby-editor-inline-pad) 5rem;
   outline: none;
   /* A tab typed with the Tab key is a real tab character. */
   tab-size: 4;
@@ -1143,7 +989,7 @@
   background: var(--code-bg);
   color: var(--code-fg);
   padding: 0.15em 0.4em;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
 }
 
@@ -1156,6 +1002,46 @@
   margin: 1rem 0;
 }
 
+.ai-chat-markdown {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ai-chat-markdown > * + * {
+  margin-top: 0.5rem;
+}
+
+.ai-chat-markdown ul,
+.ai-chat-markdown ol {
+  padding-left: 1.25rem;
+}
+
+/* Two-digit numbers ("10.") are wider than the bullet gutter and must not hang past the text edge. */
+.ai-chat-markdown ol {
+  padding-left: 1.75rem;
+}
+
+.ai-chat-markdown ul {
+  list-style: disc;
+}
+.ai-chat-markdown ol {
+  list-style: decimal;
+}
+.ai-chat-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.ai-chat-markdown pre {
+  overflow-x: auto;
+  white-space: pre;
+  padding: 0.5rem;
+  background: var(--muted);
+  border-radius: 0.375rem;
+}
+.ai-chat-markdown code {
+  font-size: 0.9em;
+}
+
 /* A block kept as its own Markdown source (see docs/markdown-compatibility.md): a
    paragraph or a list as text, so it wraps like prose instead of scrolling sideways. */
 .amby-tiptap .ProseMirror pre.amby-opaque-markdown {
@@ -1165,7 +1051,7 @@
   padding: 0.5rem 0.75rem;
   margin: 0.5rem 0;
   color: var(--pre-fg);
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
   line-height: 1.6;
 }
@@ -1197,7 +1083,7 @@
 }
 
 .amby-tiptap .ProseMirror .amby-code-block-language {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .amby-tiptap .ProseMirror .amby-code-block-copy {
@@ -1324,7 +1210,7 @@
   background: var(--pre-bg);
   color: var(--pre-fg);
   padding: 0.5rem 0.75rem;
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
   line-height: 1.6;
   outline: none;
@@ -1689,12 +1575,13 @@
   pointer-events: auto;
 }
 
+/* In a column the bridge spans only the gap up to the content, never the text itself. */
 .amby-block-handles--column::before {
   top: -7px;
   right: auto;
   bottom: -7px;
   left: 100%;
-  width: 48px;
+  width: 8px;
 }
 
 .amby-block-handle-btn {
@@ -1719,103 +1606,8 @@
   cursor: grab;
 }
 
-.amby-block-handle-plus {
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--block-handle-hover-bg);
-  border-radius: 999px;
-  opacity: 0.82;
-}
-
-.amby-block-handle-plus:hover {
-  opacity: 1;
-}
-
 .amby-block-handle-grip:active {
   cursor: grabbing;
-}
-
-/* Block insert / actions popup */
-.amby-block-handle-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 176px;
-  max-height: 150px;
-  overflow-y: auto;
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  border-radius: 8px;
-  padding: 4px;
-  box-shadow: var(--menu-shadow);
-  z-index: 60;
-}
-
-.amby-block-handle-menu-section {
-  padding: 6px 8px 2px;
-  font-size: 0.68rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--panel-section-fg);
-}
-
-.amby-block-handle-menu-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 6px 6px;
-}
-
-.amby-block-handle-swatch {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  border: 1px solid var(--callout-border-alpha);
-  cursor: pointer;
-  padding: 0;
-}
-
-.amby-block-handle-swatch:hover {
-  border-color: var(--callout-border-alpha);
-}
-
-.amby-block-handle-swatch--none {
-  background: transparent;
-  color: var(--panel-section-fg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.amby-block-handle-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 8px;
-  border-radius: 5px;
-  text-align: left;
-  font-size: 0.8rem;
-  color: var(--menu-item-fg);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.amby-block-handle-menu-item:hover {
-  background: var(--menu-item-hover-bg);
-  color: var(--menu-item-hover-fg);
-}
-
-.amby-block-handle-menu-item--danger {
-  color: #f87171;
-}
-
-.amby-block-handle-menu-item--danger:hover {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
 }
 
 /* Drag-and-drop drop position indicator — a 2px line painted in the gap
@@ -1851,7 +1643,7 @@
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 18px;
-  margin: 1rem 0;
+  margin: 0.75rem 0;
   /* Columns share the row's height, so a divider spans the tallest column. */
   align-items: stretch;
 }
@@ -1865,14 +1657,24 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 2.5rem;
+  min-height: 1.35em;
 }
 
 .amby-tiptap .ProseMirror .amby-column-content {
   flex: 1 1 auto;
-  min-height: 2.5rem;
-  padding: 6px 9px;
+  min-height: 1.35em;
+  /* No left padding: column text lines up with the text outside the columns. No vertical
+     spacing either: the first and last block sit flush with the top and bottom of the row. */
+  padding: 0 9px 0 0;
   border-radius: 8px;
+}
+
+.amby-tiptap .ProseMirror .amby-column-content > :first-child {
+  margin-top: 0;
+}
+
+.amby-tiptap .ProseMirror .amby-column-content > :last-child {
+  margin-bottom: 0;
 }
 
 /* Reserve the area between divider and content exclusively for the grab. */
@@ -1901,13 +1703,13 @@
 
 /* With the pointer on the divider: a grey strip as tall as the tallest column shows where to grab. */
 .amby-tiptap .ProseMirror .amby-column.is-resize-edge::before {
-  width: 4px;
+  width: 2px;
   background: hsl(var(--foreground) / 0.22);
 }
 
 /* While the border is being dragged the strip takes the accent colour. */
 .amby-tiptap .ProseMirror .amby-column-set.is-resizing .amby-column::before {
-  width: 3px;
+  width: 2px;
   background: var(--drop-indicator-color);
   box-shadow: 0 0 7px var(--drop-indicator-shadow);
 }
@@ -2142,7 +1944,7 @@ body.amby-resizing-columns * {
 .amby-block-row-hint {
   font-size: 0.66rem;
   color: var(--panel-hint-fg);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .amby-block-panel-close {
@@ -2297,36 +2099,6 @@ body.amby-resizing-columns * {
   color: #fafafa;
 }
 
-.amby-ctx-type-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
-  padding: 4px 8px 8px;
-}
-
-.amby-ctx-type-btn {
-  padding: 6px 4px;
-  border-radius: 5px;
-  border: 1px solid var(--panel-input-border);
-  background: transparent;
-  color: var(--panel-row-fg);
-  cursor: pointer;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.amby-ctx-type-btn:hover {
-  background: var(--panel-row-hover-bg);
-}
-
-.amby-ctx-type-btn.is-active {
-  background: var(--panel-primary-btn-bg);
-  border-color: var(--panel-primary-btn-bg);
-}
-
-.amby-ctx-input,
 .amby-ctx-text-input {
   width: calc(100% - 16px);
   margin: 0 8px 8px;
@@ -2339,7 +2111,6 @@ body.amby-resizing-columns * {
   outline: none;
 }
 
-.amby-ctx-input:focus,
 .amby-ctx-text-input:focus {
   border-color: var(--panel-input-focus-border);
 }
@@ -2374,22 +2145,6 @@ body.amby-resizing-columns * {
   color: #fafafa;
 }
 
-.amby-ctx-replace-btn {
-  width: calc(100% - 16px);
-  margin: 4px 8px 8px;
-  padding: 6px;
-  border-radius: 5px;
-  border: 1px solid var(--panel-input-border);
-  background: transparent;
-  color: var(--panel-row-fg);
-  cursor: pointer;
-  font-size: 0.74rem;
-}
-
-.amby-ctx-replace-btn:hover {
-  background: var(--panel-row-hover-bg);
-}
-
 /* ── Turn into submenu (right popover) ───────────────────────────────────── */
 
 .amby-turn-into-menu {
@@ -2407,10 +2162,34 @@ body.amby-resizing-columns * {
 
 /* ── Image NodeView ──────────────────────────────────────────────────────── */
 
+/* Beside a picture alone on its line nothing is typed or clicked: no cursor, no text pointer. */
+.ProseMirror .amby-image-line {
+  caret-color: transparent;
+  cursor: default;
+}
+
+.amby-tiptap .ProseMirror p.amby-image-line {
+  margin: 0.5rem 0;
+  /* No text stands on this line. An aligned picture is a block inside it, and the editor's
+     cursor helpers after it (a separator, a trailing break) would otherwise make a line of
+     text height under it. */
+  line-height: 0;
+}
+
+/* The editor's cursor helpers after the picture (a separator and a trailing break) take no
+   room of their own: after an aligned picture they would stand on a line under it. */
+.amby-tiptap .ProseMirror p.amby-image-line > img.ProseMirror-separator {
+  position: absolute;
+}
+
+.amby-tiptap .ProseMirror p.amby-image-line > br.ProseMirror-trailingBreak {
+  display: none;
+}
+
 .amby-image-wrap {
   display: inline-block;
   max-width: 100%;
-  margin: 0.5rem 0;
+  margin: 0;
   line-height: 0;
   vertical-align: top;
 }
@@ -2425,8 +2204,363 @@ body.amby-resizing-columns * {
   background: transparent;
 }
 
-.amby-image-wrap.is-selected img {
+.amby-image-wrap img {
+  cursor: default;
+  /* The picture is not text: macOS Live Text would otherwise read icons in a screenshot as
+     characters and mark them as selected text when the picture is selected. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A selected picture, alone or inside selected text, is tinted like selected text, with
+   rounded corners. Only while the editor has the focus: a picture left selected in an editor
+   the user has left must not look selected. */
+.ProseMirror-focused .amby-image-wrap.is-selected .amby-image-container::after,
+.amby-image-wrap[data-in-selection] .amby-image-container::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: hsl(var(--primary) / 0.24);
+  content: "";
+  pointer-events: none;
+}
+
+/* The picture viewer: a picture over the whole window with a bar of controls below it. It takes
+   its colours from the theme: the window's own background, the menu surface for the bar. */
+.amby-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: hsl(var(--background) / 0.94);
+}
+
+.amby-lightbox-image {
+  max-width: none;
+  max-height: none;
+  flex: none;
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.amby-lightbox-bar {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid var(--menu-border);
+  border-radius: 10px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-item-fg);
+  font-size: 0.8rem;
+}
+
+.amby-lightbox-button,
+.amby-lightbox-percent,
+.amby-lightbox-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: inherit;
   outline: none;
+}
+
+.amby-lightbox-button {
+  width: 32px;
+  height: 32px;
+}
+
+.amby-lightbox-percent {
+  min-width: 52px;
+  height: 32px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-lightbox-button:hover,
+.amby-lightbox-percent:hover,
+.amby-lightbox-arrow:hover,
+.amby-lightbox-button:focus-visible,
+.amby-lightbox-percent:focus-visible,
+.amby-lightbox-arrow:focus-visible {
+  background: var(--menu-item-hover-bg);
+}
+
+.amby-lightbox-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--menu-border);
+}
+
+.amby-lightbox-counter {
+  padding: 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.amby-lightbox-arrow {
+  position: absolute;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  transform: translateY(-50%);
+  border: 1px solid var(--menu-border);
+  border-radius: 999px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-item-fg);
+}
+
+.amby-lightbox-arrow--previous {
+  left: 20px;
+}
+
+.amby-lightbox-arrow--next {
+  right: 20px;
+}
+
+/* The crop window: a bar with the shape menu, the title and the buttons over a dark stage; the
+   frame has corner brackets and a pill on each edge to take hold of. */
+.amby-crop-dialog {
+  background: var(--menu-bg);
+  color: var(--menu-item-fg);
+}
+
+.amby-crop-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--menu-border);
+}
+
+.amby-crop-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 1.05rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.amby-crop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.amby-crop-cancel {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.amby-crop-cancel:hover,
+.amby-crop-cancel:focus-visible {
+  color: var(--menu-item-fg);
+}
+
+.amby-crop-shape-button {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: var(--menu-item-fg);
+  outline: none;
+}
+
+.amby-crop-shape-button:hover,
+.amby-crop-shape-button:focus-visible {
+  background: var(--menu-item-hover-bg);
+}
+
+.amby-crop-stage {
+  display: flex;
+  max-height: 72vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 36px 40px;
+}
+
+.amby-crop-frame {
+  box-shadow: 0 0 0 9999px hsl(var(--background) / 0.72);
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-crop-frame.is-circle {
+  border-radius: 50%;
+}
+
+.amby-crop-corner,
+.amby-crop-edge {
+  position: absolute;
+  touch-action: none;
+  /* The handle is drawn in a soft halo of the page colour, so it reads on any picture. */
+  filter: drop-shadow(0 0 1px hsl(var(--background) / 0.7));
+}
+
+/* A corner: a short bracket just outside the frame's corner. The box is the grip. */
+.amby-crop-corner {
+  width: 30px;
+  height: 30px;
+}
+
+.amby-crop-corner::before {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 0 solid currentColor;
+  content: "";
+}
+
+.amby-crop-corner--nw {
+  top: -15px;
+  left: -15px;
+  cursor: nwse-resize;
+}
+
+.amby-crop-corner--nw::before {
+  top: 12px;
+  left: 12px;
+  border-top-width: 3px;
+  border-left-width: 3px;
+  border-top-left-radius: 5px;
+}
+
+.amby-crop-corner--ne {
+  top: -15px;
+  right: -15px;
+  cursor: nesw-resize;
+}
+
+.amby-crop-corner--ne::before {
+  top: 12px;
+  right: 12px;
+  border-top-width: 3px;
+  border-right-width: 3px;
+  border-top-right-radius: 5px;
+}
+
+.amby-crop-corner--se {
+  right: -15px;
+  bottom: -15px;
+  cursor: nwse-resize;
+}
+
+.amby-crop-corner--se::before {
+  right: 12px;
+  bottom: 12px;
+  border-right-width: 3px;
+  border-bottom-width: 3px;
+  border-bottom-right-radius: 5px;
+}
+
+.amby-crop-corner--sw {
+  bottom: -15px;
+  left: -15px;
+  cursor: nesw-resize;
+}
+
+.amby-crop-corner--sw::before {
+  bottom: 12px;
+  left: 12px;
+  border-bottom-width: 3px;
+  border-left-width: 3px;
+  border-bottom-left-radius: 5px;
+}
+
+/* An edge: a short bar in the middle of the side, just outside the frame. The whole side
+   between the corners is the grip. */
+.amby-crop-edge {
+  display: flex;
+}
+
+.amby-crop-edge::after {
+  display: block;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.amby-crop-edge--n,
+.amby-crop-edge--s {
+  left: 18px;
+  right: 18px;
+  height: 14px;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: ns-resize;
+}
+
+.amby-crop-edge--n {
+  top: -14px;
+}
+
+.amby-crop-edge--s {
+  bottom: -14px;
+  align-items: flex-start;
+}
+
+.amby-crop-edge--n::after,
+.amby-crop-edge--s::after {
+  width: 28px;
+  height: 3px;
+}
+
+.amby-crop-edge--e,
+.amby-crop-edge--w {
+  top: 18px;
+  bottom: 18px;
+  width: 14px;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: ew-resize;
+}
+
+.amby-crop-edge--e {
+  right: -14px;
+}
+
+.amby-crop-edge--w {
+  left: -14px;
+  justify-content: flex-end;
+}
+
+.amby-crop-edge--e::after,
+.amby-crop-edge--w::after {
+  width: 3px;
+  height: 28px;
+}
+
+/* The caption (the image's Markdown title) sits under the picture and never widens it. */
+.amby-image-caption {
+  display: block;
+  width: 0;
+  min-width: 100%;
+  margin-top: 0.3rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85em;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .amby-image-wrap img.is-broken {
@@ -2592,6 +2726,8 @@ body.amby-resizing-columns * {
 .amby-image-container {
   position: relative;
   display: inline-block;
+  /* Not on the text baseline: that leaves room under the picture for the descenders of a line. */
+  vertical-align: top;
   max-width: 100%;
   line-height: 0;
   border-radius: 8px;
@@ -2606,7 +2742,7 @@ body.amby-resizing-columns * {
 }
 
 .amby-image-wrap:hover .amby-image-resizer,
-.amby-image-wrap.is-selected .amby-image-resizer,
+.ProseMirror-focused .amby-image-wrap.is-selected .amby-image-resizer,
 .amby-image-wrap.is-resizing .amby-image-resizer {
   opacity: 1;
 }
@@ -2711,6 +2847,22 @@ em-emoji-picker {
   height: 380px;
 }
 
+/* The picker Amby renders (picker-runtime.ts) follows the app accent, text colour and
+   font instead of emoji-mart's blue and its Apple-only font stack. */
+amby-emoji-picker {
+  --color-foreground: hsl(var(--foreground));
+  --color-accent: hsl(var(--primary));
+  --font-family: var(
+    --app-font-family,
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+}
+
 .amby-emoji-picker-panel {
   overflow: hidden;
   border: 1px solid var(--menu-border);
@@ -2813,7 +2965,8 @@ em-emoji-picker {
 .amby-tiptap .ProseMirror img {
   max-width: 100%;
   border-radius: 6px;
-  margin: 0.75rem 0;
+  /* The line the picture is on keeps the space around it (p.amby-image-line). */
+  margin: 0;
 }
 
 .amby-tiptap .ProseMirror table {
@@ -3091,20 +3244,7 @@ em-emoji-picker {
 }
 
 .amby-source-editor .cm-scroller {
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-}
-
-/* Slash menu popup */
-.amby-slash-menu {
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  gap: 1px;
-  border: 1px solid var(--menu-border);
-  border-radius: 8px;
-  background: var(--menu-bg);
-  padding: 4px;
-  box-shadow: var(--menu-shadow);
+  font-family: var(--font-mono);
 }
 
 /* Keep the slash search field readable in both themes. */
@@ -3118,39 +3258,94 @@ em-emoji-picker {
   color: var(--slash-search-placeholder);
 }
 
-.amby-slash-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.35rem 0.5rem;
-  border-radius: 5px;
-  text-align: left;
-  color: var(--menu-item-fg);
+/* Property numbers use a quiet text field rather than native browser steppers. */
+.amby-property-number {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.amby-property-number::-webkit-inner-spin-button,
+.amby-property-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.amby-slash-item:hover,
-.amby-slash-item.is-active {
-  background: var(--menu-item-hover-bg);
-  color: var(--menu-item-hover-fg);
-}
-
-.amby-slash-title {
-  font-size: 0.8rem;
-  font-weight: 500;
-}
-
-.amby-slash-hint {
-  font-size: 0.7rem;
-  color: var(--panel-section-fg);
-  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+/* Block-link IDs are retained in the document and shown only in Source mode. */
+.amby-block-anchor-marker {
+  display: none;
 }
 
 /* ── Activity bar buttons (left/right vertical rails) ────────────────────── */
 
+/* Allow the tab's small bridge to cross the header edge while keeping long tab rows clipped. */
+[data-pane-tab-bar],
+[data-pane-tab-bar] > div:first-child {
+  overflow: visible;
+  clip-path: inset(0 0 -2px 0);
+}
+
+[data-pane-tab-bar] {
+  z-index: 2;
+}
+
+/* At a pane's left edge the selected first tab and the surface share one border. */
+body:has(header [data-pane-edge-aligned] > div:first-child > [data-active-tab]:first-child)
+  .amby-workspace-frame:not([data-split])
+  .amby-workspace-surface,
+[data-pane-id]:has(> [data-pane-edge-aligned] > div:first-child > [data-active-tab]:first-child)
+  .amby-workspace-surface {
+  border-top-left-radius: 0;
+}
+
+/* Keyboard focus ring of a document tab (the tab itself is the focus stop). */
+.amby-tab-item {
+  outline: none;
+}
+
+.amby-tab-item:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+/* The selected tab grows into the document below, with shallow concave feet. */
+[data-active-tab] > .amby-active-tab-surface {
+  bottom: -2px;
+}
+
+.amby-active-tab-surface {
+  border-bottom: 0;
+  border-radius: 0.625rem 0.625rem 0 0;
+  background: var(--note-surface);
+}
+
+.amby-active-tab-surface::before,
+.amby-active-tab-surface::after {
+  position: absolute;
+  bottom: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  content: "";
+  pointer-events: none;
+}
+
+.amby-active-tab-surface::before {
+  left: -0.5rem;
+  background: radial-gradient(circle at top left, transparent 0.45rem, var(--note-surface) 0.5rem);
+}
+
+[data-pane-edge-aligned] [data-tab-item-key]:first-child .amby-active-tab-surface::before {
+  opacity: 0;
+}
+
+.amby-active-tab-surface::after {
+  right: -0.5rem;
+  background: radial-gradient(circle at top right, transparent 0.45rem, var(--note-surface) 0.5rem);
+}
+
 .amby-activity-button[data-dragging="true"] {
   opacity: 0.4;
+}
+
+.amby-activity-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, hsl(var(--muted)) 92%, #000);
 }
 
 .amby-activity-button[data-active="true"] {
@@ -3163,11 +3358,15 @@ em-emoji-picker {
 
 .amby-activity-button[data-active="true"]:hover {
   color: color-mix(in srgb, hsl(var(--muted-foreground)) 88%, #000);
-  background: color-mix(in srgb, hsl(var(--muted)) 84%, #000);
+  background: color-mix(in srgb, hsl(var(--muted)) 96%, #fff);
 }
 
 /* In dark themes the rail sits on a lighter workspace. Make the selected
    button read as a pressed surface instead of letting it blend into the rail. */
+html.dark .amby-activity-button:hover:not([data-active="true"]) {
+  background: color-mix(in srgb, var(--note-surface) 80%, #000);
+}
+
 html.dark .amby-activity-button[data-active="true"] {
   color: color-mix(in srgb, hsl(var(--foreground)) 58%, hsl(var(--muted-foreground)));
   background: color-mix(in srgb, var(--note-surface) 80%, #000);
@@ -3179,7 +3378,7 @@ html.dark .amby-activity-button[data-active="true"] {
 
 html.dark .amby-activity-button[data-active="true"]:hover {
   color: color-mix(in srgb, hsl(var(--foreground)) 64%, hsl(var(--muted-foreground)));
-  background: color-mix(in srgb, var(--note-surface) 70%, #000);
+  background: color-mix(in srgb, var(--note-surface) 94%, #fff);
 }
 
 .amby-activity-button[data-drop-target="true"] {
@@ -3262,6 +3461,24 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --accent-foreground: 222 20% 22%;
   --destructive: 0 72% 52%;
   --destructive-foreground: 0 0% 100%;
+
+  /* The five levels of a notice (docs/notices.md, section 2.1): background, text and icon colour, border. */
+  --notice-danger-bg: #fef2f2;
+  --notice-danger-fg: #b91c1c;
+  --notice-danger-border: #f87171;
+  --notice-decision-bg: #fff7ed;
+  --notice-decision-fg: #c2410c;
+  --notice-decision-border: #fb923c;
+  --notice-warning-bg: #fefce8;
+  --notice-warning-fg: #854d0e;
+  --notice-warning-border: #eab308;
+  --notice-info-bg: #eff6ff;
+  --notice-info-fg: #1d4ed8;
+  --notice-info-border: #60a5fa;
+  --notice-success-bg: #f0fdf4;
+  --notice-success-fg: #15803d;
+  --notice-success-border: #4ade80;
+
   --border: 220 13% 88%;
   --input: 220 13% 85%;
   --ring: 262 83% 58%;
@@ -3271,6 +3488,15 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --note-surface: #ffffff;
   --note-surface-shadow: 0 1px 2px rgba(20, 22, 28, 0.07), 0 5px 14px rgba(20, 22, 28, 0.045);
   --panel-shadow: 0 1px 2px rgba(20, 22, 28, 0.065), 0 4px 12px rgba(20, 22, 28, 0.04);
+  --sidebar-overlay-border: color-mix(in srgb, var(--panel-border) 88%, rgba(15, 23, 42, 0.14));
+  --sidebar-overlay-divider: color-mix(in srgb, var(--panel-border) 68%, transparent);
+  --sidebar-overlay-rail-bg: color-mix(in srgb, hsl(var(--popover)) 55%, hsl(var(--background)));
+  --sidebar-overlay-shadow-left:
+    0 1px 2px rgba(15, 23, 42, 0.05), 8px 12px 28px -6px rgba(15, 23, 42, 0.14),
+    2px 4px 10px -2px rgba(15, 23, 42, 0.06);
+  --sidebar-overlay-shadow-right:
+    0 1px 2px rgba(15, 23, 42, 0.05), -8px 12px 28px -6px rgba(15, 23, 42, 0.14),
+    -2px 4px 10px -2px rgba(15, 23, 42, 0.06);
 
   --editor-bg: var(--note-surface);
   --editor-fg: #292d36;
@@ -3308,7 +3534,6 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --wikilink-bg: hsl(var(--primary) / 0.065);
   --wikilink-fg: hsl(var(--primary));
   --wikilink-underline: hsl(var(--primary) / 0.42);
-  --image-selected-border: hsl(var(--primary));
   --broken-stripe-1: #f2f3f5;
   --broken-stripe-2: #e5e7eb;
   --menu-bg: #ffffff;
@@ -3370,6 +3595,23 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --accent-foreground: 0 0% 94%;
   --destructive: 0 64% 56%;
   --destructive-foreground: 0 0% 100%;
+
+  --notice-danger-bg: #2c1618;
+  --notice-danger-fg: #f87171;
+  --notice-danger-border: #b91c1c;
+  --notice-decision-bg: #2d1c10;
+  --notice-decision-fg: #fb923c;
+  --notice-decision-border: #c2410c;
+  --notice-warning-bg: #2a2410;
+  --notice-warning-fg: #facc15;
+  --notice-warning-border: #a16207;
+  --notice-info-bg: #121e30;
+  --notice-info-fg: #60a5fa;
+  --notice-info-border: #1d4ed8;
+  --notice-success-bg: #10261a;
+  --notice-success-fg: #4ade80;
+  --notice-success-border: #15803d;
+
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 262 83% 71%;
@@ -3378,6 +3620,15 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --note-surface: #1c1c1c;
   --note-surface-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 5px 14px rgba(0, 0, 0, 0.18);
   --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 12px rgba(0, 0, 0, 0.16);
+  --sidebar-overlay-border: color-mix(in srgb, var(--panel-border) 92%, rgba(255, 255, 255, 0.1));
+  --sidebar-overlay-divider: color-mix(in srgb, var(--panel-border) 74%, transparent);
+  --sidebar-overlay-rail-bg: color-mix(in srgb, hsl(var(--popover)) 58%, hsl(var(--background)));
+  --sidebar-overlay-shadow-left:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset, 10px 14px 34px -6px rgba(0, 0, 0, 0.52),
+    2px 4px 12px -2px rgba(0, 0, 0, 0.3);
+  --sidebar-overlay-shadow-right:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset, -10px 14px 34px -6px rgba(0, 0, 0, 0.52),
+    -2px 4px 12px -2px rgba(0, 0, 0, 0.3);
   --editor-bg: var(--note-surface);
   --editor-fg: #dedee4;
   --editor-heading: #f5f5f7;
@@ -3414,7 +3665,6 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --wikilink-bg: hsl(var(--primary) / 0.1);
   --wikilink-fg: hsl(var(--primary));
   --wikilink-underline: hsl(var(--primary) / 0.52);
-  --image-selected-border: hsl(var(--primary));
   --broken-stripe-1: #242424;
   --broken-stripe-2: #303030;
   --menu-bg: #1c1c1c;
@@ -3574,11 +3824,20 @@ body {
   color-scheme: light;
 }
 
-/* Do not let the browser add its own blue focus outline to plain controls.
-   Components keep their intentional input/drag states, while ordinary
-   buttons and links use their existing hover and active surfaces. */
-:where(button, [role="button"], a, input, textarea, select):focus {
+/* The browser's own focus ring (the blue or grey "auto" outline) is never drawn anywhere
+   in the app. `:where` keeps this at zero specificity, so a component's own focus style
+   (an outline, a ring, a highlighted background) still shows. */
+:where(*):focus,
+:where(*):focus-visible {
   outline: none;
+}
+
+/* Keyboard focus on a control without its own focus style gets the accent ring, so the
+   dock, tabs and toolbars show where focus is. Mouse clicks do not match :focus-visible.
+   Zero specificity: any component `outline-none` / ring class still wins. */
+:where(button, a[href], summary, [role="button"], [role="tab"], [role="switch"]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
 }
 
 /* Blend each root branch from the active accent to its next neighbour.
@@ -3612,18 +3871,6 @@ html[data-rainbow-tree="true"]
 }
 
 html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] .amby-tree-folder-icon {
-  color: var(--tree-branch-color);
-}
-
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="file"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="folder"]:not(:hover),
-html[data-rainbow-tree="true"]
-  .amby-tree-virtual-row[data-tree-branch]
-  [data-tree-file-status="canvas"]:not(:hover) {
   color: var(--tree-branch-color);
 }
 
@@ -3701,7 +3948,67 @@ html[data-font-scale] :where([class~="text-[13px]"]) {
 }
 
 html[data-density="compact"] {
+  --amby-dock-width: 32px;
   --app-density-spacing-scale: 0.5;
+}
+
+/* The outside is one rounded surface; the panels meet at straight dividers. */
+html[data-density="compact"] .amby-workspace-frame {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  border-radius: 0.9rem;
+  box-shadow: var(--panel-shadow);
+}
+
+/* Split pane tabs extend into the title bar and must remain visible. */
+html[data-density="compact"] .amby-workspace-frame[data-split] {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Flush surfaces form one workspace; side panels own the vertical dividers. */
+html[data-density="compact"] .amby-panel-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+html[data-density="compact"] .amby-panel-host,
+html[data-density="compact"] .amby-workspace-surface {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+html[data-density="compact"] .amby-panel-shell[data-panel-side="left"] > .amby-panel-host {
+  border-right: 1px solid var(--panel-border);
+}
+
+html[data-density="compact"] .amby-panel-shell[data-panel-side="right"] > .amby-panel-host {
+  border-left: 1px solid var(--panel-border);
+}
+
+html[data-density="compact"] .amby-workspace-stage {
+  padding-inline: 0;
+}
+
+html[data-density="compact"] [data-pane-id] {
+  padding-inline: 0;
+}
+
+html[data-density="compact"] [data-activity-bar] > [data-activity-zone] {
+  gap: 2px;
+  padding-block: 4px;
+}
+
+/* An inset icon still needs room when generic input padding is reduced. */
+html[data-density="compact"] .amby-inset-icon-input {
+  padding-left: 2rem !important;
 }
 
 /* Inline indentation values are calculated from hierarchy depth in React and
@@ -3718,8 +4025,9 @@ html[data-density="compact"] .amby-tree-row.amby-density-inline-padding-left {
   padding-left: var(--amby-density-padding-left) !important;
 }
 
-html[data-density="compact"] [data-slot="tabs-trigger"] {
-  min-height: 2rem;
+html[data-density="compact"] [data-slot="tabs-list"] > [data-slot="tabs-trigger"] {
+  min-height: 0;
+  max-height: 100%;
 }
 
 html[data-density="compact"] .amby-activity-button {
@@ -3727,12 +4035,11 @@ html[data-density="compact"] .amby-activity-button {
   height: 2rem;
 }
 
-html[data-density="compact"] [role="treeitem"] {
-  line-height: 1.15;
-}
-
 html[data-density="compact"] .amby-tree-row {
-  padding-block: 0.125rem;
+  min-height: 1.75rem;
+  gap: 0.375rem;
+  padding-block: 0.25rem;
+  padding-right: 23px;
 }
 
 html[data-density="compact"] .amby-panel-host input,
@@ -3773,6 +4080,26 @@ select {
   color: hsl(var(--foreground));
 }
 
+/* The editor draws its own text selection (tiptap/selection-highlight.ts): the webview's
+   native paint also fills the space between blocks. */
+.amby-tiptap .ProseMirror.amby-custom-selection::selection,
+.amby-tiptap .ProseMirror.amby-custom-selection ::selection {
+  background: transparent;
+}
+
+/* A picture is never tinted by the browser: the browser's tint of a selected picture is not
+   always repainted when the selection leaves it, and stays on screen. The editor draws its
+   own (data-in-selection, is-selected). */
+.amby-tiptap .ProseMirror .amby-image-wrap::selection,
+.amby-tiptap .ProseMirror .amby-image-wrap ::selection {
+  background: transparent;
+}
+
+::highlight(amby-selection) {
+  background-color: hsl(var(--primary) / 0.24);
+  color: hsl(var(--foreground));
+}
+
 /* Interface chrome (sidebar, tabs, buttons, labels, empty states) is not
    selectable: only user content is. Child elements inherit `auto` from a
    `text` container, so opt content in on its root only. WebKit needs the
@@ -3785,8 +4112,7 @@ input,
 textarea,
 [contenteditable]:not([contenteditable="false"]),
 .ProseMirror,
-.cm-editor .cm-content,
-.amby-selectable {
+.cm-editor .cm-content {
   user-select: text;
 }
 
@@ -3833,35 +4159,95 @@ textarea,
   color: var(--panel-row-fg);
 }
 
+/* Slide-out sidebar overlays (unpinned docks and focus mode) render as one
+   unified floating sheet: the activity rail and panel share a single rounded
+   outer border and elevation shadow with a hairline divider between them. */
+.amby-sidebar-overlay-surface {
+  background: hsl(var(--popover));
+  border-style: solid;
+  border-color: var(--sidebar-overlay-border);
+}
+
+.amby-sidebar-overlay--left > .amby-sidebar-overlay-surface {
+  border-width: 1px 1px 1px 0;
+  border-radius: 0 0.9rem 0.9rem 0;
+  box-shadow: var(--sidebar-overlay-shadow-left);
+}
+
+.amby-sidebar-overlay--right > .amby-sidebar-overlay-surface {
+  border-width: 1px 0 1px 1px;
+  border-radius: 0.9rem 0 0 0.9rem;
+  box-shadow: var(--sidebar-overlay-shadow-right);
+}
+
+.amby-sidebar-overlay[data-open="false"] > .amby-sidebar-overlay-surface {
+  pointer-events: none;
+}
+
+.amby-sidebar-overlay-surface .amby-panel-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+
+.amby-sidebar-overlay-surface .amby-panel-host,
+html[data-density="compact"]
+  .amby-sidebar-overlay-surface
+  .amby-panel-shell[data-panel-side]
+  > .amby-panel-host {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none !important;
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar] {
+  background: var(--sidebar-overlay-rail-bg);
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar="left"] {
+  border-right: 1px solid var(--sidebar-overlay-divider);
+}
+
+.amby-sidebar-overlay-surface [data-activity-bar="right"] {
+  border-left: 1px solid var(--sidebar-overlay-divider);
+}
+
+.amby-sidebar-overlay-surface .amby-resize-handle {
+  padding-bottom: 0;
+}
+
+html[data-density="compact"] .amby-sidebar-overlay {
+  padding-bottom: 0;
+}
+
+.amby-sidebar-overlay--compact-left .amby-panel-host {
+  box-shadow: var(--sidebar-overlay-shadow-left);
+}
+
+.amby-sidebar-overlay--compact-right .amby-panel-host {
+  box-shadow: var(--sidebar-overlay-shadow-right);
+}
+
 /* The editor sheet is the visual anchor inside the lighter #2e2e2e workspace. */
-.amby-read-body,
 .amby-source-editor,
 .amby-tiptap {
   border-radius: 0.75rem;
 }
 
-.amby-tiptap .ProseMirror,
-.md-body {
+.amby-tiptap .ProseMirror {
   letter-spacing: 0.002em;
 }
 
-.amby-tiptap .ProseMirror h1,
-.md-body h1 {
+.amby-tiptap .ProseMirror h1 {
   letter-spacing: -0.025em;
 }
 
-.amby-tiptap .ProseMirror h2,
-.md-body h2 {
+.amby-tiptap .ProseMirror h2 {
   letter-spacing: -0.018em;
 }
 
-/* History comparisons use semantic surfaces and explicit +/- markers. */
-.history-diff-added {
-  background: color-mix(in srgb, #168447 12%, transparent);
-}
-.history-diff-removed {
-  background: hsl(var(--destructive) / 0.1);
-}
 /* Browser fallback for the native settings window controls. */
 .settings-traffic-light {
   border: 1px solid rgb(0 0 0 / 10%);
@@ -4357,22 +4743,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .amby-debug-action-card:hover {
   border-color: hsl(var(--primary) / 0.4);
 }
-.amby-debug-overview-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem;
-  border: 1px solid var(--debug-line);
-  border-radius: 0.65rem;
-  background: var(--debug-surface);
-}
-.amby-debug-overview-summary h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 650;
-}
-.amby-debug-overview-summary p,
 .amby-debug-report-intro {
   margin: 0.3rem 0 0;
   color: var(--debug-muted);
@@ -4484,15 +4854,10 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   color: var(--debug-muted);
   font-size: 10px;
 }
-.amby-debug-counters,
 .amby-debug-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
   gap: 0.5rem;
-}
-.amby-debug-counters {
-  padding: 0.65rem 1.25rem;
-  border-bottom: 1px solid var(--debug-line);
 }
 .amby-debug-stat {
   display: flex;
@@ -4527,11 +4892,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   color: hsl(var(--foreground));
   font-weight: 600;
 }
-.amby-debug-overview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
-  gap: 0.75rem;
-}
 .amby-debug-card {
   padding: 1rem;
   border: 1px solid var(--debug-line);
@@ -4544,7 +4904,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   font-size: 13px;
   font-weight: 600;
 }
-.amby-debug-unavailable,
 .amby-debug-empty {
   padding: 1.5rem;
   color: var(--debug-muted);
@@ -4599,7 +4958,7 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 }
 .amby-debug-event {
   border-bottom: 1px solid var(--debug-line);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 .amby-debug-event.is-error {
@@ -4661,17 +5020,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   background: hsl(var(--background));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.amby-debug-report-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.65rem;
-}
-.amby-debug-report-actions > span {
-  color: var(--debug-muted);
-  font-size: 11px;
 }
 .amby-debug-description {
   display: flex;
@@ -4737,7 +5085,6 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
   }
-  .amby-debug-overview-summary,
   .amby-debug-section-toolbar,
   .amby-debug-report-steps > li {
     align-items: stretch;
@@ -4754,4 +5101,1896 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   .amby-debug-event-list {
     min-height: 60px;
   }
+}
+
+/* Link graph settings: range sliders with a pill thumb over a filled track. */
+.amby-graph-slider {
+  outline: none;
+}
+.amby-graph-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.amby-graph-slider::-moz-range-thumb {
+  width: 22px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.amby-graph-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+/*
+ * Link graph scene. Zoom, label fade and hover dimming are driven by the variables the view
+ * sets on the <svg>, so panning and hovering never re-render the nodes.
+ */
+.amby-graph {
+  --graph-dim: 1;
+  --graph-label-opacity: 1;
+  --graph-label-display: inline;
+  --graph-font: 11px;
+  --graph-stroke: 1.2px;
+  cursor: grab;
+}
+.amby-graph[data-panning] {
+  cursor: grabbing;
+}
+.amby-graph line {
+  stroke-width: var(--graph-stroke);
+}
+.amby-graph .graph-edge {
+  stroke: hsl(var(--foreground) / 0.16);
+}
+.amby-graph .graph-edge-unresolved {
+  stroke: hsl(var(--foreground) / 0.08);
+}
+.amby-graph .graph-arrow {
+  fill: hsl(var(--foreground) / 0.35);
+}
+/* Nodes are opaque: mixed with the surface instead of see-through, so links pass under them. */
+.amby-graph .graph-node-note {
+  fill: color-mix(in srgb, hsl(var(--foreground)) 62%, var(--note-surface));
+}
+.amby-graph .graph-node-missing {
+  fill: color-mix(in srgb, hsl(var(--foreground)) 28%, var(--note-surface));
+}
+.amby-graph .graph-node-tag {
+  fill: #10b981;
+}
+.amby-graph .graph-node-attachment {
+  fill: #f59e0b;
+}
+/* A halo in the surface colour keeps a label readable where a link crosses it. */
+.amby-graph text {
+  display: var(--graph-label-display);
+  opacity: var(--graph-label-opacity);
+  font-size: var(--graph-font);
+  font-weight: 500;
+  fill: hsl(var(--foreground) / 0.82);
+  stroke: var(--note-surface);
+  stroke-width: calc(var(--graph-font) * 0.28);
+  stroke-linejoin: round;
+  paint-order: stroke;
+  pointer-events: none;
+  translate: 0 var(--graph-gap, 0);
+}
+.amby-graph [data-dim] {
+  opacity: var(--graph-dim);
+}
+.amby-graph text[data-dim] {
+  opacity: calc(var(--graph-dim) * var(--graph-label-opacity));
+}
+.amby-graph line[data-lit] {
+  stroke: hsl(var(--primary));
+  stroke-width: calc(var(--graph-stroke) * 1.6);
+}
+.amby-graph g[data-hovered] > circle {
+  fill: hsl(var(--primary)) !important;
+}
+/* Hover swell: the circle scales around its centre and the label moves down with its rim. */
+.amby-graph g[data-hovered] > circle {
+  transform: scale(var(--graph-grow, 1));
+}
+.amby-graph g[data-leaving] > circle {
+  transform: scale(var(--graph-shrink, 1));
+}
+.amby-graph text[data-hovered] {
+  translate: 0 calc(var(--graph-gap, 0px) + (var(--graph-grow, 1) - 1) * var(--graph-r, 0) * 1px);
+  font-size: calc(var(--graph-font) * (1 + (var(--graph-grow, 1) - 1) * 0.4));
+}
+.amby-graph text[data-leaving] {
+  translate: 0 calc(var(--graph-gap, 0px) + (var(--graph-shrink, 1) - 1) * var(--graph-r, 0) * 1px);
+  font-size: calc(var(--graph-font) * (1 + (var(--graph-shrink, 1) - 1) * 0.4));
+}
+.amby-graph text[data-focus],
+.amby-graph text[data-near],
+.amby-graph text[data-hovered] {
+  display: inline;
+  opacity: 1;
+}
+.amby-graph text[data-focus] {
+  fill: hsl(var(--primary));
+}
+.amby-graph text[data-hovered] {
+  fill: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+/* A barely visible backing in the surface colour keeps nodes from showing through the graph's buttons. */
+.amby-creative-gallery-card {
+  padding: 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  background-color: hsl(var(--card));
+}
+
+button.amby-creative-gallery-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background-color: hsl(var(--accent) / 0.3);
+}
+
+button.amby-creative-gallery-card:focus-visible {
+  outline: 1px solid hsl(var(--ring));
+}
+
+.amby-creative-gallery-create-card {
+  border-style: dashed;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+button.amby-creative-gallery-create-card:hover {
+  color: hsl(var(--foreground));
+}
+
+.amby-nested-notes-top {
+  margin-bottom: 0.75rem;
+}
+
+.amby-nested-notes-top:has(~ [data-note-pages-active], ~ * [data-note-pages-active]) {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.65);
+}
+
+.amby-nested-note-button {
+  min-height: 1.75rem;
+  padding: 0.125rem 0.4375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background-color: hsl(var(--accent) / 0.45);
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.amby-nested-note-button:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  background-color: hsl(var(--accent));
+}
+
+.amby-layer-switch-button {
+  position: relative;
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.amby-layer-switch-button:hover,
+.amby-layer-switch-button[aria-pressed="true"],
+.amby-layer-switch-button[aria-expanded="true"] {
+  color: hsl(var(--foreground));
+}
+
+.amby-layer-switch-button[aria-pressed="true"]::after {
+  position: absolute;
+  inset-inline: 0.5rem;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: hsl(var(--primary));
+  content: "";
+}
+
+.amby-layer-switch-button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.amby-graph-toolbar {
+  background: color-mix(in srgb, var(--note-surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+/* Sidebar and split-pane resize handles: match the subtle column divider highlight on hover. */
+.amby-resize-handle-line {
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.amby-resize-handle:hover .amby-resize-handle-line {
+  background: hsl(var(--foreground) / 0.22);
+}
+
+.amby-resize-handle:active .amby-resize-handle-line,
+.amby-resize-handle[data-resizing="true"] .amby-resize-handle-line {
+  background: hsl(var(--foreground) / 0.35);
+}
+
+/* Sync: the sheet with the recovery code. Hidden on screen. While the page is printed the
+   recovery step puts `sync-printing` on <html>, and then only this sheet is shown. */
+/* The comparison of two versions of a note (sync conflicts): the note is drawn read only, the blocks
+   that differ are marked. */
+.compare-note .ProseMirror {
+  min-height: 0;
+  padding: 0;
+}
+
+.compare-hunk {
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+
+.compare-hunk-side {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+/* The notices of a note sit near the floating bottom bar, a gap above it. Folded: a small pill with the
+   popover surface. Open: a rounded panel of the same surface and border as the stack at the bell, its
+   cards separate tiles inside it. */
+.note-notice-card {
+  border-radius: 0.5rem;
+}
+
+/* The stripe and the tint of a card come from its level (notices/notice-level.tsx), not from whether it
+   opens the stack by itself. */
+
+.sync-print-sheet {
+  display: none;
+}
+
+@media print {
+  html.sync-printing body * {
+    visibility: hidden;
+  }
+
+  html.sync-printing .sync-print-sheet,
+  html.sync-printing .sync-print-sheet * {
+    visibility: visible;
+  }
+
+  html.sync-printing .sync-print-sheet {
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 24mm 20mm;
+    background: #fff;
+    color: #000;
+  }
+
+  html.sync-printing .sync-print-sheet h1 {
+    margin: 0 0 8mm;
+    font-size: 20pt;
+  }
+
+  html.sync-printing .sync-print-sheet .sync-print-code {
+    margin: 10mm 0;
+    font-family: var(--font-mono);
+    font-size: 18pt;
+    letter-spacing: 0.08em;
+    word-break: break-all;
+  }
+}
+
+.amby-activity-button[data-sync-state] {
+  --amby-sync-color: hsl(var(--muted-foreground));
+}
+.amby-activity-button[data-sync-state="synced"] {
+  --amby-sync-color: var(--editor-text-green);
+}
+.amby-activity-button[data-sync-state="running"] {
+  --amby-sync-color: hsl(var(--primary));
+}
+.amby-activity-button[data-sync-state="pending"] {
+  --amby-sync-color: var(--editor-text-orange);
+}
+.amby-activity-button[data-sync-state="problem"] {
+  --amby-sync-color: hsl(var(--destructive));
+}
+.amby-sync-arrows {
+  position: relative;
+  z-index: 1;
+}
+.amby-sync-badge {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amby-sync-color);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.amby-sync-badge[data-sync-state="checking"] {
+  opacity: 0.25;
+}
+
+/* The menu of an inactive sync button: one line of the reason, then the actions. */
+.sync-inactive-menu {
+  width: 18rem;
+  border-color: hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--foreground));
+}
+.sync-inactive-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.sync-inactive-title svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--destructive));
+}
+.sync-inactive-reason {
+  padding: 2px 8px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+}
+.sync-inactive-error {
+  padding: 0 8px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: hsl(var(--destructive));
+}
+.sync-inactive-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.sync-inactive-item[data-primary] {
+  font-weight: 500;
+}
+.sync-inactive-item svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Synchronization settings: current vault first, account tools second. */
+.sync-settings-page {
+  width: 100%;
+  max-width: 880px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sync-zone {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.sync-zone-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sync-zone-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.sync-vault-zone {
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  padding: 22px;
+  background: linear-gradient(135deg, hsl(var(--muted) / 0.45), hsl(var(--background)) 70%);
+}
+.sync-vault-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sync-vault-symbol,
+.sync-account-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.sync-vault-symbol svg {
+  width: 23px;
+  height: 23px;
+}
+.sync-vault-card[data-sync-state="synced"] .sync-vault-symbol {
+  color: var(--editor-text-green);
+  background: color-mix(in srgb, var(--editor-text-green) 9%, transparent);
+}
+.sync-vault-card[data-sync-state="problem"] .sync-vault-symbol {
+  color: hsl(var(--destructive));
+}
+.sync-vault-name {
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sync-vault-status {
+  margin: 20px 0;
+}
+.sync-status-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.sync-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.sync-vault-card[data-sync-state="synced"] .sync-status-line {
+  color: var(--editor-text-green);
+}
+.sync-vault-card[data-sync-state="problem"] .sync-status-line {
+  color: hsl(var(--destructive));
+}
+.sync-status-time {
+  margin-top: 5px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-vault-footer {
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 12px;
+  margin-top: 16px;
+}
+.sync-footer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.sync-footer-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.sync-footer-toggle:hover,
+.sync-footer-toggle[aria-expanded="true"] {
+  color: hsl(var(--foreground));
+}
+.sync-footer-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 5px;
+  border-radius: 3px;
+}
+.sync-footer-toggle[aria-expanded="true"] > svg:last-child {
+  transform: rotate(90deg);
+}
+.sync-footer-content {
+  padding-top: 14px;
+  display: grid;
+  gap: 9px;
+  line-height: 1.7;
+  color: hsl(var(--foreground));
+}
+/* The backup manager inside the footer takes the footer's spacing, as the list of local files does. */
+.sync-footer-content > .backup-panel {
+  padding: 0;
+  gap: 9px;
+}
+.sync-footer-content .backup-intro {
+  align-items: center;
+}
+.sync-footer-content code {
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: hsl(var(--muted));
+  font-size: 10px;
+}
+.sync-vault-card > section,
+.sync-vault-card > p[role="note"] {
+  margin-block: 12px;
+}
+.sync-account-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sync-account-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+.sync-account-server {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.sync-private-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+.sync-section {
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.sync-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.sync-storage-plan {
+  padding: 10px 0 14px;
+}
+.sync-storage-list,
+.sync-device-list {
+  margin-top: 12px;
+}
+.sync-storage-row,
+.sync-device-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 0;
+  border-top: 1px solid hsl(var(--border));
+}
+.sync-storage-row:last-child,
+.sync-device-row:last-child {
+  padding-bottom: 0;
+}
+.sync-storage-icon {
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.sync-device-current {
+  border-radius: 5px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.sync-device-row button {
+  height: 28px;
+  font-size: 11px;
+}
+.sync-enable-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  cursor: pointer;
+}
+@media (max-width: 520px) {
+  .sync-vault-zone {
+    padding: 16px;
+  }
+  .sync-vault-heading > button {
+    width: 100%;
+    margin-top: 4px;
+  }
+}
+
+/* Account identity stays compact; plan and vaults remain visible beside devices. */
+.sync-account-column > .sync-account-strip {
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card) / 0.35);
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+.sync-account-identity {
+  flex-shrink: 0;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.sync-storage-row[data-current="true"] [data-testid="storage-name"] {
+  font-weight: 500;
+}
+.sync-storage-row[data-current="true"] .sync-storage-icon {
+  color: hsl(var(--primary));
+}
+
+.sync-vault-card {
+  min-width: 0;
+}
+.sync-vault-status {
+  margin-bottom: 18px;
+}
+.sync-devices {
+  padding: 18px 20px;
+}
+.sync-devices-heading > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sync-devices .sync-device-row {
+  gap: 12px;
+  padding-block: 14px;
+}
+.sync-devices .sync-device-row:last-child {
+  padding-bottom: 0;
+}
+
+.sync-devices-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.sync-devices-heading > .sync-private-badge {
+  margin-left: auto;
+}
+
+.sync-storage-heading,
+.sync-devices-heading {
+  min-height: 24px;
+}
+.sync-storage-heading > button[data-slot="button"] {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+/* Inset the scrollbar thumb from rounded panel edges without adding phantom side gutters. */
+.settings-section-panel,
+.settings-section-panel .overflow-y-auto {
+  scrollbar-gutter: auto;
+}
+/* WebKit reserves the gutter only while the section scrolls, so a long section (Sync) sat narrower
+   than a short one (Editor). An always-present, transparent track keeps every section's edges equal. */
+.settings-section-panel.overflow-y-auto {
+  overflow-y: scroll;
+}
+.settings-section-panel::-webkit-scrollbar,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar {
+  width: 11px;
+}
+.settings-section-panel::-webkit-scrollbar-track,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-track {
+  margin-block: 12px;
+  background: transparent;
+}
+.settings-section-panel::-webkit-scrollbar-thumb,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: content-box;
+}
+.settings-section-panel::-webkit-scrollbar-thumb:hover,
+.settings-section-panel .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+.settings-section-panel [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
+  width: 11px;
+  padding: 12px 3px;
+  border: 0;
+}
+.settings-section-panel [data-slot="scroll-area-thumb"] {
+  min-height: 36px;
+  background: var(--scrollbar-thumb);
+}
+.settings-section-panel [data-slot="scroll-area-thumb"]:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.settings-section-panel .ai-models-scroll::-webkit-scrollbar-track {
+  margin-block: 4px;
+}
+
+/* All settings sections share a readable content width, including search and modules. */
+.settings-section-panel > * {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+/* Sync authentication follows the same groups and rows as the settings. */
+.sync-settings-page:has(.sync-auth-card, .sync-auth-recovery) {
+  max-width: none;
+  margin: 0;
+}
+.sync-auth-card,
+.sync-auth-recovery {
+  width: 100%;
+  min-width: 0;
+}
+.sync-auth-card {
+  display: grid;
+  gap: 24px;
+  container-type: inline-size;
+}
+.dark .sync-auth-card {
+  color-scheme: dark;
+}
+.sync-auth-tabs {
+  width: 320px;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.65);
+}
+.sync-auth-tabs > button {
+  min-height: 34px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.sync-auth-tabs > button[aria-pressed="true"] {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.07);
+}
+.sync-auth-tabs > button:focus-visible,
+.sync-auth-link:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.sync-auth-tabs > button:disabled,
+.sync-auth-link:disabled {
+  opacity: 0.5;
+}
+.sync-auth-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.sync-auth-fields,
+.sync-auth-server {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.sync-auth-fields > div,
+.sync-auth-server > div:not(.sync-auth-http) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 320px);
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 6px;
+  padding: 12px 16px;
+}
+.sync-auth-fields > div,
+.sync-auth-server > * + * {
+  border-top: 1px solid hsl(var(--border));
+}
+.sync-auth-fields > div > label,
+.sync-auth-server > div > label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 400;
+}
+.sync-auth-fields > div > :not(label),
+.sync-auth-server > div > :not(label) {
+  grid-column: 2;
+  margin-block: 0;
+}
+.sync-auth-fields > div:has(> .sync-auth-forgot) {
+  row-gap: 2px;
+}
+.sync-auth-fields > div:has(> .sync-auth-forgot) > label {
+  margin-block: 0;
+}
+.sync-auth-fields > div > .sync-auth-forgot {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.sync-auth-fields > div:has(> .sync-auth-forgot) > input {
+  grid-row: 1 / span 2;
+}
+.sync-auth-card input[data-slot="input"] {
+  min-height: 32px;
+}
+.sync-auth-invitation,
+.sync-auth-http {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.sync-auth-invitation {
+  flex-direction: row-reverse;
+}
+.sync-auth-invitation input {
+  accent-color: hsl(var(--primary));
+}
+.sync-auth-http > button {
+  order: 1;
+}
+.sync-auth-link {
+  justify-self: start;
+  width: fit-content;
+  font-size: 12px;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  text-align: start;
+}
+.sync-auth-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sync-auth-submit {
+  display: flex;
+  justify-content: flex-end;
+}
+.sync-auth-submit > button {
+  min-width: 140px;
+  min-height: 32px;
+}
+.sync-auth-aux {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.sync-auth-aux:empty {
+  display: none;
+}
+.sync-auth-card section > div > .sync-auth-title {
+  padding: 12px 16px;
+}
+.sync-auth-server-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sync-auth-server-control > [role="combobox"] {
+  flex: 1;
+  min-width: 0;
+}
+.sync-auth-server > .sync-auth-link,
+.sync-auth-server-error,
+.sync-auth-http-warning {
+  display: block;
+  padding: 12px 16px;
+}
+
+.sync-identity-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.18);
+}
+.sync-identity-fields {
+  display: grid;
+  gap: 10px;
+}
+.sync-identity-fields > div {
+  display: grid;
+  gap: 5px;
+}
+.sync-identity-fields label {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-identity-form > [role="alert"] {
+  font-size: 12px;
+  color: hsl(var(--destructive));
+}
+.sync-identity-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sync-account-strip > .sync-identity-form,
+.sync-device-row > .sync-identity-form {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.sync-device-row > .sync-identity-form {
+  grid-column: 1 / -1;
+}
+.sync-auth-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  max-width: 100%;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-auth-health > svg {
+  flex-shrink: 0;
+}
+.sync-auth-health[data-state="available"] > svg {
+  color: var(--notice-success-fg);
+}
+.sync-auth-health[data-state="unavailable"] > svg {
+  color: var(--notice-warning-fg);
+}
+.sync-auth-server-error,
+.sync-auth-http-warning {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--notice-warning-fg);
+}
+@container (max-width: 480px) {
+  .sync-auth-fields > div:has(> .sync-auth-forgot) > input {
+    grid-row: 3;
+  }
+
+  .sync-auth-fields > div,
+  .sync-auth-server > div:not(.sync-auth-http) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .sync-auth-fields > div > :not(label),
+  .sync-auth-server > div > :not(label) {
+    grid-column: 1;
+  }
+  .sync-auth-card .settings-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding-block: 12px;
+  }
+  .sync-auth-card .settings-row > div:last-child,
+  .sync-auth-tabs {
+    width: 100%;
+  }
+  .sync-auth-server-control {
+    flex-wrap: wrap;
+  }
+  .sync-auth-server-control > [role="combobox"] {
+    flex-basis: 150px;
+  }
+}
+
+.backup-panel {
+  container-type: inline-size;
+  padding: 12px 0;
+  display: grid;
+  gap: 12px;
+}
+.backup-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.backup-intro > p,
+.backup-caption {
+  font-size: 12px;
+  line-height: 1.65;
+  color: hsl(var(--muted-foreground));
+}
+.backup-list {
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  overflow: hidden;
+}
+/* Text first at full width, the actions on their own line under it: side by side the buttons
+   squeezed the title into a narrow column. */
+.backup-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
+  padding: 12px;
+}
+.backup-row + .backup-row {
+  border-top: 1px solid hsl(var(--border));
+}
+.backup-symbol {
+  padding-top: 2px;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
+.backup-row-text {
+  min-width: 0;
+}
+.backup-row-text h4 {
+  font-size: 12px;
+  font-weight: 500;
+}
+.backup-row-text p {
+  margin-top: 3px;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.backup-condition {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 10px;
+  color: hsl(var(--muted-foreground));
+}
+.backup-condition[data-state="verified"] {
+  color: var(--editor-text-green);
+}
+.backup-condition[data-state="damaged"],
+.backup-condition[data-state="missing"] {
+  color: hsl(var(--destructive));
+}
+.backup-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  /* Ghost buttons carry their own inset: line their text up with the row's text. */
+  margin-left: -8px;
+}
+.backup-actions button {
+  font-size: 11px;
+}
+.backup-result {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.35);
+  font-size: 12px;
+}
+.backup-result p {
+  color: hsl(var(--muted-foreground));
+  line-height: 1.65;
+}
+.backup-result code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  user-select: text;
+}
+.backup-result > button {
+  justify-self: start;
+}
+
+/* The help map is one modal surface: rails teach actions, the center keeps shortcuts. */
+.amby-help-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  outline: none;
+  color: hsl(var(--foreground));
+}
+
+.amby-help-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.amby-help-scrim {
+  fill: hsl(224 24% 8% / 0.48);
+}
+.amby-help-mask-base {
+  fill: white;
+}
+.amby-help-mask-hole {
+  fill: black;
+}
+.amby-help-arrowhead {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.amby-help-connector {
+  fill: none;
+  stroke: currentColor;
+  color: hsl(var(--primary));
+  stroke-width: 1.25;
+  opacity: 0.65;
+}
+.amby-help-connector-muted {
+  opacity: 0.16;
+}
+.amby-help-connector-active {
+  opacity: 1;
+  stroke-width: 1.5;
+}
+.amby-help-target-outline {
+  stroke-dasharray: 3 4;
+  opacity: 0.6;
+}
+.amby-help-highlight {
+  fill: none;
+  stroke: hsl(var(--primary));
+  stroke-width: 2;
+}
+
+.amby-help-composition {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px minmax(0, 1fr);
+  align-items: center;
+  gap: 32px;
+  width: calc(100% - 112px);
+  max-width: 1080px;
+  height: 100%;
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+.amby-help-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 72px);
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  padding: 4px;
+  pointer-events: auto;
+  overscroll-behavior: contain;
+}
+
+.amby-help-group {
+  flex-shrink: 0;
+  padding: 13px 10px 9px;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 14px;
+  background: hsl(var(--popover) / 0.97);
+  box-shadow: 0 6px 24px hsl(224 24% 8% / 0.1);
+}
+
+.amby-help-group-active {
+  border-color: hsl(var(--primary) / 0.7);
+}
+.amby-help-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 3px 8px;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-group-heading h2 {
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 650;
+  color: hsl(var(--foreground));
+}
+.amby-help-group-number {
+  margin-right: 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: hsl(var(--primary));
+}
+.amby-help-group-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.amby-help-tip {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 7px 9px;
+  text-align: left;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-tip > svg {
+  flex-shrink: 0;
+  opacity: 0.4;
+}
+.amby-help-tip:hover,
+.amby-help-tip[aria-pressed="true"] {
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--foreground));
+}
+.amby-help-tip[aria-pressed="true"] > svg {
+  color: hsl(var(--primary));
+  opacity: 1;
+}
+.amby-help-tip:focus-visible,
+.amby-help-close:focus-visible,
+.amby-help-dismiss:focus-visible,
+.amby-help-tab:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Thin bars in the help overlay take the border colour (::-webkit-scrollbar only, see
+   "Browser engines" in docs/ai/agent-guidelines.md). */
+.amby-help-rail::-webkit-scrollbar-thumb,
+.amby-help-shortcut-list::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+}
+
+.amby-help-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 64px);
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 22px;
+  background: hsl(var(--popover));
+  box-shadow: 0 24px 80px hsl(224 24% 8% / 0.24);
+  pointer-events: auto;
+}
+
+.amby-help-header {
+  position: relative;
+}
+.amby-help-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 9px;
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.amby-help-title {
+  padding-right: 24px;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+.amby-help-close {
+  position: absolute;
+  top: -8px;
+  right: -9px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-close:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+.amby-help-section-label {
+  margin-bottom: 9px;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 600;
+}
+.amby-help-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.amby-help-section-toggle:focus-visible {
+  outline: 1px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.amby-help-toggle-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 500;
+}
+.amby-help-section-toggle:hover .amby-help-toggle-action {
+  color: hsl(var(--foreground));
+}
+.amby-help-section-toggle[aria-expanded="false"] {
+  margin-bottom: 0;
+}
+.amby-help-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.7);
+}
+.amby-help-tab {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 4px;
+  border-radius: 7px;
+  font-size: 10px;
+  line-height: 1.25;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-tab[data-state="active"] {
+  background: hsl(var(--popover));
+  color: hsl(var(--foreground));
+  box-shadow: 0 1px 4px hsl(224 24% 8% / 0.08);
+}
+.amby-help-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: 9px;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-search:focus-within {
+  border-color: hsl(var(--ring));
+}
+.amby-help-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  font-size: 11px;
+  color: hsl(var(--foreground));
+}
+.amby-help-search input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-shortcut-list {
+  max-height: min(31vh, 300px);
+  max-height: min(31dvh, 300px);
+  overflow-y: auto;
+  margin-top: 8px;
+  padding-right: 5px;
+  outline: none;
+}
+.amby-help-shortcut-list:focus-visible {
+  outline: 1px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.amby-help-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  border-bottom: 1px solid hsl(var(--border) / 0.45);
+  padding: 6px 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.amby-help-shortcut-row:last-child {
+  border-bottom: 0;
+}
+.amby-help-screen kbd {
+  display: inline-block;
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: hsl(var(--muted) / 0.55);
+  color: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.amby-help-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 107px;
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: 12px;
+  padding: 12px;
+  background: hsl(var(--muted) / 0.35);
+}
+.amby-help-detail-active {
+  border-color: hsl(var(--primary) / 0.25);
+  background: hsl(var(--primary) / 0.04);
+}
+.amby-help-detail-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: 9px;
+  background: hsl(var(--popover));
+  color: hsl(var(--primary));
+}
+.amby-help-detail h2 {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.amby-help-detail p {
+  font-size: 11px;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+}
+.amby-help-detail kbd {
+  margin-top: 7px;
+}
+.amby-help-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 9px;
+}
+.amby-help-footer > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 230px;
+}
+.amby-help-footer > span > svg {
+  flex-shrink: 0;
+}
+.amby-help-dismiss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.amby-help-screen[data-layout="compact"] .amby-help-composition {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  align-items: start;
+  gap: 16px;
+  width: min(880px, calc(100% - 32px));
+  height: calc(100% - 32px);
+  margin-block: 16px;
+  padding: 20px;
+  overflow-y: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 20px;
+  background: hsl(var(--popover));
+  box-shadow: 0 24px 80px hsl(224 24% 8% / 0.24);
+  pointer-events: auto;
+  overscroll-behavior: contain;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-center {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-rail {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-group {
+  background: hsl(var(--muted) / 0.25);
+  box-shadow: none;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-shortcut-list {
+  max-height: 220px;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-detail {
+  min-height: 88px;
+}
+
+@media (max-width: 560px) {
+  .amby-help-screen[data-layout="compact"] .amby-help-composition {
+    grid-template-columns: 1fr;
+    padding: 18px;
+    gap: 12px;
+  }
+  .amby-help-title {
+    font-size: 21px;
+  }
+  .amby-help-footer {
+    align-items: flex-start;
+  }
+}
+
+.amby-help-inline-detail {
+  display: none;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-inline-detail[data-active="true"] {
+  display: block;
+  padding: 3px 9px 9px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1.6;
+}
+.amby-help-inline-detail kbd {
+  margin-top: 6px;
+}
+.amby-help-screen[data-layout="compact"] .amby-help-close {
+  position: fixed;
+  top: 26px;
+  right: max(26px, calc((100vw - 880px) / 2 + 10px));
+  z-index: 2;
+  background: hsl(var(--popover));
+  box-shadow: 0 2px 8px hsl(224 24% 8% / 0.1);
+}
+
+/* Snapshot readers use the note's Read typography without an editing canvas. */
+.amby-snapshot-pane {
+  background: var(--editor-bg);
+}
+.amby-snapshot-read {
+  min-height: 100%;
+  border-radius: 0;
+  background: var(--editor-bg);
+  padding: 1rem;
+}
+.amby-snapshot-read .ProseMirror {
+  min-height: 0;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  caret-color: transparent;
+}
+.amby-snapshot-read .ProseMirror > :first-child {
+  margin-top: 0;
+}
+.amby-snapshot-read .ProseMirror > :last-child {
+  margin-bottom: 0;
+}
+.amby-snapshot-image {
+  display: inline-block;
+  max-width: 100%;
+}
+.amby-snapshot-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* The pointer lift mirrors a native image drag without starting an OS file drag. */
+.amby-image-drag-preview {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 10000;
+  pointer-events: none;
+  will-change: transform;
+}
+.amby-image-drag-preview img {
+  display: block;
+  max-width: none;
+  border-radius: 8px;
+  box-shadow:
+    0 16px 40px rgb(0 0 0 / 0.24),
+    0 3px 10px rgb(0 0 0 / 0.15);
+  transform-origin: top left;
+}
+.amby-image-drag-source {
+  opacity: 0.25;
+}
+.amby-image-dragging,
+.amby-image-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* Fallback shown by SurfaceErrorBoundary in place of a tab or panel that crashed. */
+.amby-surface-error {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.amby-surface-error__icon {
+  display: flex;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.amby-surface-error__desc {
+  max-width: 24rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+/* Zones: account card on one row, vault status beside its name. */
+.sync-account-column > .sync-account-strip {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+.sync-account-identity {
+  flex: 1;
+  min-width: 140px;
+  gap: 1px;
+}
+.sync-account-identity h3 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.sync-account-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid hsl(var(--border));
+}
+.sync-account-actions > button {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 12px;
+  white-space: normal;
+}
+.sync-identity-name {
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sync-identity-name > h3,
+.sync-identity-name > p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-identity-name > .sync-inline-rename {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  color: hsl(var(--muted-foreground));
+}
+.sync-inline-rename > svg {
+  width: 13px;
+  height: 13px;
+}
+.sync-devices .sync-device-row {
+  display: grid;
+  grid-template-columns: 16px minmax(28px, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 6px;
+}
+.sync-device-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.sync-device-actions[data-confirming="true"] {
+  grid-column: 1 / -1;
+}
+.sync-device-last-seen {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  overflow-wrap: anywhere;
+}
+.sync-vault-heading > .min-w-0 .sync-vault-status {
+  margin: 4px 0 0;
+}
+.sync-vault-heading {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.sync-vault-heading > button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.sync-vault-card > .sync-vault-heading + * {
+  margin-top: 16px;
+}
+@media (max-width: 520px) {
+  .sync-vault-heading {
+    flex-wrap: wrap;
+  }
+}
+
+/* Account zone: identity and devices on the left, account storages on the right. */
+.sync-account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.sync-account-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.sync-storage-plan {
+  padding: 0 0 10px;
+}
+.sync-vault-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+@media (max-width: 520px) {
+  .sync-vault-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .sync-vault-actions > button {
+    width: auto;
+    margin: 0;
+  }
+}
+
+/* A drop of system files onto the tree: the folder that will receive them is outlined. */
+.tree-file-drop-over {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+  border-radius: 6px;
+  background: hsl(var(--primary) / 0.08);
+}
+
+/* One retained picker: geometrically laid out for image/row warmup, never interactive. */
+.amby-emoji-picker-parking {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 352px;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.amby-desk-packed {
+  grid-auto-rows: 4px;
+  row-gap: 0;
+}
+
+/* A name of the world on a page of a story's text: quiet, so reading is not disturbed. */
+.ProseMirror .amby-entity-name {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.6);
+  text-underline-offset: 0.2em;
+}
+
+.ProseMirror .amby-heading-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875em;
+  pointer-events: none;
+}
+
+.amby-tiptap .ProseMirror > [data-note-page-hidden],
+[data-dossier-frame]:has([data-note-pages-active]) [data-dossier-sections] {
+  display: none;
+}
+
+[data-note-page-reorder] [data-slot="tabs-trigger"],
+[data-note-page-reorder] [data-slot="dropdown-menu-item"] {
+  cursor: default;
+}
+
+[data-note-page-lifted="true"] {
+  opacity: 0;
+}
+
+.amby-note-page-drag-preview {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 6px 18px hsl(var(--foreground) / 0.13);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* An empty page of a note (its heading is on the tab): a quiet invitation to start writing. */
+.amby-tiptap .ProseMirror .amby-note-page-empty {
+  color: var(--editor-placeholder, hsl(var(--muted-foreground)));
+  cursor: text;
+  user-select: none;
 }

@@ -10,7 +10,6 @@ import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { errorType, logger, configureLogger } from "@/lib/logger"
 import {
   APP_FONT_FAMILY,
-  APP_FONT_SCALE,
   EDITOR_CONTENT_WIDTH,
   EDITOR_FONT_SIZE,
   THEME_TOKENS,
@@ -23,6 +22,7 @@ import {
   loadSettings,
   saveSettingsPatch,
   type AppPreferences,
+  type DockPreferences,
   type ExperimentalSettings,
   type WindowPreferences,
 } from "./app-config"
@@ -37,6 +37,9 @@ interface SettingsStore {
   /** Shallow-merge a patch into prefs and persist. Nested objects (editor,
    *  startup) must be passed whole by the caller. */
   setPrefs: (patch: Partial<AppPreferences>) => Promise<void>
+  /** Merge a dock patch into the docks as they are now, not as a render saw them, so two quick
+   *  changes of different fields both stay. */
+  setDockPrefs: (patch: Partial<DockPreferences>) => Promise<void>
   /** Updates feature gates without implicitly enabling a module. */
   setExperimental: (patch: Partial<ExperimentalSettings>) => Promise<void>
   /** Replaces the validated global library of imported themes. */
@@ -57,6 +60,11 @@ interface PreferencesChangedPayload {
   prefs?: AppPreferences
   experimental?: ExperimentalSettings
   themes?: ThemeDefinition[]
+}
+
+/** The cause of a failed save as an `Error`; a thing that was not one is not turned into text. */
+function asError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error("settingsSaveFailed")
 }
 
 function broadcastPreferences(payload: PreferencesChangedPayload): void {
@@ -94,9 +102,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ prefs })
       broadcastPreferences({ prefs })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
+  },
+  setDockPrefs: async (patch) => {
+    if (!get().hydrated) await get().hydrate()
+    await get().setPrefs({ docks: { ...get().prefs.docks, ...patch } })
   },
   setExperimental: async (patch) => {
     if (!get().hydrated) await get().hydrate()
@@ -106,7 +118,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ experimental })
       broadcastPreferences({ experimental })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
   },
@@ -117,7 +129,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await saveSettingsPatch({ themes })
       broadcastPreferences({ themes })
     } catch (err) {
-      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      set({ lastSaveError: asError(err) })
       throw err
     }
   },
@@ -169,8 +181,8 @@ export function useApplyPreferences(): boolean {
     root.dataset.fontScale = prefs.fontScale
     root.style.setProperty("--app-font-family", APP_FONT_FAMILY[prefs.fontFamily])
     root.style.removeProperty("font-size")
-    root.style.setProperty("--app-font-scale", APP_FONT_SCALE[prefs.fontScale])
-    root.style.setProperty("--editor-font-size", EDITOR_FONT_SIZE[prefs.fontScale])
+    root.style.setProperty("--app-font-scale", String(prefs.fontSize / 100))
+    root.style.setProperty("--editor-font-size", EDITOR_FONT_SIZE)
     root.style.setProperty("--content-max-width", EDITOR_CONTENT_WIDTH[prefs.editor.contentWidth])
     const theme = themeById(prefs.theme, themes)
     setTheme(theme.mode)
@@ -184,6 +196,7 @@ export function useApplyPreferences(): boolean {
     // the same light/dark mode instead of exposing an unstyled white canvas.
     try {
       localStorage.setItem("amby:theme-mode", theme.mode)
+      localStorage.setItem("amby:theme-background", theme.tokens["--background"] ?? "")
       localStorage.setItem("theme", theme.mode)
     } catch {
       // Storage can be unavailable in restricted browser contexts.

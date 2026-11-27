@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useDatabaseQuery, _clearInFlightQueriesForTesting } from "./use-database-query"
 import { useDatabaseStore } from "./database-store"
 import * as storage from "@/lib/storage"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 describe("useDatabaseQuery", () => {
   beforeEach(() => {
@@ -258,7 +259,9 @@ describe("useDatabaseQuery", () => {
 
   it("transitions to error on query failure and allows retry", async () => {
     const querySpy = vi.spyOn(storage, "queryDatabase")
-    querySpy.mockRejectedValueOnce(new Error("Database connection lost"))
+    querySpy.mockRejectedValueOnce(
+      databaseFailure("io", "Database connection lost", "projectionReadFailed"),
+    )
 
     const { result } = renderHook(() =>
       useDatabaseQuery({
@@ -271,7 +274,8 @@ describe("useDatabaseQuery", () => {
     await vi.waitFor(() => {
       expect(result.current.host?.status).toBe("error")
     })
-    expect(result.current.host?.error).toBe("Database connection lost")
+    expect(result.current.host?.error).toMatch(/прочитать или записать/)
+    expect(result.current.host?.error).not.toContain("connection lost")
 
     // Successful retry
     querySpy.mockResolvedValueOnce({

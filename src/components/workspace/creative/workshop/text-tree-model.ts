@@ -189,6 +189,30 @@ function isDescendant(node: TextNode, noteId: string): boolean {
   return node.children.some((child) => child.noteId === noteId || isDescendant(child, noteId))
 }
 
+/** Usable levels that keep the page between its parent and its own children. */
+export function pageLevelChoices<T extends { id: string; state?: string; name?: string | null }>(
+  roots: TextNode[],
+  levels: T[],
+  noteId: string,
+): T[] {
+  const node = findNode(roots, noteId)
+  if (!node) return []
+  const parent = node.parentId ? findNode(roots, node.parentId) : null
+  const parentIndex = levelIndex(levels, parent?.levelId ?? null)
+  if (parent?.levelId && parentIndex === null) return []
+  return levels.filter(
+    (level, index) =>
+      level.id !== node.levelId &&
+      level.name !== null &&
+      (level.state === undefined || level.state === "ok") &&
+      index > (parentIndex ?? -1) &&
+      node.children.every((child) => {
+        const childIndex = levelIndex(levels, child.levelId)
+        return childIndex !== null && index < childIndex
+      }),
+  )
+}
+
 /** The position of a level in the work, deepest last; `null` for a level the work does not list. */
 export function levelIndex(levels: { id: string }[], levelId: string | null): number | null {
   if (!levelId) return null
@@ -224,13 +248,14 @@ export function startLevelId(
 ): string | null {
   const wanted = defaultLevelId(levels, parent)
   const usable = (level: { state?: string }) => level.state === undefined || level.state === "ok"
+  if (parent && !canHaveChildPage(levels, parent)) return null
   const chosen = levels.find((level) => level.id === wanted)
   if (chosen && usable(chosen)) return chosen.id
   const parentIndex = parent ? levelIndex(levels, parent.levelId) : null
   const below = levels.find(
     (level, at) => usable(level) && (parentIndex === null || at > parentIndex),
   )
-  return (below ?? levels.find(usable))?.id ?? null
+  return below?.id ?? null
 }
 
 /** The key that puts a page last among the children of `parent` (or the roots). */
@@ -246,28 +271,35 @@ export interface MovePlan {
   orderKey: string
 }
 
-/**
- * Where a dragged page goes when dropped on `target`, or `null` when it cannot: onto itself, into
- * its own descendants, or under a page that is not on a shallower level than the dragged one.
- * The backend checks the same rules; asking first keeps a refusal off the user's screen.
- */
-export function planMove(
+export type MoveRefusal = "missingPage" | "samePage" | "descendant" | "unknownLevel" | "parentLevel"
+
+/** Where the page can go, or why the target refuses it. */
+export function assessPageMove(
   roots: TextNode[],
   levels: { id: string }[],
   draggedId: string,
   targetId: string,
   zone: DropZone,
-): MovePlan | null {
+): { plan: MovePlan } | { reason: MoveRefusal } {
   const dragged = findNode(roots, draggedId)
   const target = findNode(roots, targetId)
-  if (!dragged || !target || dragged === target) return null
-  if (isDescendant(dragged, targetId)) return null
+  if (!dragged || !target) return { reason: "missingPage" }
+  if (dragged === target) return { reason: "samePage" }
+  if (isDescendant(dragged, targetId)) return { reason: "descendant" }
 
   const newParent = zone === "inside" ? target : (locate(roots, target.noteId)?.parent ?? null)
   if (newParent) {
     const parentLevel = levelIndex(levels, newParent.levelId)
     const draggedLevel = levelIndex(levels, dragged.levelId)
-    if (parentLevel !== null && draggedLevel !== null && parentLevel >= draggedLevel) return null
+    if (
+      !dragged.levelId ||
+      (newParent.levelId && (parentLevel === null || draggedLevel === null))
+    ) {
+      return { reason: "unknownLevel" }
+    }
+    if (parentLevel !== null && draggedLevel !== null && parentLevel >= draggedLevel) {
+      return { reason: "parentLevel" }
+    }
   }
   const siblings = (newParent ? newParent.children : roots).filter((n) => n !== dragged)
   let index: number
@@ -279,9 +311,22 @@ export function planMove(
   const before = index > 0 ? siblings[index - 1].orderKey : null
   const after = index < siblings.length ? siblings[index].orderKey : null
   return {
-    newParentId: newParent ? newParent.noteId : null,
-    orderKey: generateFractionalIndex(before, after),
+    plan: {
+      newParentId: newParent ? newParent.noteId : null,
+      orderKey: generateFractionalIndex(before, after),
+    },
   }
+}
+
+export function planMove(
+  roots: TextNode[],
+  levels: { id: string }[],
+  draggedId: string,
+  targetId: string,
+  zone: DropZone,
+): MovePlan | null {
+  const result = assessPageMove(roots, levels, draggedId, targetId, zone)
+  return "plan" in result ? result.plan : null
 }
 
 /** The four moves of the menu: a place up, down, into the previous page, out of the parent. */

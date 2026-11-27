@@ -8,8 +8,10 @@ import {
   flushRecoveryDraft,
   saveRecoveryDraft,
   inspectRecoveryQueue,
+  subscribeRecoveryProblems,
 } from "./recovery-drafts"
 import { commands, type RecoveryEntry } from "@/lib/bindings"
+import { logger } from "@/lib/logger"
 
 describe("recovery drafts", () => {
   const path = "/vault/Note.md"
@@ -86,6 +88,57 @@ describe("recovery drafts", () => {
       expect(await readRecoveryDraft(path)).toBeNull()
       expect((await readRecoveryDraft(renamedPath))?.content).toBe('{"nodes":[],"edges":[]}')
       await discardRecoveryDraft(renamedPath)
+    })
+
+    it("keeps a newer draft created while the old recovery is being moved", async () => {
+      const oldPath = "/vault/Old.canvas"
+      const newPath = "/vault/New.canvas"
+      await saveRecoveryDraft(oldPath, "older draft", "canvas", oldPath)
+      const moving = remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      scheduleRecoveryDraft(newPath, "newer draft", "canvas", newPath)
+      await moving
+      await flushRecoveryDraft(newPath, "canvas")
+      expect((await readRecoveryDraft(newPath))?.content).toBe("newer draft")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
+    })
+
+    it("does not replace a newer edit while changing the path hint of a stable id", async () => {
+      const id = "stable-note-id"
+      await saveRecoveryDraft(id, "older draft", "markdown", "/vault/Old.md")
+      const moving = remapRecoveryDraft(id, id, "markdown", "/vault/New.md")
+      scheduleRecoveryDraft(id, "newer draft", "markdown", "/vault/New.md")
+      await moving
+      await flushRecoveryDraft(id, "markdown")
+      const draft = await readRecoveryDraft(id)
+      expect(draft?.content).toBe("newer draft")
+      expect(draft?.pathHint).toBe("/vault/New.md")
+      await discardRecoveryDraft(id)
+    })
+
+    it("keeps a newer source draft when it changes during the move", async () => {
+      const oldPath = "/vault/source-old.canvas"
+      const newPath = "/vault/source-new.canvas"
+      await saveRecoveryDraft(oldPath, "old", "canvas", oldPath)
+      const moving = remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      scheduleRecoveryDraft(oldPath, "newer source", "canvas", oldPath)
+      await moving
+      await flushRecoveryDraft(oldPath, "canvas")
+      expect((await readRecoveryDraft(oldPath))?.content).toBe("newer source")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
+    })
+
+    it("preserves an existing destination recovery instead of overwriting it", async () => {
+      const oldPath = "/vault/collision-old.canvas"
+      const newPath = "/vault/collision-new.canvas"
+      await saveRecoveryDraft(oldPath, "first draft", "canvas", oldPath)
+      await saveRecoveryDraft(newPath, "other draft", "canvas", newPath)
+      await remapRecoveryDraft(oldPath, newPath, "canvas", newPath)
+      expect((await readRecoveryDraft(oldPath))?.content).toBe("first draft")
+      expect((await readRecoveryDraft(newPath))?.content).toBe("other draft")
+      await discardRecoveryDraft(oldPath)
+      await discardRecoveryDraft(newPath)
     })
 
     it("ignores and cleans up expired or corrupt drafts", async () => {
@@ -228,6 +281,54 @@ describe("recovery drafts", () => {
       expect(count).toBe(0)
       expect(saveSpy).not.toHaveBeenCalled()
       expect(localStorage.getItem(corruptKey)).toBeNull()
+    })
+
+    it("logs a failed draft write with a code and reports it once until a write succeeds", async () => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      const listener = vi.fn()
+      const unsubscribe = subscribeRecoveryProblems(listener)
+      const save = vi.spyOn(commands, "saveRecovery").mockRejectedValue(new Error("disk full"))
+      const scope = { vault: "/vault", generation: 7 }
+
+      scheduleRecoveryDraft("note-w", "one", "markdown", "/vault/W.md", scope)
+      await expect(flushRecoveryDraft("note-w", "markdown", scope)).rejects.toThrow()
+      await expect(flushRecoveryDraft("note-w", "markdown", scope)).rejects.toThrow()
+
+      expect(warn).toHaveBeenCalledWith("recovery.write_failed", expect.any(Object))
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("disk full")
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(listener).toHaveBeenCalledWith({ id: "note-w", kind: "write", failed: true })
+
+      save.mockResolvedValue({
+        status: "ok",
+        data: {
+          version: 1,
+          vaultGeneration: 7,
+          documentKind: "markdown",
+          id: "note-w",
+          pathHint: "/vault/W.md",
+          savedAtMs: 1,
+          content: "one",
+          contentHash: "h",
+        },
+      })
+      await flushRecoveryDraft("note-w", "markdown", scope)
+      expect(listener).toHaveBeenLastCalledWith({ id: "note-w", kind: "write", failed: false })
+      expect(listener).toHaveBeenCalledTimes(2)
+      unsubscribe()
+    })
+
+    it("does not hide a failed draft read as a missing draft", async () => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      const listener = vi.fn()
+      const unsubscribe = subscribeRecoveryProblems(listener)
+      vi.spyOn(commands, "readRecovery").mockRejectedValue(new Error("io error"))
+
+      await expect(readRecoveryDraft("note-r")).resolves.toBeNull()
+
+      expect(warn).toHaveBeenCalledWith("recovery.read_failed", expect.any(Object))
+      expect(listener).toHaveBeenCalledWith({ id: "note-r", kind: "read", failed: true })
+      unsubscribe()
     })
 
     it("preserves legacy localStorage entries if backend journal write fails", async () => {

@@ -1,4 +1,5 @@
 import { Anchor } from "lucide-react"
+import { Fragment } from "react"
 import { useTranslation } from "react-i18next"
 import type { DatabaseRow } from "@/lib/storage"
 import { cn } from "@/lib/utils"
@@ -18,6 +19,7 @@ interface AnchorsOverviewProps {
   activeNoteId: string | null
   onOpenNote: (noteId: string) => void
   /** The story names for an anchor's row (up to two and "+N"). */
+  storyLinkOf?: (anchor: DatabaseRow) => React.ReactNode
   storyLabelsOf: ((noteId: string) => StoryLabels) | null
   draft: WorkshopDraft | null
   onCommitDraft: (title: string) => Promise<void>
@@ -39,6 +41,7 @@ export function AnchorsOverview({
   activeNoteId,
   onOpenNote,
   storyLabelsOf,
+  storyLinkOf,
   draft,
   onCommitDraft,
   onCancelDraft,
@@ -61,29 +64,31 @@ export function AnchorsOverview({
   const row = (anchor: DatabaseRow) => {
     const labels = storyLabelsOf?.(anchor.noteId)
     return (
-      <button
-        key={anchor.noteId}
-        type="button"
-        aria-current={activeNoteId === anchor.noteId ? "true" : undefined}
-        onClick={() => onOpenNote(anchor.noteId)}
-        style={{ paddingLeft: indent }}
-        className={cn(
-          "amby-tree-row flex w-full items-center gap-1.5 rounded py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
-          activeNoteId === anchor.noteId && "bg-accent",
-        )}
-      >
-        <Anchor className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{anchor.title}</span>
-        {labels && labels.names.length > 0 && (
-          <span
-            className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
-            title={labels.names.join(", ")}
-          >
-            {labels.names.join(", ")}
-            {labels.more > 0 ? ` +${labels.more}` : ""}
-          </span>
-        )}
-      </button>
+      <Fragment key={anchor.noteId}>
+        <button
+          type="button"
+          aria-current={activeNoteId === anchor.noteId ? "true" : undefined}
+          onClick={() => onOpenNote(anchor.noteId)}
+          style={{ paddingLeft: indent }}
+          className={cn(
+            "amby-tree-row flex w-full items-center gap-1.5 rounded py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
+            activeNoteId === anchor.noteId && "bg-accent",
+          )}
+        >
+          <Anchor className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">{anchor.title}</span>
+          {labels && labels.names.length > 0 && (
+            <span
+              className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
+              title={labels.names.join(", ")}
+            >
+              {labels.names.join(", ")}
+              {labels.more > 0 ? ` +${labels.more}` : ""}
+            </span>
+          )}
+        </button>
+        {storyLinkOf?.(anchor)}
+      </Fragment>
     )
   }
   const heading = (text: string, count?: number) => (

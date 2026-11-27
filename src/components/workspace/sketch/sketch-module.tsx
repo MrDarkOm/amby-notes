@@ -4,7 +4,7 @@ export const SKETCH_MODULE_DEFINITION: ModuleDefinition = {
   manifest: {
     formatVersion: 1,
     id: "amby.excalidraw",
-    name: "Excalidraw",
+    name: "Draw",
     version: "1.0.0",
     publisher: "Amby",
     kind: "official",

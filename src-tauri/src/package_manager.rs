@@ -12,9 +12,15 @@ use crate::frontmatter;
 static PACKAGE_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use crate::paths;
 
-pub const OFFICIAL_ED25519_KEY_ID: &str = "amby-official-2026";
+/// Key id of the official package-signing key. The previous key
+/// `amby-official-2026` leaked (its private half was committed) and is revoked:
+/// it is not accepted anywhere. See docs/security-advisories.md (MOD-01).
+pub const OFFICIAL_ED25519_KEY_ID: &str = "amby-official-2026-11";
+/// Public half of the official key `amby-official-2026-11` (created 2026-11-17 with
+/// `npm run modules:new-key`; the private half lives only in the owner's macOS Keychain).
+/// Must equal `OFFICIAL_ED25519_PUBLIC_KEY_HEX` in `src/lib/modules/package-manager/validator.ts`.
 pub const OFFICIAL_ED25519_PUBLIC_KEY_HEX: &str =
-    "540caa0bdc9a519b774ad2ee4fb3e2278d149ee0ecfaa0d54ba75e6ad66c9dda";
+    "84ea52d28bb574f90353409e5046c92000de6a5ecdc95daf983ac0dad26ffcd1";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ModuleSignature {
@@ -409,7 +415,8 @@ pub fn verify_ed25519(
 
     let pubkey_bytes =
         hex_decode(public_key_hex).map_err(|e| format!("Invalid public key hex: {e}"))?;
-    if pubkey_bytes.len() != 32 {
+    // The all-zero key is the "not provisioned" placeholder, never a real key.
+    if pubkey_bytes.len() != 32 || pubkey_bytes.iter().all(|byte| *byte == 0) {
         return Ok(false);
     }
 
@@ -457,18 +464,64 @@ pub fn canonical_manifest_bytes(manifest: &ModuleManifest) -> Result<Vec<u8>, St
     serde_json::to_vec(&payload).map_err(|e| format!("Failed to serialize canonical manifest: {e}"))
 }
 
+/// Third-party (`community`) packages carry no verifiable signature: the
+/// manifest check below only authenticates `official` ones. Keep this `false`
+/// until third-party modules are deliberately enabled, together with
+/// `INSTALLED_MODULE_EXECUTION_ENABLED` in
+/// `src/lib/modules/host/execution-policy.ts` and the package-signing-key
+/// rotation (MOD-01), so Rust enforces the same invariant as the front end.
+pub const THIRD_PARTY_PACKAGES_ENABLED: bool = false;
+
+#[cfg(not(test))]
+fn third_party_packages_allowed() -> bool {
+    THIRD_PARTY_PACKAGES_ENABLED
+}
+
+// Lifecycle tests use `community` fixtures (they model the future, enabled
+// state); the policy test turns the gate off for its own thread.
+#[cfg(test)]
+thread_local! {
+    static TEST_THIRD_PARTY_ALLOWED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+#[cfg(test)]
+fn third_party_packages_allowed() -> bool {
+    TEST_THIRD_PARTY_ALLOWED.with(|value| value.get())
+}
+
+fn ensure_package_kind_allowed(manifest: &ModuleManifest) -> Result<(), String> {
+    if manifest.kind != "official" && !third_party_packages_allowed() {
+        return Err("Third-party module packages are not enabled".to_string());
+    }
+    Ok(())
+}
+
 pub fn verify_manifest_signature(manifest: &ModuleManifest) -> Result<bool, String> {
+    verify_manifest_signature_with(
+        manifest,
+        OFFICIAL_ED25519_KEY_ID,
+        OFFICIAL_ED25519_PUBLIC_KEY_HEX,
+    )
+}
+
+/// Verification against an explicit trust anchor; production code passes the
+/// official key, tests pass an ephemeral one.
+fn verify_manifest_signature_with(
+    manifest: &ModuleManifest,
+    trusted_key_id: &str,
+    trusted_public_key_hex: &str,
+) -> Result<bool, String> {
     if manifest.kind != "official" {
         return Ok(true);
     }
 
-    if manifest.signature.key_id != OFFICIAL_ED25519_KEY_ID {
+    if manifest.signature.key_id != trusted_key_id {
         return Ok(false);
     }
 
     let canonical_bytes = canonical_manifest_bytes(manifest)?;
     verify_ed25519(
-        OFFICIAL_ED25519_PUBLIC_KEY_HEX,
+        trusted_public_key_hex,
         &canonical_bytes,
         &manifest.signature.sig,
     )
@@ -517,6 +570,7 @@ fn stage_module_at(
     let staging_id = format!("stage-{}", ulid::Ulid::generate());
     validate_manifest_fields(&manifest)?;
     validate_manifest_files(&manifest, &files)?;
+    ensure_package_kind_allowed(&manifest)?;
 
     // Validate Ed25519 signature before creating any filesystem state.
     let sig_valid = verify_manifest_signature(&manifest)?;
@@ -573,6 +627,37 @@ pub struct RawPackagePayload {
     pub files: BTreeMap<String, String>,
 }
 
+const MAX_PACKAGE_BYTES: usize = 50 * 1024 * 1024;
+const PACKAGE_TOO_LARGE: &str = "Package archive exceeds maximum allowed size (50MB)";
+
+/// A source of body chunks; a seam so the size limit is testable without a network.
+trait ChunkSource {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String>;
+}
+
+struct ResponseChunks(reqwest::Response);
+
+impl ChunkSource for ResponseChunks {
+    async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+        self.0
+            .chunk()
+            .await
+            .map(|chunk| chunk.map(|bytes| bytes.to_vec()))
+            .map_err(|e| format!("Failed to read response body: {e}"))
+    }
+}
+
+async fn read_body_limited(source: &mut impl ChunkSource, limit: usize) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = source.next_chunk().await? {
+        if body.len().saturating_add(chunk.len()) > limit {
+            return Err(PACKAGE_TOO_LARGE.to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 pub async fn download_remote_package(
     app: &tauri::AppHandle,
     url: String,
@@ -605,14 +690,13 @@ pub async fn download_remote_package(
         ));
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response body: {e}"))?;
-
-    if bytes.len() > 50 * 1024 * 1024 {
-        return Err("Package archive exceeds maximum allowed size (50MB)".to_string());
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_PACKAGE_BYTES as u64)
+    {
+        return Err(PACKAGE_TOO_LARGE.to_string());
     }
+    let bytes = read_body_limited(&mut ResponseChunks(response), MAX_PACKAGE_BYTES).await?;
 
     let payload: RawPackagePayload = serde_json::from_slice(&bytes)
         .map_err(|e| format!("Failed to parse .amby-pkg archive: {e}"))?;
@@ -675,6 +759,7 @@ fn validate_staged_package(staging_dir: &Path) -> Result<ModuleManifest, String>
     let manifest: ModuleManifest = serde_json::from_str(&manifest_content)
         .map_err(|e| format!("Invalid staged package manifest: {e}"))?;
     validate_manifest_fields(&manifest)?;
+    ensure_package_kind_allowed(&manifest)?;
     if !verify_manifest_signature(&manifest)? {
         return Err("Invalid or untrusted Ed25519 package signature".to_string());
     }
@@ -882,6 +967,17 @@ fn publish_module_with_writer(
         return Err(format!(
             "Module version is already installed: {module_id}@{version}"
         ));
+    }
+    // Never move the active version backwards by publishing: that is what an
+    // explicit rollback is for. (The same version is already refused above.)
+    if let Some(meta) = &existing_meta {
+        let active = parse_strict_version(&meta.active_version)?;
+        if parse_strict_version(&version)? <= active {
+            return Err(format!(
+                "Module version is not newer than the active version: {module_id}@{version} (active {})",
+                meta.active_version
+            ));
+        }
     }
 
     let mut versions_meta = existing_meta.clone().unwrap_or(ModuleVersionsMeta {
@@ -1188,6 +1284,83 @@ mod tests {
     }
 
     #[test]
+    fn community_packages_are_rejected_while_third_party_modules_are_disabled() {
+        let root = Fixture::new();
+        // A package staged while the gate was open must not be publishable once closed.
+        let staged = root.stage("1.0.0");
+        TEST_THIRD_PARTY_ALLOWED.with(|value| value.set(false));
+        let (manifest, files) = payload("1.0.0");
+        assert_eq!(manifest.kind, "community");
+        let rejected = stage_module_at(&root.0, "hint".into(), manifest, files);
+        assert!(rejected.is_err());
+        assert!(publish_module_at(
+            &root.0,
+            staged.staging_id,
+            "example.plugin".into(),
+            "1.0.0".into()
+        )
+        .is_err());
+        assert!(list_installed_modules_at(&root.0).unwrap().is_empty());
+        // Official packages are not affected by the gate.
+        let (mut official, _) = payload("1.0.0");
+        official.kind = "official".into();
+        assert!(ensure_package_kind_allowed(&official).is_ok());
+    }
+
+    struct CountingChunks {
+        remaining: usize,
+        pulled: usize,
+    }
+    impl ChunkSource for CountingChunks {
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, String> {
+            if self.remaining == 0 {
+                return Ok(None);
+            }
+            self.remaining -= 1;
+            self.pulled += 1;
+            Ok(Some(vec![0; 10]))
+        }
+    }
+
+    #[test]
+    fn oversized_body_is_refused_before_it_is_read_in_full() {
+        let mut source = CountingChunks {
+            remaining: 1000,
+            pulled: 0,
+        };
+        let result = tauri::async_runtime::block_on(read_body_limited(&mut source, 95));
+        assert_eq!(result.unwrap_err(), PACKAGE_TOO_LARGE);
+        assert!(source.pulled <= 10, "pulled {} chunks", source.pulled);
+
+        let mut fits = CountingChunks {
+            remaining: 9,
+            pulled: 0,
+        };
+        let body = tauri::async_runtime::block_on(read_body_limited(&mut fits, 95)).unwrap();
+        assert_eq!(body.len(), 90);
+    }
+
+    #[test]
+    fn publishing_an_older_version_than_the_active_one_is_refused() {
+        let root = Fixture::new();
+        root.publish("2.0.0");
+        let history = root.0.join("example.plugin/versions.json");
+        let original = fs::read(&history).unwrap();
+        let older = root.stage("1.5.0");
+        let result = publish_module_at(
+            &root.0,
+            older.staging_id,
+            "example.plugin".into(),
+            "1.5.0".into(),
+        );
+        assert!(result.is_err(), "downgrade was published");
+        assert_eq!(fs::read(&history).unwrap(), original);
+        let info = list_installed_modules_at(&root.0).unwrap().remove(0);
+        assert_eq!(info.active_version, "2.0.0");
+        assert_eq!(info.installed_versions, ["2.0.0"]);
+    }
+
+    #[test]
     fn invalid_identifiers_and_aliased_package_paths_are_rejected() {
         let root = Fixture::new();
         for bad in [
@@ -1426,25 +1599,145 @@ mod tests {
         .is_err());
     }
 
+    /// Public half of the leaked key `amby-official-2026` (revoked, MOD-01).
+    /// Only the public half is kept, to prove it is no longer trusted.
+    const REVOKED_PUBLIC_KEY_HEX: &str =
+        "540caa0bdc9a519b774ad2ee4fb3e2278d149ee0ecfaa0d54ba75e6ad66c9dda";
+    const REVOKED_KEY_ID: &str = "amby-official-2026";
+    const PLACEHOLDER_PUBLIC_KEY_HEX: &str =
+        "0000000000000000000000000000000000000000000000000000000000000000";
+
+    /// Test-only ephemeral signing key; never trusted in production builds.
+    struct TestSigner {
+        pair: ring::signature::Ed25519KeyPair,
+        public_hex: String,
+    }
+
+    impl TestSigner {
+        fn new() -> Self {
+            use ring::signature::KeyPair;
+            let rng = ring::rand::SystemRandom::new();
+            let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+            let pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+            let public_hex = pair
+                .public_key()
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            Self { pair, public_hex }
+        }
+
+        fn sign(&self, message: &[u8]) -> String {
+            let sig: String = self
+                .pair
+                .sign(message)
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            format!("ed25519:{sig}")
+        }
+
+        fn official_manifest(&self, key_id: &str) -> ModuleManifest {
+            let (mut manifest, _) = payload("1.0.0");
+            manifest.kind = "official".into();
+            manifest.signature.key_id = key_id.into();
+            let bytes = canonical_manifest_bytes(&manifest).unwrap();
+            manifest.signature.sig = self.sign(&bytes);
+            manifest
+        }
+    }
+
     #[test]
     fn test_ed25519_verification_rejects_fake_signature() {
+        let signer = TestSigner::new();
         let msg = b"amby-package-manifest-test-payload";
-        // Fake signature: "ed25519:anything" or invalid hex / non-matching
-        let fake_sig = "ed25519:anything";
-        let res = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, fake_sig);
+        let res = verify_ed25519(&signer.public_hex, msg, "ed25519:anything");
         assert!(res.is_err() || !res.unwrap());
 
-        let random_hex_sig = "ed25519:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-        let res2 = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, random_hex_sig);
-        assert!(!res2.unwrap());
+        let random_hex_sig = format!("ed25519:{}", "00112233".repeat(16));
+        assert!(!verify_ed25519(&signer.public_hex, msg, &random_hex_sig).unwrap());
     }
 
     #[test]
     fn test_ed25519_verification_accepts_valid_signature() {
+        let signer = TestSigner::new();
         let msg = b"amby-package-manifest-test-payload";
-        let valid_sig = "735ae4f2d075181de999ab84ea36fd0f2d5e884f4af7c9541e0aaad3559be7ef576c547fbd653b077aaff2e8adc3144fc866a166d161b28a9d7248a0820a9c0d";
-        let res = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, valid_sig);
-        assert!(res.unwrap());
+        let sig = signer.sign(msg);
+        assert!(verify_ed25519(&signer.public_hex, msg, &sig).unwrap());
+        assert!(!verify_ed25519(&signer.public_hex, b"other", &sig).unwrap());
+    }
+
+    #[test]
+    fn all_zero_public_key_never_verifies() {
+        let signer = TestSigner::new();
+        let msg = b"amby-package-manifest-test-payload";
+        let sig = signer.sign(msg);
+        assert!(!verify_ed25519(PLACEHOLDER_PUBLIC_KEY_HEX, msg, &sig).unwrap());
+        assert!(!verify_ed25519(PLACEHOLDER_PUBLIC_KEY_HEX, msg, &"0".repeat(128)).unwrap());
+    }
+
+    #[test]
+    fn signed_official_manifest_verifies_only_against_its_own_trust_anchor() {
+        let signer = TestSigner::new();
+        let other = TestSigner::new();
+        let manifest = signer.official_manifest("test-key");
+        assert!(verify_manifest_signature_with(&manifest, "test-key", &signer.public_hex).unwrap());
+        assert!(!verify_manifest_signature_with(&manifest, "test-key", &other.public_hex).unwrap());
+        assert!(
+            !verify_manifest_signature_with(&manifest, "other-id", &signer.public_hex).unwrap()
+        );
+    }
+
+    #[test]
+    fn production_trust_rejects_test_signed_and_revoked_key_packages() {
+        let signer = TestSigner::new();
+        // A package signed with a test key never passes the production trust.
+        assert_ne!(OFFICIAL_ED25519_PUBLIC_KEY_HEX, signer.public_hex);
+        let manifest = signer.official_manifest(OFFICIAL_ED25519_KEY_ID);
+        assert!(!verify_manifest_signature(&manifest).unwrap());
+        // The revoked key id is refused even with a signature that is valid for it.
+        let revoked = signer.official_manifest(REVOKED_KEY_ID);
+        assert!(!verify_manifest_signature(&revoked).unwrap());
+        assert!(!verify_manifest_signature_with(
+            &revoked,
+            OFFICIAL_ED25519_KEY_ID,
+            &signer.public_hex
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn revoked_public_key_is_not_trusted_anywhere() {
+        assert_ne!(OFFICIAL_ED25519_PUBLIC_KEY_HEX, REVOKED_PUBLIC_KEY_HEX);
+        assert_ne!(OFFICIAL_ED25519_KEY_ID, REVOKED_KEY_ID);
+        let source = include_str!("package_manager.rs").replace("\r\n", "\n");
+        let (production, _) = source
+            .split_once("#[cfg(test)]\nmod tests")
+            .expect("package manager test boundary exists");
+        assert!(!production.contains(REVOKED_PUBLIC_KEY_HEX));
+        let frontend = include_str!("../../src/lib/modules/package-manager/validator.ts");
+        assert!(!frontend.contains(REVOKED_PUBLIC_KEY_HEX));
+        assert!(!frontend.contains("amby-official-2026\""));
+    }
+
+    #[test]
+    fn untrusted_official_key_keeps_third_party_and_execution_disabled() {
+        let provisioned = OFFICIAL_ED25519_PUBLIC_KEY_HEX != PLACEHOLDER_PUBLIC_KEY_HEX
+            && OFFICIAL_ED25519_PUBLIC_KEY_HEX != REVOKED_PUBLIC_KEY_HEX;
+        let execution_enabled = include_str!("../../src/lib/modules/host/execution-policy.ts")
+            .contains("INSTALLED_MODULE_EXECUTION_ENABLED = true");
+        if !provisioned {
+            assert!(
+                !std::hint::black_box(THIRD_PARTY_PACKAGES_ENABLED),
+                "third-party packages enabled while the official key is not provisioned (MOD-01)"
+            );
+            assert!(
+                !execution_enabled,
+                "installed-module execution enabled while the official key is not provisioned (MOD-01)"
+            );
+        }
     }
 
     #[test]
@@ -1604,36 +1897,5 @@ mod tests {
         rollback_module_at(&root.0, "dependent.plugin".into()).unwrap();
         uninstall_module_at(&root.0, "example.plugin".into()).unwrap();
         assert!(get_module_entry_path_at(&root.0, "dependent.plugin".into()).is_err());
-    }
-
-    #[test]
-    fn test_verify_real_generated_manifest_signature() {
-        let manifest_json = r#"{
-            "formatVersion": 1,
-            "id": "amby.canvas",
-            "name": "Canvas",
-            "version": "1.0.0",
-            "publisher": "Amby",
-            "kind": "official",
-            "minAppVersion": "0.1.5",
-            "entry": "index.js",
-            "permissions": [
-                "ui-panel",
-                "read-notes",
-                "write-notes",
-                "vault.read",
-                "vault.write"
-            ],
-            "checksums": {
-                "index.js": "41bb65fb42fef1e50ff6715576e0259b9a4c8221c21903877b8fe0cbafe55390"
-            },
-            "signature": {
-                "keyId": "amby-official-2026",
-                "sig": "ed25519:9ad45f8e5e0d7cb4ff55d25f4700e918af5a430da7dcf2dbf8b951bc5eb9f1ba82d1243ae1b2aa677a1f0fa148d52092c01070da0ec7c34e3a7ef8dd64fad30a"
-            }
-        }"#;
-        let manifest: ModuleManifest = serde_json::from_str(manifest_json).unwrap();
-        let valid = verify_manifest_signature(&manifest).unwrap();
-        assert!(valid, "Real generated manifest signature must be valid");
     }
 }

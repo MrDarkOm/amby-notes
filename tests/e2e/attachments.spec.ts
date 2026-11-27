@@ -38,6 +38,10 @@ const NOTE = [
   "",
 ].join("\n")
 
+/** A picture with a size, so that there is room beside it on its line. */
+const PICTURE =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#888"/></svg>'
+
 /** A half-second of silence as a WAV file: small, and every browser can play it. */
 function silentWav(): Buffer {
   const samples = 4000
@@ -61,6 +65,9 @@ async function serveFiles(page: Page, requested: string[]) {
   await page.route("**/web-vault/**", (route) => {
     const path = new URL(route.request().url()).pathname
     requested.push(path)
+    if (path.endsWith("/assets/photo.png")) {
+      return route.fulfill({ status: 200, contentType: "image/svg+xml", body: PICTURE })
+    }
     if (path.endsWith("/assets/beep.wav")) {
       return route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() })
     }
@@ -164,4 +171,68 @@ test("typing next to attachments rewrites only the edited paragraph", async ({ p
     .poll(() => storedMarkdown(page, "Files"))
     .toBe(NOTE.replace("Closing line.", "Closing line. Typed."))
   await expect(liveEditor(page).locator("audio")).toHaveCount(2)
+})
+
+test("text typed beside a picture alone on its line goes to a new line", async ({ page }) => {
+  await serveFiles(page, [])
+  await seedVault(page, { Files: NOTE })
+  await openInLive(page, "Files")
+  await liveEditor(page).getByText("Closing line.").click()
+  await page.keyboard.press("Meta+ArrowLeft")
+  // From the start of the last line the cursor goes up beside the picture.
+  await page.keyboard.press("ArrowUp")
+  // The cursor is not drawn there.
+  const caret = () =>
+    page.evaluate(() => {
+      const node = getSelection()!.anchorNode!
+      const element = node instanceof Element ? node : node.parentElement!
+      return getComputedStyle(element).caretColor
+    })
+  await expect.poll(caret).toBe("rgba(0, 0, 0, 0)")
+  await page.keyboard.type("Typed.")
+  await expect
+    .poll(() => storedMarkdown(page, "Files"))
+    .toBe(NOTE.replace("![photo](assets/photo.png)\n", "![photo](assets/photo.png)\n\nTyped.\n"))
+})
+
+test("a click beside a picture alone on its line does nothing; a click on it selects it", async ({
+  page,
+}) => {
+  await serveFiles(page, [])
+  await seedVault(page, { Files: NOTE })
+  await openInLive(page, "Files")
+  const editor = liveEditor(page)
+  const picture = editor.locator(".amby-image-wrap", { has: page.locator("img") })
+  await expect(picture.locator("img")).toHaveJSProperty("naturalWidth", 200)
+  await editor.getByText("Intro line.").click()
+  const anchorText = () => page.evaluate(() => getSelection()!.anchorNode?.textContent ?? "")
+  expect(await anchorText()).toBe("Intro line.")
+
+  await picture.scrollIntoViewIfNeeded()
+  const box = (await picture.locator("img").boundingBox())!
+  await page.mouse.click(box.x + box.width + 120, box.y + box.height / 2)
+  expect(await anchorText()).toBe("Intro line.")
+  await expect(picture).not.toHaveClass(/is-selected/)
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(picture).toHaveClass(/is-selected/)
+  // The selection is seen, and neither the picture nor the room beside it shows a text pointer.
+  const style = (property: "cursor") =>
+    picture.locator("img").evaluate((img, name) => getComputedStyle(img)[name], property)
+  // Selected like selected text: one tinted layer with rounded corners, no outline.
+  const tint = await picture.locator(".amby-image-container").evaluate((container) => {
+    const layer = getComputedStyle(container, "::after")
+    return { color: layer.backgroundColor, radius: layer.borderRadius }
+  })
+  expect(tint.color).not.toBe("rgba(0, 0, 0, 0)")
+  expect(tint.radius).toBe("8px")
+  expect(await picture.locator("img").evaluate((img) => getComputedStyle(img).outlineStyle)).toBe(
+    "none",
+  )
+  expect(await style("cursor")).toBe("default")
+  expect(await picture.evaluate((wrap) => getComputedStyle(wrap.closest("p")!).cursor)).toBe(
+    "default",
+  )
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Files")).toBe(NOTE)
 })

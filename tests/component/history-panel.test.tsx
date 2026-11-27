@@ -17,6 +17,7 @@ import { useVaultStore } from "@/components/workspace/use-vault-store"
 import { useDocStore } from "@/components/workspace/use-doc-store"
 import { flushAutosaveGeneration } from "@/components/workspace/autosave/autosave-lifecycle"
 import * as storage from "@/lib/storage"
+import { confirm } from "@/lib/confirm"
 
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
@@ -24,11 +25,12 @@ vi.mock("@/lib/storage", async (original) => ({
   getHistoryStats: vi.fn(),
   readSnapshotText: vi.fn(),
   readFile: vi.fn(),
-  confirmAction: vi.fn(),
   restoreSnapshot: vi.fn(),
+  deleteSnapshot: vi.fn(),
   previewHistoryCleanup: vi.fn(),
   cleanupHistory: vi.fn(),
 }))
+vi.mock("@/lib/confirm", () => ({ confirm: vi.fn() }))
 vi.mock("@/components/workspace/autosave/autosave-lifecycle", () => ({
   flushAutosaveGeneration: vi.fn(),
 }))
@@ -68,7 +70,7 @@ beforeEach(() => {
     content: "before\n",
   })
   vi.mocked(storage.readFile).mockResolvedValue("after\n")
-  vi.mocked(storage.confirmAction).mockResolvedValue(true)
+  vi.mocked(confirm).mockResolvedValue(true)
   vi.mocked(storage.restoreSnapshot).mockResolvedValue(props.currentDocPath)
   vi.mocked(flushAutosaveGeneration).mockResolvedValue({ flushed: true, participants: 1 })
 })
@@ -88,13 +90,58 @@ describe("history interface", () => {
     expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(1)
     fireEvent.click(screen.getByRole("button", { name: /Посмотреть версию/ }))
     const dialog = await screen.findByRole("dialog")
-    await waitFor(() => expect(within(dialog).getByText("before")).toBeTruthy())
-    expect(within(dialog).getByText("after")).toBeTruthy()
+    // Read preview loads its rich renderer lazily, independently for both panes.
+    await within(dialog).findByText("before", {}, { timeout: 5000 })
+    await within(dialog).findByText("after", {}, { timeout: 5000 })
+    expect(
+      within(dialog).getByRole("button", { name: "Просмотр" }).getAttribute("aria-pressed"),
+    ).toBe("true")
     expect(within(dialog).getByText("+1 строка")).toBeTruthy()
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }))
     expect(screen.queryByRole("button", { name: /Корзина/ })).toBeNull()
     expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(1)
+  })
+  it("browses another note's history without navigating the editor, including empty history", async () => {
+    const otherEntry = { ...entries[0], id: "other-snapshot" }
+    vi.mocked(storage.listSnapshots).mockImplementation(async (path) =>
+      path === "/vault/Other.md" ? [otherEntry] : path === "/vault/Empty.md" ? [] : entries,
+    )
+    vi.mocked(storage.readSnapshotText).mockImplementation(async (id) => ({
+      sourcePath: id === otherEntry.id ? "/vault/Other.md" : props.currentDocPath,
+      content: id === otherEntry.id ? "other version" : "before",
+    }))
+    render(
+      <HistoryPanel
+        {...props}
+        treeItems={[
+          { id: "other", name: "Other", path: "/vault/Other.md", type: "file" },
+          { id: "empty", name: "Empty", path: "/vault/Empty.md", type: "file" },
+        ]}
+      />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Открыть полную историю" }))
+    await screen.findByText("before", {}, { timeout: 5000 })
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Other" }))
+    await screen.findByText("other version")
+    expect(screen.getByRole("heading", { name: "Other" })).toBeTruthy()
+    expect(storage.readFile).toHaveBeenCalledWith("/vault/Other.md")
+    expect(props.onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Empty" }))
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Empty" })).toBeTruthy())
+    expect(screen.getByRole("dialog")).toBeTruthy()
+    expect(
+      screen.getByRole("button", { name: "Восстановить версию" }).hasAttribute("disabled"),
+    ).toBe(true)
+    expect(props.onSelect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Выберите заметку" }))
+    fireEvent.click(screen.getByRole("button", { name: "Other" }))
+    await screen.findByText("other version")
+    fireEvent.click(screen.getByRole("button", { name: "Восстановить версию" }))
+    await waitFor(() => expect(storage.restoreSnapshot).toHaveBeenCalledWith("other-snapshot"))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   })
   it("discards an old note response after switching notes", async () => {
     const old = deferred<storage.SnapshotEntry[]>()
@@ -168,9 +215,9 @@ describe("history operations", () => {
     expect(onRestored).toHaveBeenCalledTimes(1)
     expect(hook.result.current.notice).toMatch(/Версия восстановлена/)
   })
-  it("does not restore after the user cancels or the vault changes during confirmation", async () => {
-    const confirmation = deferred<boolean>()
-    vi.mocked(storage.confirmAction).mockReturnValue(confirmation.promise)
+  it("does not restore when the vault changes while the open text is being written", async () => {
+    const flushing = deferred<{ flushed: boolean; participants: number }>()
+    vi.mocked(flushAutosaveGeneration).mockReturnValue(flushing.promise)
     const hook = renderHook(() => useHistory(props.currentDocPath))
     let pending!: Promise<void>
     act(() => {
@@ -178,12 +225,9 @@ describe("history operations", () => {
     })
     act(() => useVaultStore.getState().setVault("/another"))
     await act(async () => {
-      confirmation.resolve(true)
+      flushing.resolve({ flushed: true, participants: 1 })
       await pending
     })
-    expect(storage.restoreSnapshot).not.toHaveBeenCalled()
-    vi.mocked(storage.confirmAction).mockResolvedValue(false)
-    await act(() => hook.result.current.restore(entries[0]))
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
   })
   it("previews cleanup, respects cancellation, and reports when nothing can be removed", async () => {
@@ -193,10 +237,17 @@ describe("history operations", () => {
       freedBytes: 6400,
       remaining,
     })
-    vi.mocked(storage.confirmAction).mockResolvedValue(false)
+    vi.mocked(confirm).mockResolvedValue(false)
     const hook = renderHook(() => useHistory(props.currentDocPath))
     await act(() => hook.result.current.cleanup())
-    expect(storage.confirmAction).toHaveBeenCalledWith(expect.stringContaining("32"))
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destructive: true,
+        title: expect.any(String),
+        description: expect.stringContaining("32"),
+        confirmLabel: expect.any(String),
+      }),
+    )
     expect(storage.cleanupHistory).not.toHaveBeenCalled()
     vi.mocked(storage.previewHistoryCleanup).mockResolvedValue({
       removedCount: 0,
@@ -216,5 +267,47 @@ describe("history operations", () => {
     expect(hook.result.current.previewLoading).toBe(false)
     expect(hook.result.current.preview).toBeNull()
     expect(hook.result.current.error).toMatch(/Не удалось прочитать/)
+  })
+})
+
+describe("history questions are asked in the application (docs/notices.md, section 9)", () => {
+  it("asks nothing before restoring: the replaced text becomes a version (docs/notices.md, section 9)", async () => {
+    const hook = renderHook(() => useHistory(props.currentDocPath))
+    await act(() => hook.result.current.restore(entries[0]))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(storage.restoreSnapshot).toHaveBeenCalledWith(entries[0].id)
+  })
+
+  it("deleting one version is dangerous, cancel keeps it, yes deletes it", async () => {
+    vi.mocked(storage.deleteSnapshot).mockResolvedValue(undefined as never)
+    vi.mocked(confirm).mockResolvedValue(false)
+    const hook = renderHook(() => useHistory(props.currentDocPath))
+    await act(() => hook.result.current.removeSnapshot(entries[0]))
+    expect(vi.mocked(confirm).mock.calls[0][0]).toMatchObject({ destructive: true })
+    expect(storage.deleteSnapshot).not.toHaveBeenCalled()
+    vi.mocked(confirm).mockResolvedValue(true)
+    await act(() => hook.result.current.removeSnapshot(entries[0]))
+    expect(storage.deleteSnapshot).toHaveBeenCalledWith(entries[0].id)
+  })
+
+  it("clearing the whole history is dangerous, cancel clears nothing, yes clears", async () => {
+    vi.mocked(storage.previewHistoryCleanup).mockResolvedValue({
+      removedCount: 52,
+      freedBytes: 10400,
+      remaining: { snapshotCount: 0, noteCount: 0, sizeBytes: 0 },
+    })
+    vi.mocked(storage.cleanupHistory).mockResolvedValue({
+      removedCount: 52,
+      freedBytes: 10400,
+    } as never)
+    vi.mocked(confirm).mockResolvedValue(false)
+    const hook = renderHook(() => useHistory(props.currentDocPath))
+    await act(() => hook.result.current.clearAll())
+    expect(vi.mocked(confirm).mock.calls[0][0]).toMatchObject({ destructive: true })
+    expect(vi.mocked(confirm).mock.calls[0][0].description).toContain("52")
+    expect(storage.cleanupHistory).not.toHaveBeenCalled()
+    vi.mocked(confirm).mockResolvedValue(true)
+    await act(() => hook.result.current.clearAll())
+    expect(storage.cleanupHistory).toHaveBeenCalled()
   })
 })

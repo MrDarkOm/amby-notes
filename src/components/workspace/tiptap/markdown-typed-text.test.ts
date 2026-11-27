@@ -18,7 +18,13 @@ function written(...blocks: Json[]): string {
 
 function expectReadBack(markdown: string, typed: string) {
   expect(roundTripCheck(markdown), JSON.stringify(markdown)).toEqual({ ok: true, result: markdown })
-  expect(editorSchema.nodeFromJSON(markdownToDoc(markdown)).textContent).toBe(typed)
+  const reread = editorSchema.nodeFromJSON(markdownToDoc(markdown))
+  expect(reread.textContent).toBe(typed)
+  // Typed text is text: no link, tag atom or other node may have been read out of it.
+  reread.descendants((node) => {
+    expect(node.type.name, node.type.name).not.toMatch(/^(?:ambyHtml|footnote|image|transclusion)/u)
+    expect(node.marks, node.type.name).toHaveLength(0)
+  })
 }
 
 describe("text typed in Live Preview is read back as typed", () => {

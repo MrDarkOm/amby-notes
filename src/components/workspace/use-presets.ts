@@ -16,8 +16,12 @@ import {
   BUILTIN_PRESETS,
   DEFAULT_PRESET_ID,
   getPreset,
+  STANDARD_PRESET,
   parsePresetFile,
+  presetFingerprint,
   serializePreset,
+  mergeMissingButtons,
+  uniqueButtons,
   visibleLayout,
   type Preset,
 } from "./presets"
@@ -27,6 +31,7 @@ import {
   loadWorkspaceConfig,
   saveLayout,
   saveSettingsPatch,
+  saveWorkspaceActivePreset,
   saveWorkspaceConfigPatch,
   type LayoutConfig,
   type PanelScope,
@@ -60,12 +65,24 @@ export interface UsePresets {
   setPanelScope: (scope: PanelScope) => void
   /** Enable or disable one built-in module in the current layout. */
   setModuleEnabled: (id: string, enabled: boolean, ctx: ModuleContext) => Promise<boolean>
+  /** The settings window chose this preset: make it the running one without changing modules. */
+  adoptPreset: (id: string) => Promise<void>
   /** Hot-swap to another preset: run module lifecycle, then apply its layout. */
   switchPreset: (id: string, ctx: ModuleContext) => Promise<boolean>
   /** Import a preset from its JSON text, store it, and switch to it. */
   importPreset: (text: string, ctx: ModuleContext) => ImportResult
   /** Serialize a preset to shareable JSON, or null if unknown. */
   exportPreset: (id: string) => string | null
+  /** The running modules or dock differ from what the active preset stores. */
+  modified: boolean
+  /** The active preset is the person's own, so changes can be saved into it. */
+  canSaveActive: boolean
+  /** Store the running modules and dock as a new preset of the vault and make it the active one. */
+  savePresetAs: (label: string) => void
+  /** Store the running modules and dock into the active preset of the person's own. */
+  saveActivePreset: () => void
+  /** Return the modules and dock to what the active preset stores. */
+  resetActivePreset: (ctx: ModuleContext) => Promise<boolean>
 }
 
 const sanitizeSide = (saved: Record<Side, PanelId | null>): Record<Side, PanelId | null> => {
@@ -73,42 +90,6 @@ const sanitizeSide = (saved: Record<Side, PanelId | null>): Record<Side, PanelId
   const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
     (v as string) === "search" ? fallback : v
   return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
-}
-
-/**
- * Union a persisted button layout with the preset's default buttons for active
- * modules, appending any that are missing. This is what makes a newly-added
- * module's button (e.g. AI) show up for users whose saved layout predates it —
- * while staying an ordinary, draggable activity-bar button they can move.
- */
-const uniqueButtons = (buttons: ActivityButton[]): ActivityButton[] => {
-  const seen = new Set<string>()
-  return buttons.filter((button) => {
-    if (seen.has(button.defId)) return false
-    seen.add(button.defId)
-    return true
-  })
-}
-
-const mergeMissingButtons = (
-  saved: ActivityButton[],
-  preset: Preset,
-  activeModules = preset.activeModules,
-): ActivityButton[] => {
-  const uniqueSaved = uniqueButtons(saved)
-  const have = new Set(uniqueSaved.map((b) => b.defId))
-  const missing = visibleLayout({ ...preset, activeModules }).filter((b) => !have.has(b.defId))
-  if (missing.length === 0) return uniqueSaved
-  const maxOrder: Record<string, number> = {}
-  for (const b of uniqueSaved) maxOrder[b.side] = Math.max(maxOrder[b.side] ?? -1, b.order)
-  return [
-    ...uniqueSaved,
-    ...missing.map((b) => {
-      const order = (maxOrder[b.side] ?? -1) + 1
-      maxOrder[b.side] = order
-      return { ...b, side: b.side, order }
-    }),
-  ]
 }
 
 /**
@@ -154,6 +135,14 @@ export function usePresets(
   React.useEffect(() => {
     presetsRef.current = presets
   }, [presets])
+  const buttonsRef = React.useRef(activityButtons)
+  React.useEffect(() => {
+    buttonsRef.current = activityButtons
+  }, [activityButtons])
+  const activeBySideRef = React.useRef(activeBySide)
+  React.useEffect(() => {
+    activeBySideRef.current = activeBySide
+  }, [activeBySide])
 
   // Suppress persistence until the current (scope, vault) finishes hydrating, so
   // an async load never races a save that would clobber the file with stale state.
@@ -181,16 +170,24 @@ export function usePresets(
       const layout = await loadLayout(panelScope, hasVault)
       if (cancelled) return
       const all = [...BUILTIN_PRESETS, ...userP]
+      // The vault's file is where the settings window records the choice and where this hook
+      // mirrors it, so it wins over the global layout, which may still name an older preset.
+      const fromVault = wsConfig?.layout?.activePresetId
       const activeId =
-        layout.activePresetId ?? wsConfig?.layout?.activePresetId ?? DEFAULT_PRESET_ID
+        (fromVault && all.some((p) => p.id === fromVault) ? fromVault : null) ??
+        layout.activePresetId ??
+        fromVault ??
+        DEFAULT_PRESET_ID
       const preset = all.find((p) => p.id === activeId) ?? getPreset(activeId)
       const rawStored =
-        activeId === "standard"
+        wsConfig?.enabledModules ??
+        (activeId === "standard"
           ? STANDARD_MODULES.map(toShortModuleId)
           : activeId === "minimal" || activeId === "simple"
             ? []
-            : (wsConfig?.enabledModules ??
-              (Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules))
+            : Array.isArray(layout.activeModules)
+              ? layout.activeModules
+              : preset.activeModules)
       const installedSet = await getInstalledModuleIds()
       const storedModules = rawStored
         .filter((id) => installedSet.has(toCanonicalModuleId(id)))
@@ -225,9 +222,7 @@ export function usePresets(
       activeBySide,
     } satisfies LayoutConfig)
     if (hasVault) {
-      saveWorkspaceConfigPatch({
-        enabledModules: activeModules.map(toCanonicalModuleId),
-      })
+      void saveWorkspaceActivePreset(activePresetId, activeModules.map(toCanonicalModuleId))
     }
   }, [activePresetId, activeModules, activityButtons, activeBySide, panelScope, hasVault])
 
@@ -260,7 +255,7 @@ export function usePresets(
 
   // Apply a resolved preset to live state, running the module lifecycle diff.
   const applyPreset = React.useCallback(
-    async (next: Preset, ctx: ModuleContext): Promise<boolean> => {
+    async (next: Preset, ctx: ModuleContext, force = false): Promise<boolean> => {
       const installedSet = await getInstalledModuleIds()
       const supportedNext = {
         ...next,
@@ -270,6 +265,7 @@ export function usePresets(
       }
       const prev = { ...resolve(presetIdRef.current), activeModules: activeModulesRef.current }
       if (
+        !force &&
         prev.id === supportedNext.id &&
         prev.activeModules.every((id) => supportedNext.activeModules.includes(id)) &&
         prev.activeModules.length === supportedNext.activeModules.length
@@ -284,11 +280,18 @@ export function usePresets(
         console.error("Failed to flush module before deactivation", transition.error)
         return false
       }
+      // A preset made in the settings window keeps only its modules; it must not empty the docks,
+      // so it takes the standard dock (limited to its modules) and the standard open panels.
+      const keepsDock = supportedNext.layout.length > 0
       setActivePresetId(supportedNext.id)
       activeModulesRef.current = supportedNext.activeModules
       setActiveModules(supportedNext.activeModules)
-      setActivityButtons(visibleLayout(supportedNext))
-      setActiveBySide(supportedNext.activeBySide)
+      setActivityButtons(
+        visibleLayout(
+          keepsDock ? supportedNext : { ...supportedNext, layout: STANDARD_PRESET.layout },
+        ),
+      )
+      setActiveBySide(keepsDock ? supportedNext.activeBySide : STANDARD_PRESET.activeBySide)
       if (hasVault) {
         saveWorkspaceConfigPatch({
           enabledModules: supportedNext.activeModules.map(toCanonicalModuleId),
@@ -361,6 +364,21 @@ export function usePresets(
     [experimental, hasVault, resolve],
   )
 
+  // The settings window chose a preset (or changed one of the user's own): take it as the running
+  // one, with the vault's current list of presets, which only that window may have changed.
+  const adoptPreset = React.useCallback(
+    async (id: string) => {
+      if (hasVault) {
+        const userP = (await loadWorkspaceConfig()).customPresets
+        presetsRef.current = [...BUILTIN_PRESETS, ...userP]
+        setUserPresets(userP)
+      }
+      presetIdRef.current = id
+      setActivePresetId(id)
+    },
+    [hasVault],
+  )
+
   const importPreset = React.useCallback(
     (text: string, ctx: ModuleContext): ImportResult => {
       const parsed = parsePresetFile(text)
@@ -388,7 +406,80 @@ export function usePresets(
     return preset ? serializePreset(preset) : null
   }, [])
 
+  const activePreset = React.useMemo(
+    () => presets.find((preset) => preset.id === activePresetId) ?? getPreset(activePresetId),
+    [activePresetId, presets],
+  )
+  const modified = React.useMemo(() => {
+    const stored = activePreset.activeModules
+      .map(toShortModuleId)
+      .filter((id) => availableIds.includes(id))
+    // A preset made by the settings window keeps only its modules, so its dock is not compared.
+    const storedButtons =
+      activePreset.layout.length > 0
+        ? visibleLayout({ ...activePreset, activeModules: activeModules })
+        : activityButtons
+    return (
+      presetFingerprint(stored, storedButtons) !== presetFingerprint(activeModules, activityButtons)
+    )
+  }, [activePreset, activeModules, activityButtons, availableIds])
+  const canSaveActive = !activePreset.builtin && !activePreset.locked
+
+  const storeUserPresets = React.useCallback((next: Preset[]) => {
+    presetsRef.current = [...BUILTIN_PRESETS, ...next]
+    setUserPresets(next)
+    saveWorkspaceConfigPatch({ customPresets: next })
+  }, [])
+
+  const savePresetAs = React.useCallback(
+    (label: string) => {
+      const preset: Preset = {
+        id: `custom-${Date.now()}`,
+        label: label.trim(),
+        builtin: false,
+        locked: false,
+        activeModules: activeModulesRef.current.map(toShortModuleId),
+        layout: buttonsRef.current,
+        activeBySide: activeBySideRef.current,
+      }
+      storeUserPresets([...presetsRef.current.filter((p) => !p.builtin), preset])
+      presetIdRef.current = preset.id
+      setActivePresetId(preset.id)
+    },
+    [storeUserPresets],
+  )
+
+  const saveActivePreset = React.useCallback(() => {
+    const id = presetIdRef.current
+    const target = presetsRef.current.find((preset) => preset.id === id)
+    if (!target || target.builtin || target.locked) return
+    storeUserPresets(
+      presetsRef.current
+        .filter((preset) => !preset.builtin)
+        .map((preset) =>
+          preset.id === id
+            ? {
+                ...preset,
+                activeModules: activeModulesRef.current.map(toShortModuleId),
+                layout: buttonsRef.current,
+                activeBySide: activeBySideRef.current,
+              }
+            : preset,
+        ),
+    )
+  }, [storeUserPresets])
+
+  const resetActivePreset = React.useCallback(
+    (ctx: ModuleContext) => applyPreset(resolve(presetIdRef.current), ctx, true),
+    [applyPreset, resolve],
+  )
+
   return {
+    modified,
+    canSaveActive,
+    savePresetAs,
+    saveActivePreset,
+    resetActivePreset,
     activityButtons,
     setActivityButtons,
     activeBySide,
@@ -400,6 +491,7 @@ export function usePresets(
     setPanelScope,
     setModuleEnabled,
     switchPreset,
+    adoptPreset,
     importPreset,
     exportPreset,
   }

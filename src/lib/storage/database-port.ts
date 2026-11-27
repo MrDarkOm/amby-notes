@@ -131,5 +131,6 @@ export function unwrapDatabaseCommand<T>(result: Result<T, DatabaseError>): T {
     result.error.kind,
     databaseErrorMessage(result.error),
     result.error.kind === "failed" ? result.error.code : undefined,
+    result.error.kind === "failed" ? result.error.reason : undefined,
   )
 }

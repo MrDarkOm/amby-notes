@@ -7,64 +7,50 @@ function draft(content: string): RecoveryDraft {
 }
 
 describe("Markdown recovery load", () => {
-  it("restores a differing draft after confirmation", async () => {
-    const confirmRestore = vi.fn(async () => true)
-
+  it("offers a differing draft instead of asking: the note opens with the disk text", async () => {
     await expect(
       resolveMarkdownRecoveryLoad({
         fileId: "note-id",
         path: "/vault/Note.md",
         diskContent: "disk",
         readDraft: async (id) => (id === "note-id" ? draft("recovered") : null),
-        confirmRestore,
-        isCurrent: () => true,
-      }),
-    ).resolves.toEqual({
-      status: "ready",
-      content: "recovered",
-      restored: true,
-      discardDraft: false,
-    })
-    expect(confirmRestore).toHaveBeenCalledOnce()
-  })
-
-  it("keeps disk content and requests draft cleanup after decline", async () => {
-    await expect(
-      resolveMarkdownRecoveryLoad({
-        fileId: "note-id",
-        path: "/vault/Note.md",
-        diskContent: "disk",
-        readDraft: async () => draft("recovered"),
-        confirmRestore: async () => false,
         isCurrent: () => true,
       }),
     ).resolves.toEqual({
       status: "ready",
       content: "disk",
-      restored: false,
-      discardDraft: true,
+      offer: "recovered",
+      discardDraft: false,
     })
   })
 
-  it("discards an equal draft without prompting", async () => {
-    const confirmRestore = vi.fn(async () => true)
-
+  it("discards an equal draft without an offer", async () => {
     const result = await resolveMarkdownRecoveryLoad({
       fileId: "note-id",
       path: "/vault/Note.md",
       diskContent: "same",
       readDraft: async () => draft("same"),
-      confirmRestore,
       isCurrent: () => true,
     })
 
     expect(result).toEqual({
       status: "ready",
       content: "same",
-      restored: false,
+      offer: null,
       discardDraft: true,
     })
-    expect(confirmRestore).not.toHaveBeenCalled()
+  })
+
+  it("has nothing to do without a draft", async () => {
+    await expect(
+      resolveMarkdownRecoveryLoad({
+        fileId: "note-id",
+        path: "/vault/Note.md",
+        diskContent: "disk",
+        readDraft: async () => null,
+        isCurrent: () => true,
+      }),
+    ).resolves.toEqual({ status: "ready", content: "disk", offer: null, discardDraft: false })
   })
 
   it("falls back to a path-keyed legacy draft", async () => {
@@ -78,24 +64,22 @@ describe("Markdown recovery load", () => {
         reads.push(id)
         return id === "/vault/Note.md" ? draft("path recovery") : null
       },
-      confirmRestore: async () => true,
       isCurrent: () => true,
     })
 
     expect(reads).toEqual(["note-id", "/vault/Note.md"])
-    expect(result).toMatchObject({ status: "ready", content: "path recovery", restored: true })
+    expect(result).toMatchObject({ status: "ready", content: "disk", offer: "path recovery" })
   })
 
-  it("abandons a decision when the vault changes while its prompt is open", async () => {
+  it("abandons the decision when the vault changes while the draft is read", async () => {
     let current = true
     const result = await resolveMarkdownRecoveryLoad({
       fileId: "note-id",
       path: "/vault/Note.md",
       diskContent: "disk",
-      readDraft: async () => draft("recovered"),
-      confirmRestore: async () => {
+      readDraft: async () => {
         current = false
-        return false
+        return draft("recovered")
       },
       isCurrent: () => current,
     })

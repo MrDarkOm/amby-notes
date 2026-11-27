@@ -8,17 +8,38 @@ const native = vi.hoisted(() => ({
   getBundleType: vi.fn(),
   check: vi.fn(),
   relaunch: vi.fn(),
-  confirmAction: vi.fn(),
+  confirm: vi.fn(),
   warn: vi.fn(),
+  flushEditingWindows: vi.fn(),
 }))
+
+// SAVE-04: pending edits of every window are flushed before the new version replaces the program.
+vi.mock("@/lib/flush-all-windows", () => ({ flushEditingWindows: native.flushEditingWindows }))
 
 vi.mock("@/lib/storage", () => ({
   isTauri: native.isTauri,
-  confirmAction: native.confirmAction,
 }))
+// The updater never asks a question: an update is installed on the person's own command.
+vi.mock("@/lib/confirm", () => ({ confirm: native.confirm }))
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: native.getCurrentWindow }))
 vi.mock("@tauri-apps/api/app", () => ({ getBundleType: native.getBundleType }))
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: native.check }))
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: native.check,
+  Update: class {
+    constructor(metadata: object) {
+      return metadata
+    }
+  },
+}))
+vi.mock("@/lib/bindings", () => ({
+  commands: {
+    checkAppUpdate: async (...args: unknown[]) => ({
+      status: "ok",
+      data: await native.check(...args),
+    }),
+    appReleaseVersion: async () => ({ status: "ok", data: "0.1.9-beta.2" }),
+  },
+}))
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: native.relaunch }))
 vi.mock("@/lib/logger", () => ({
   logger: { warn: native.warn },
@@ -34,6 +55,7 @@ beforeEach(() => {
   native.getBundleType.mockResolvedValue("nsis")
   native.check.mockResolvedValue(null)
   native.relaunch.mockResolvedValue(undefined)
+  native.flushEditingWindows.mockResolvedValue(true)
 })
 
 afterEach(() => vi.unstubAllEnvs())
@@ -43,7 +65,8 @@ function availableUpdate() {
     currentVersion: "0.1.5",
     version: "0.1.6",
     body: "Synthetic release notes",
-    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+    download: vi.fn().mockResolvedValue(undefined),
+    install: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -69,17 +92,15 @@ describe("silent startup updates", () => {
       native.getBundleType.mockResolvedValue(bundleType)
       const update = availableUpdate()
       let finishInstall!: () => void
-      update.downloadAndInstall.mockReturnValue(
-        new Promise<void>((resolve) => (finishInstall = resolve)),
-      )
+      update.download.mockReturnValue(new Promise<void>((resolve) => (finishInstall = resolve)))
       native.check.mockResolvedValue(update)
       const { runAutomaticAppUpdate } = await import("./app-updater")
       let result: string | undefined
       const task = runAutomaticAppUpdate().then((value) => (result = value))
-      await vi.waitFor(() => expect(update.downloadAndInstall).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(update.download).toHaveBeenCalledOnce())
       expect(result).toBeUndefined()
       expect(native.relaunch).not.toHaveBeenCalled()
-      expect(native.confirmAction).not.toHaveBeenCalled()
+      expect(native.confirm).not.toHaveBeenCalled()
       finishInstall()
       await task
       expect(result).toBe("restarting")
@@ -93,7 +114,7 @@ describe("silent startup updates", () => {
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).not.toHaveBeenCalled()
     expect(native.relaunch).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("opens without updating when the native bundle type cannot be read", async () => {
@@ -101,7 +122,7 @@ describe("silent startup updates", () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("keeps manual updates available for an existing Linux package installation", async () => {
@@ -111,15 +132,15 @@ describe("silent startup updates", () => {
     const { checkForAppUpdate } = await import("./app-updater")
     const manual = await checkForAppUpdate()
     await manual!.install()
-    expect(update.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(update.download).toHaveBeenCalledOnce()
     expect(native.getBundleType).not.toHaveBeenCalled()
   })
 
   it("checks endpoint connectivity with a short timeout and opens when current", async () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
-    expect(native.check).toHaveBeenCalledWith({ timeout: 5000 })
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.check).toHaveBeenCalledWith("stable", 5000)
+    expect(native.confirm).not.toHaveBeenCalled()
     expect(native.relaunch).not.toHaveBeenCalled()
   })
 
@@ -129,13 +150,11 @@ describe("silent startup updates", () => {
     const { runAutomaticAppUpdate } = await import("./app-updater")
 
     expect(await runAutomaticAppUpdate()).toBe("restarting")
-    expect(update.downloadAndInstall).toHaveBeenCalledWith(expect.any(Function), {
-      timeout: 600_000,
-      restartAfterInstall: true,
-    })
+    expect(update.download).toHaveBeenCalledWith(expect.any(Function), { timeout: 600_000 })
+    expect(update.install).toHaveBeenCalledWith({ restartAfterInstall: true })
     expect(native.relaunch).toHaveBeenCalledOnce()
     expect(update.close).toHaveBeenCalledOnce()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("shares an in-flight check and install across repeated startup calls", async () => {
@@ -147,11 +166,11 @@ describe("silent startup updates", () => {
     const second = runAutomaticAppUpdate()
     expect(second).toBe(first)
     await vi.waitFor(() => expect(native.check).toHaveBeenCalledOnce())
-    expect(update.downloadAndInstall).not.toHaveBeenCalled()
+    expect(update.download).not.toHaveBeenCalled()
     finishCheck(update)
     expect(await first).toBe("restarting")
     expect(await second).toBe("restarting")
-    expect(update.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(update.download).toHaveBeenCalledOnce()
     expect(native.relaunch).toHaveBeenCalledOnce()
   })
 
@@ -161,21 +180,50 @@ describe("silent startup updates", () => {
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(native.check).toHaveBeenCalledOnce()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
     expect(native.warn).toHaveBeenCalledWith("updater.automatic_update_failed", {
       errorType: "Error",
     })
   })
 
+  it("writes a failed automatic update into the journal of the notification centre", async () => {
+    native.check.mockRejectedValue(new Error("Synthetic network failure"))
+    const { runAutomaticAppUpdate } = await import("./app-updater")
+    const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
+    expect(await runAutomaticAppUpdate()).toBe("ready")
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    // Information, not an alarm; the cause is a code, never the text of the error.
+    expect(entries[0]).toMatchObject({ kind: "updateFailed", level: "info", params: {} })
+    expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
+  })
+
+  it("names the version that could not be installed, so the journal can offer it for download", async () => {
+    const update = availableUpdate()
+    update.download.mockRejectedValue(new Error("Synthetic rejected update"))
+    native.check.mockResolvedValue(update)
+    const { runAutomaticAppUpdate } = await import("./app-updater")
+    const { useNoticeJournalStore } = await import("@/lib/notices/use-notice-journal-store")
+    expect(await runAutomaticAppUpdate()).toBe("ready")
+    const entries = useNoticeJournalStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: "updateFailed",
+      level: "info",
+      params: { version: "0.1.6" },
+    })
+    expect(JSON.stringify(entries)).not.toMatch(/Synthetic/)
+  })
+
   it("opens the existing version if download or signature verification fails", async () => {
     const update = availableUpdate()
-    update.downloadAndInstall.mockRejectedValue(new Error("Synthetic rejected update"))
+    update.download.mockRejectedValue(new Error("Synthetic rejected update"))
     native.check.mockResolvedValue(update)
     const { runAutomaticAppUpdate } = await import("./app-updater")
     expect(await runAutomaticAppUpdate()).toBe("ready")
     expect(update.close).toHaveBeenCalledOnce()
     expect(native.relaunch).not.toHaveBeenCalled()
-    expect(native.confirmAction).not.toHaveBeenCalled()
+    expect(native.confirm).not.toHaveBeenCalled()
   })
 
   it("opens if restarting fails and still releases the update resource", async () => {
@@ -218,7 +266,7 @@ describe("silent startup updates", () => {
 
   it("preserves manual checks and progress reporting", async () => {
     const update = availableUpdate()
-    update.downloadAndInstall.mockImplementation(async (report: (event: DownloadEvent) => void) => {
+    update.download.mockImplementation(async (report: (event: DownloadEvent) => void) => {
       report({ event: "Started", data: { contentLength: 200 } })
       report({ event: "Progress", data: { chunkLength: 100 } })
       report({ event: "Finished" })
@@ -226,7 +274,7 @@ describe("silent startup updates", () => {
     native.check.mockResolvedValue(update)
     const { checkForAppUpdate } = await import("./app-updater")
     const manual = await checkForAppUpdate()
-    expect(native.check).toHaveBeenCalledWith({ timeout: 30_000 })
+    expect(native.check).toHaveBeenCalledWith("stable", 30_000)
     const progress = vi.fn()
     await manual!.install(progress)
     expect(progress.mock.calls.map(([value]) => value)).toEqual([
@@ -235,5 +283,59 @@ describe("silent startup updates", () => {
       { phase: "installing" },
       { phase: "restarting" },
     ])
+  })
+})
+
+describe("flushing edits before the update replaces the program (SAVE-04)", () => {
+  it("flushes every window after the download and before the install and restart", async () => {
+    const update = availableUpdate()
+    const order: string[] = []
+    update.download.mockImplementation(async () => void order.push("download"))
+    native.flushEditingWindows.mockImplementation(async () => (order.push("flush"), true))
+    update.install.mockImplementation(async () => void order.push("install"))
+    native.relaunch.mockImplementation(async () => void order.push("relaunch"))
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate } = await import("./app-updater")
+    await (await checkForAppUpdate())!.install()
+    expect(order).toEqual(["download", "flush", "install", "relaunch"])
+  })
+
+  it("does not install or restart when the edits could not be flushed", async () => {
+    const update = availableUpdate()
+    native.flushEditingWindows.mockResolvedValue(false)
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate, UpdateFlushError } = await import("./app-updater")
+    const manual = await checkForAppUpdate()
+    await expect(manual!.install()).rejects.toBeInstanceOf(UpdateFlushError)
+    expect(update.install).not.toHaveBeenCalled()
+    expect(native.relaunch).not.toHaveBeenCalled()
+    // The update stays available for a retry: the handle is not released.
+    expect(update.close).not.toHaveBeenCalled()
+  })
+
+  it("does not install or restart when asking the windows throws", async () => {
+    const update = availableUpdate()
+    native.flushEditingWindows.mockRejectedValue(new Error("Synthetic channel failure"))
+    native.check.mockResolvedValue(update)
+    const { checkForAppUpdate } = await import("./app-updater")
+    const manual = await checkForAppUpdate()
+    await expect(manual!.install()).rejects.toThrow()
+    expect(update.install).not.toHaveBeenCalled()
+    expect(native.relaunch).not.toHaveBeenCalled()
+  })
+})
+
+describe("native update channels", () => {
+  it("passes the chosen channel to the native check for manual and startup checks", async () => {
+    const { checkForAppUpdate, runAutomaticAppUpdate } = await import("./app-updater")
+    await checkForAppUpdate("beta")
+    expect(native.check).toHaveBeenLastCalledWith("beta", 30_000)
+    await runAutomaticAppUpdate("beta")
+    expect(native.check).toHaveBeenLastCalledWith("beta", 5_000)
+  })
+
+  it("shows the beta release identity instead of losing its build number", async () => {
+    const { getCurrentAppVersion } = await import("./app-updater")
+    expect(await getCurrentAppVersion()).toBe("0.1.9-beta.2")
   })
 })

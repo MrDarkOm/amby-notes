@@ -1,3 +1,4 @@
+import { OFFICIAL_ED25519_KEY_ID } from "./package-manager/validator"
 import {
   toCanonicalModuleId,
   type ModulePermission,
@@ -8,8 +9,19 @@ import {
 } from "./types"
 
 export const STANDARD_PROFILE_VERSION = "1.0.0"
-export const STANDARD_CATALOG_REVISION = "2026-09-20"
+export const SUPERNOTES_REVISION = "2026-11-21"
+export const STANDARD_CATALOG_REVISION = "2026-11-21"
+/**
+ * The revision that added Templates to the Standard modules: a module list saved before it gets it
+ * once (`readWorkspaceModuleConfig`; Rust: `vault_tools::modules`). Daily notes are opt-in.
+ */
+export const NOTE_MODULES_REVISION = "2026-11-20"
+export const NOTE_MODULES = ["amby.templates"]
 
+/**
+ * The official modules the Standard profile turns on. Creative and Daily notes are ready but
+ * opt-in: they are enabled from Settings → Modules, so a new workspace starts without them.
+ */
 export const STANDARD_MODULES: string[] = [
   "amby.tags",
   "amby.favorites",
@@ -19,11 +31,12 @@ export const STANDARD_MODULES: string[] = [
   "amby.graph",
   "amby.ai",
   "amby.excalidraw",
-  "amby.creative",
+  "amby.templates",
+  "amby.supernotes",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {
-  keyId: "amby-official-2026",
+  keyId: OFFICIAL_ED25519_KEY_ID,
   sig: "ed25519:6c9bf88d5e87a2d9c0e2a3456789abcdef0123456789abcdef0123456789abcdef",
 }
 
@@ -50,7 +63,7 @@ export const PROFILES: Record<ProfileId, ProfileDefinition> = {
       permissions: [],
       dependencies: [],
       signature: {
-        keyId: "amby-official-2026",
+        keyId: OFFICIAL_ED25519_KEY_ID,
         sig: "ed25519:minimal-v1-core-verified",
       },
     },
@@ -93,7 +106,7 @@ export function verifyProfileSignature(profile: ProfileDefinition): boolean {
   if (profile.id === "custom") return true
   if (!profile.metadata.signature) return false
   const { keyId, sig } = profile.metadata.signature
-  if (keyId !== "amby-official-2026") return false
+  if (keyId !== OFFICIAL_ED25519_KEY_ID) return false
   return typeof sig === "string" && sig.startsWith("ed25519:")
 }
 

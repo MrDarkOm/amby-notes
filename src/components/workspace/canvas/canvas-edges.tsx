@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react"
 import type { CanvasEdgeData } from "@/lib/canvas-format"
 import { useCanvasCtx } from "./canvas-context"
+import { isEnterKey } from "@/lib/keyboard"
 
 export function CanvasEdge({
   id,
@@ -76,7 +77,7 @@ export function CanvasEdge({
               onChange={(e) => setTempLabel(e.target.value)}
               onBlur={commitLabel}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (isEnterKey(e)) {
                   e.preventDefault()
                   commitLabel()
                 } else if (e.key === "Escape") {

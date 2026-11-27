@@ -1,12 +1,7 @@
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
-import {
-  fetchPageInfo,
-  openAttachment,
-  openWebAddress,
-  showErrorMessage,
-  type PageInfo,
-} from "@/lib/storage"
+import { fetchPageInfo, openAttachment, openWebAddress, type PageInfo } from "@/lib/storage"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 
 // The backend decides what may be opened and answers with one of these codes; the person
 // sees a sentence about it, never the code or a path.
@@ -27,19 +22,31 @@ const MESSAGES: Array<[code: string, key: string]> = [
   ["PageTimeout", "externalOpen.pageTimeout"],
 ]
 
-export function openErrorMessage(error: unknown): string {
+/** The key of the sentence that explains a refusal in words. */
+export function openErrorKey(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error)
   const match = MESSAGES.find(([code]) => text.includes(code))
-  return i18n.t(match ? match[1] : "externalOpen.openFailed")
+  return match ? match[1] : "externalOpen.openFailed"
 }
 
-async function report(error: unknown) {
+export function openErrorMessage(error: unknown): string {
+  return i18n.t(openErrorKey(error))
+}
+
+/**
+ * A refusal to open or save something outside the note. Nothing is lost and nobody waits for an answer, so it
+ * is a warning in the notification centre (docs/notices.md, sections 2.1 and 3), in words; the code of the
+ * refusal goes to the log.
+ */
+export function reportExternalFailure(error: unknown): void {
   logger.warn("external_open.refused", { errorType: errorType(error) })
-  try {
-    await showErrorMessage(openErrorMessage(error))
-  } catch (dialogError) {
-    logger.warn("external_open.dialog_failed", { errorType: errorType(dialogError) })
-  }
+  const titleKey = openErrorKey(error)
+  useAppNoticesStore.getState().post({
+    id: `external-open:${titleKey}`,
+    level: "warning",
+    titleKey,
+    lineKey: "notices.app.nothingChanged",
+  })
 }
 
 /** The path of an attachment without the `#page=3` or `?t=5` that may follow its name. */
@@ -52,7 +59,7 @@ export async function openAttachmentWithSystem(notePath: string, address: string
   try {
     await openAttachment(notePath, attachmentFilePath(address))
   } catch (error) {
-    await report(error)
+    reportExternalFailure(error)
   }
 }
 
@@ -61,7 +68,7 @@ export async function openWebAddressInBrowser(address: string) {
   try {
     await openWebAddress(address)
   } catch (error) {
-    await report(error)
+    reportExternalFailure(error)
   }
 }
 
@@ -73,7 +80,7 @@ export async function fetchPageInfoOnce(address: string): Promise<PageInfo | nul
   try {
     return await fetchPageInfo(address)
   } catch (error) {
-    await report(error)
+    reportExternalFailure(error)
     return null
   }
 }

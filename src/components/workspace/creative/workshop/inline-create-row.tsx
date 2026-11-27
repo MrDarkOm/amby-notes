@@ -1,7 +1,9 @@
 import * as React from "react"
 import { treeIndent } from "./tree-indent"
 import { useTranslation } from "react-i18next"
-import { projectErrorText } from "../project-error"
+import { projectErrorText } from "@/lib/operation-errors"
+import { isEnterKey } from "@/lib/keyboard"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 /**
  * A row starts from a menu or a dialog that is still closing and keeps focus trapped for a moment,
@@ -13,6 +15,7 @@ interface InlineCreateRowProps {
   /** Nesting depth of the row it sits in, so the field lines up with its siblings. */
   depth: number
   icon: React.ReactNode
+  label?: string
   placeholder: string
   /** Creates the item. A rejection is shown under the field and the typed name is kept. */
   onSubmit: (title: string) => Promise<void>
@@ -27,6 +30,7 @@ interface InlineCreateRowProps {
 export function InlineCreateRow({
   depth,
   icon,
+  label,
   placeholder,
   onSubmit,
   onCancel,
@@ -36,6 +40,7 @@ export function InlineCreateRow({
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const settled = React.useRef(false)
+  const labelId = React.useId()
   const input = React.useRef<HTMLInputElement>(null)
   const born = React.useRef(Date.now())
   const timers = React.useRef<number[]>([])
@@ -69,6 +74,11 @@ export function InlineCreateRow({
 
   return (
     <div className="py-0.5 pr-1" style={{ paddingLeft: treeIndent(depth + 1) - 6 }}>
+      {label && (
+        <div id={labelId} className="pb-0.5 text-xs text-muted-foreground">
+          {label}
+        </div>
+      )}
       <div className="flex items-center gap-1.5 rounded-md border border-primary/50 bg-background px-1.5">
         <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
           {icon}
@@ -81,6 +91,7 @@ export function InlineCreateRow({
           disabled={pending}
           placeholder={placeholder}
           aria-label={placeholder}
+          aria-describedby={label ? labelId : undefined}
           aria-invalid={error ? true : undefined}
           onChange={(event) => {
             setValue(event.target.value)
@@ -98,7 +109,7 @@ export function InlineCreateRow({
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return
-            if (event.key === "Enter") {
+            if (isEnterKey(event)) {
               event.preventDefault()
               void submit()
             } else if (event.key === "Escape") {
@@ -112,9 +123,11 @@ export function InlineCreateRow({
         />
       </div>
       {error && (
-        <p role="alert" className="px-1.5 pt-1 text-[11px] text-destructive">
-          {t("creative.workshop.createFailed", { message: error })}
-        </p>
+        <NoticeLine
+          role="alert"
+          text={t("creative.workshop.createFailed", { message: error })}
+          className="px-1.5 pt-1"
+        />
       )}
     </div>
   )

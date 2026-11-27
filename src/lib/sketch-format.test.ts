@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   createDefaultSketch,
+  displayBackground,
   parseSketch,
   serializeSketch,
+  serializeSketchWithTemplate,
+  sketchTemplateOf,
   validateAndSerializeSketch,
 } from "./sketch-format"
 
@@ -152,5 +155,71 @@ describe("sketch-format", () => {
     const revalidated = validateAndSerializeSketch(corruptedInput)
     const reparsed = JSON.parse(revalidated)
     expect(reparsed.appState.collaborators).toBeUndefined()
+  })
+})
+
+describe("a sketch file with a byte order mark (SAVE-01)", () => {
+  it("reads like the same file without it", () => {
+    const plain = '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}'
+    expect(validateAndSerializeSketch("\uFEFF" + plain)).toBe(validateAndSerializeSketch(plain))
+  })
+})
+
+describe("round trip through the editor (CRE-01)", () => {
+  const original = {
+    type: "excalidraw",
+    version: 2,
+    source: "https://excalidraw.com",
+    futureField: { keep: ["me"] },
+    elements: [{ id: "e1", type: "rectangle", x: 1, y: 2, customElementField: "x" }],
+    appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+    files: {},
+    trailing: 7,
+  }
+
+  /** What the editor emits after the person moved an element: only its own state. */
+  const editorState = (bg: unknown) => ({
+    elements: [{ id: "e1", type: "rectangle", x: 50, y: 2, customElementField: "x" }],
+    appState: { viewBackgroundColor: bg, gridSize: null, scrollX: 5 },
+    files: {},
+  })
+
+  it("keeps unknown top-level fields and the original source after an edit", () => {
+    const template = sketchTemplateOf(parseSketch(JSON.stringify(original)))
+    const saved = JSON.parse(serializeSketchWithTemplate(editorState("transparent"), template))
+    expect(saved.futureField).toEqual({ keep: ["me"] })
+    expect(saved.trailing).toBe(7)
+    expect(saved.source).toBe("https://excalidraw.com")
+    expect(saved.type).toBe("excalidraw")
+    expect(saved.version).toBe(2)
+    expect(saved.elements[0].x).toBe(50)
+    expect(saved.elements[0].customElementField).toBe("x")
+    expect(saved.appState.scrollX).toBeUndefined()
+  })
+
+  it("does not write the display-only transparent background to disk", () => {
+    const parsed = parseSketch(JSON.stringify(original))
+    expect(displayBackground(parsed.appState.viewBackgroundColor)).toBe("transparent")
+    const template = sketchTemplateOf(parsed)
+    const saved = JSON.parse(serializeSketchWithTemplate(editorState("transparent"), template))
+    expect(saved.appState.viewBackgroundColor).toBe("#ffffff")
+  })
+
+  it("writes a background the person chose, and keeps it afterwards", () => {
+    const template = sketchTemplateOf(parseSketch(JSON.stringify(original)))
+    const chosen = JSON.parse(serializeSketchWithTemplate(editorState("#ffec99"), template))
+    expect(chosen.appState.viewBackgroundColor).toBe("#ffec99")
+    const later = JSON.parse(serializeSketchWithTemplate(editorState("transparent"), template))
+    expect(later.appState.viewBackgroundColor).toBe("transparent")
+  })
+
+  it("leaves a non-default stored background untouched", () => {
+    const raw = { ...original, appState: { viewBackgroundColor: "#121212" } }
+    const parsed = parseSketch(JSON.stringify(raw))
+    expect(displayBackground(parsed.appState.viewBackgroundColor)).toBe("#121212")
+    const saved = JSON.parse(
+      serializeSketchWithTemplate(editorState("#121212"), sketchTemplateOf(parsed)),
+    )
+    expect(saved.appState.viewBackgroundColor).toBe("#121212")
   })
 })

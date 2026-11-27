@@ -1,6 +1,9 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import { logger } from "@/lib/logger"
+import { operationErrorCode } from "@/lib/operation-errors"
 import { createNote, readNote } from "@/lib/storage"
+import { useAppNoticesStore } from "../notices/use-app-notices-store"
 import { scrollEditorToAnchor } from "../anchor-navigation"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
@@ -33,7 +36,7 @@ export function useWikiNavigation({
       const existing = findWikiLinkItem(treeItems, target, vault)
       if (existing) {
         await handleSelect(existing.id)
-        scrollEditorToAnchor(anchor)
+        scrollEditorToAnchor(anchor, existing.id)
         return
       }
       try {
@@ -58,7 +61,13 @@ export function useWikiNavigation({
         openItem({ kind: "document", fileId: id, title })
         void releaseUnusedDocumentBuffers()
       } catch (error) {
-        console.error("Failed to open wiki link:", error)
+        logger.warn("file.wiki_link_open_failed", { failureCode: operationErrorCode(error) })
+        useAppNoticesStore.getState().post({
+          id: "wiki-link-open-failed",
+          level: "warning",
+          titleKey: "notices.app.wikiLinkFailed.title",
+          lineKey: "notices.app.wikiLinkFailed.line",
+        })
       }
     },
     [

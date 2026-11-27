@@ -1,13 +1,16 @@
+import { sectionDisplayName } from "../project-labels"
 import * as React from "react"
+import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import {
   createTextPage,
   type CreatedTextPage,
+  type DatabaseRow,
   type ProjectCatalog,
   type WorkshopSummary,
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../../panel-registry"
-import { projectErrorText } from "../project-error"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -17,11 +20,13 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { PanelSearch } from "../../panels/panel-header"
-import { splitChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
+import { groupChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
 import { useDatabaseStore } from "../../database/database-store"
 import { useCreativeNavStore } from "../creative-nav-store"
-import { writeWorkshopPrefs } from "../creative-scope-storage"
+import { WHOLE_WORKSHOP, writeWorkshopPrefs } from "../creative-scope-storage"
 import { useTextStats } from "../use-text-stats"
+import { DanglingStoryLink } from "./dangling-story-link"
+import { OutsideStoryLink } from "./outside-story-link"
 import { SearchResults } from "./search-results"
 import {
   buildTextTree,
@@ -35,10 +40,11 @@ import {
 import { useDatabaseRows } from "./use-database-rows"
 import { useAnchorOrder } from "./use-anchor-order"
 import { NotesPart } from "./notes-part"
-import { buildNotebookTree, noteItemsOf } from "./notebook-model"
+import { buildNotebookTree, notebookKey, noteItemsOf } from "./notebook-model"
 import { useNotebookActions } from "./use-notebook-actions"
 import { useNotebooks } from "./use-notebooks"
 import { AnchorsOverview } from "./anchors-overview"
+import type { UniverseSwitch } from "./story-header"
 import { WorksTab, type AnchorsSlot, type NotesSlot, type PlotPart } from "./works-tab"
 import { WorldSection, type PlotRow } from "./world-section"
 import { pagesOf, readBindings, type PageBinding } from "./plot-model"
@@ -65,6 +71,7 @@ import {
   type WorkshopTab,
   type WorksSection,
 } from "./workshop-model"
+import { ShownError, projectErrorText } from "@/lib/operation-errors"
 
 interface WorkshopPaneProps {
   catalog: ProjectCatalog
@@ -111,6 +118,10 @@ interface WorkshopPaneProps {
   /** The menu of the empty space: what can be created from here, the "Create" button's list. */
   createOptions: ChooserOption[]
   onCreate: (choice: CreateChoice) => void
+  /** Opens the "Create" chooser: the button beside the search. */
+  onOpenCreate: () => void
+  /** The universes the bar at the top chooses among: they set the scope of the lists. */
+  universe?: UniverseSwitch | null
 }
 
 /**
@@ -133,6 +144,8 @@ export function WorkshopPane({
   fileActions,
   createOptions,
   onCreate,
+  onOpenCreate,
+  universe = null,
 }: WorkshopPaneProps) {
   const { t } = useTranslation()
   const databases = useDatabaseStore((state) => state.databases)
@@ -154,7 +167,10 @@ export function WorkshopPane({
   const entityRequest = useCreativeNavStore((state) => state.entityRequest)
 
   const scope = React.useMemo(() => workshopScope(catalog, scopeId), [catalog, scopeId])
-  const categories = React.useMemo(() => entityTabs(scope), [scope])
+  const categories = React.useMemo(
+    () => entityTabs(scope, (section) => sectionDisplayName(section, t("creative.sections.arcs"))),
+    [scope, t],
+  )
   // The universes are chosen with the card below the lists, not listed among the world.
   const worldCategories = React.useMemo(
     () => categories.filter((category) => category.role !== "universes"),
@@ -321,6 +337,17 @@ export function WorkshopPane({
     () => scopeEntities(allNotes, filter, membership),
     [allNotes, filter, membership],
   )
+  const notebooksWithNotes = React.useMemo(
+    () =>
+      filter.kind === "story"
+        ? new Set(
+            allNotes.flatMap(({ categoryPath }) =>
+              categoryPath.map((_, index) => notebookKey(categoryPath.slice(0, index + 1))),
+            ),
+          )
+        : null,
+    [allNotes, filter.kind],
+  )
   const notesTree = React.useMemo(
     () =>
       buildNotebookTree(notebookCatalog?.notebooks ?? [], scopedNotes.shown, { showEmpty: true }),
@@ -395,6 +422,17 @@ export function WorkshopPane({
       }
     }
     return buildSearchGroups(search, [
+      {
+        key: "stories",
+        label: t("creative.sections.stories"),
+        items: scope.stories.map((story) => ({
+          ...asItem(
+            { noteId: story.cardNoteId ?? story.storyId, title: story.name, valuesJson: "{}" },
+            storiesSection?.databaseId ?? "",
+          ),
+          story: { id: story.storyId, cardNoteId: story.cardNoteId },
+        })),
+      },
       { key: "works", label: t("creative.workshop.works", "Произведения"), items: works },
       ...categories.map((category) => ({
         key: category.key,
@@ -402,7 +440,17 @@ export function WorkshopPane({
         items: itemsByCategory[category.key] ?? [],
       })),
     ])
-  }, [categories, data.rows, itemsByCategory, scope.stories, scope.workshop, search, searching, t])
+  }, [
+    categories,
+    data.rows,
+    itemsByCategory,
+    scope.stories,
+    scope.workshop,
+    search,
+    searching,
+    storiesSection,
+    t,
+  ])
 
   const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
   const notebookActions = useNotebookActions({
@@ -502,8 +550,47 @@ export function WorkshopPane({
       ? readBindings(data.rows[text.databaseId] ?? [], text.properties)
       : new Map<string, PageBinding>()
   }, [data.rows, selectedStory])
+  const showAllStories = () => {
+    setDraft(null)
+    setStoryFilter("all")
+    remember({ story: "all" })
+  }
+  const outsideStory = (count: number) =>
+    filter.kind === "story" && data.status === "ready" ? (
+      <OutsideStoryLink
+        count={count}
+        onShow={() => {
+          if (universe) universe.onSelectUniverse(WHOLE_WORKSHOP)
+          showAllStories()
+        }}
+      />
+    ) : null
+  const rowsById = React.useMemo(
+    () =>
+      new Map(
+        Object.entries(data.rows).map(([id, rows]) => [
+          id,
+          new Map(rows.map((row) => [row.noteId, row])),
+        ]),
+      ),
+    [data.rows],
+  )
+  const storyLinkOf = (databaseId: string, noteId: string) => (
+    <DanglingStoryLink
+      workshop={scope.workshop}
+      databaseId={databaseId}
+      row={rowsById.get(databaseId)?.get(noteId)}
+    />
+  )
+  const anchorStoryLink = (row: DatabaseRow) =>
+    anchorsSection ? storyLinkOf(anchorsSection.databaseId, row.noteId) : null
   const plot: PlotPart = {
+    storyLinkOf: anchorStoryLink,
     anchors: storyAnchors,
+    anchorsFootnote: outsideStory(
+      (anchorsSection ? (data.rows[anchorsSection.databaseId]?.length ?? 0) : 0) -
+        storyAnchors.length,
+    ),
     arcs: storyArcs,
     bindings,
     binding:
@@ -564,7 +651,7 @@ export function WorkshopPane({
               },
             }
           : undefined,
-      error: binding.error?.rowId === item.noteId ? binding.error.message : null,
+      error: binding.error?.rowId === item.noteId ? binding.error.text : null,
     }
   }
 
@@ -633,13 +720,17 @@ export function WorkshopPane({
       scope.stories[0]?.storyId ??
       null
     if (storyId) startPage(storyId, null)
+    // One-shot per request id (guarded by `handledPage`); the render's current state is what it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageRequest])
   const handledEntity = React.useRef(entityRequest?.id ?? 0)
   React.useEffect(() => {
     if (!entityRequest || entityRequest.id === handledEntity.current) return
     handledEntity.current = entityRequest.id
-    startEntity(entityRequest.categoryKey)
+    if (entityRequest.categoryKey === "anchors") startAnchor()
+    else if (entityRequest.categoryKey === "notes") startNote([])
+    else startEntity(entityRequest.categoryKey)
+    // One-shot per request id (guarded by `handledEntity`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityRequest])
 
@@ -655,13 +746,13 @@ export function WorkshopPane({
     }
     if (draft.kind === "page") {
       const story = scope.stories.find((candidate) => candidate.storyId === draft.storyId)
-      if (!story) throw new Error(t("creative.errors.projectNotFound"))
+      if (!story) throw new ShownError(t("creative.errors.projectNotFound"))
       const text = story.text
-      if (!text?.databaseId) throw new Error(t("creative.workshop.noText"))
+      if (!text?.databaseId) throw new ShownError(t("creative.workshop.noText"))
       const roots = rootsOf(story.storyId)
       const parent = draft.parentId ? findNode(roots, draft.parentId) : null
       const levelId = startLevelId(text.levels, parent)
-      if (!levelId) throw new Error(t("creative.workshop.noLevels"))
+      if (!levelId) throw new ShownError(t("creative.workshop.noLevels"))
       const formats = text.formats.filter((format) => format.state === "ok")
       const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
       const created = await createTextPage({
@@ -693,7 +784,7 @@ export function WorkshopPane({
     }
     // An anchor made while a story is shown belongs to it from the first write.
     const sec = storySection(scope.workshop, "anchors")
-    if (!sec) throw new Error(t("creative.errors.projectNotFound"))
+    if (!sec) throw new ShownError(t("creative.errors.projectNotFound"))
     const storyId = filter.kind === "story" && sec.storiesPropertyId ? filter.storyId : null
     // Made while a universe is shown, an anchor is an event of it from the first write.
     const universeId = filter.kind === "universe" ? filter.universeId : null
@@ -709,7 +800,7 @@ export function WorkshopPane({
   const iconOf = (databaseId: string) =>
     databases.find((database) => database.databaseId === databaseId)?.icon ?? null
 
-  const { common, rare } = splitChooserOptions(createOptions)
+  const createGroups = groupChooserOptions(createOptions)
 
   const actions = React.useMemo<ItemActions>(
     () => ({ onOpen: onOpenNote, ...itemActions }),
@@ -729,6 +820,7 @@ export function WorkshopPane({
           content: (
             <AnchorsOverview
               buckets={anchorBuckets}
+              storyLinkOf={anchorStoryLink}
               universe={filter.kind === "universe"}
               canWrite={!scope.workshop?.readOnly}
               loading={data.status === "loading" || data.status === "idle"}
@@ -748,32 +840,37 @@ export function WorkshopPane({
         count: notesTree.count + (notesWithoutStory?.count ?? 0),
         onAdd: scope.workshop?.readOnly ? null : () => startNote([]),
         content: (
-          <NotesPart
-            tree={notesTree}
-            withoutStory={notesWithoutStory}
-            canWrite={!scope.workshop?.readOnly}
-            loading={data.status === "loading" || data.status === "idle"}
-            activeNoteId={activeNoteId}
-            onOpenNote={onOpenNote}
-            collapsed={collapsed}
-            onToggle={toggleCollapsed}
-            storyLabelsOf={labelsOf}
-            draft={draft}
-            onCommitDraft={commitDraft}
-            onCancelDraft={() => setDraft(null)}
-            onAddNote={startNote}
-            onAddNotebook={startNotebook}
-            actions={notebookActions}
-            link={
-              notesSection && !notesSection.storiesPropertyId && !scope.workshop?.readOnly
-                ? {
-                    pending: linking === notesSection.id,
-                    error: linkError,
-                    onLink: () => void linkSection(notesSection.id),
-                  }
-                : null
-            }
-          />
+          <>
+            <NotesPart
+              tree={notesTree}
+              notebooksWithNotes={notebooksWithNotes}
+              storyLinkOf={(note) => storyLinkOf(note.databaseId, note.noteId)}
+              withoutStory={notesWithoutStory}
+              canWrite={!scope.workshop?.readOnly}
+              loading={data.status === "loading" || data.status === "idle"}
+              activeNoteId={activeNoteId}
+              onOpenNote={onOpenNote}
+              collapsed={collapsed}
+              onToggle={toggleCollapsed}
+              storyLabelsOf={labelsOf}
+              draft={draft}
+              onCommitDraft={commitDraft}
+              onCancelDraft={() => setDraft(null)}
+              onAddNote={startNote}
+              onAddNotebook={startNotebook}
+              actions={notebookActions}
+              link={
+                notesSection && !notesSection.storiesPropertyId && !scope.workshop?.readOnly
+                  ? {
+                      pending: linking === notesSection.id,
+                      error: linkError,
+                      onLink: () => void linkSection(notesSection.id),
+                    }
+                  : null
+              }
+            />
+            {outsideStory(allNotes.length - scopedNotes.shown.length)}
+          </>
         ),
       }
     : null
@@ -800,6 +897,20 @@ export function WorkshopPane({
           onChange={setSearch}
           placeholder={t("creative.workshop.search")}
           ariaLabel={t("creative.workshop.search")}
+          trailing={
+            scope.workshop.readOnly ? undefined : (
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="shrink-0"
+                title={t("creative.panel.create")}
+                aria-label={t("creative.panel.create")}
+                onClick={onOpenCreate}
+              >
+                <Plus className="size-4" />
+              </Button>
+            )
+          }
         />
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -811,6 +922,7 @@ export function WorkshopPane({
                   status={data.status}
                   error={data.error}
                   onOpen={onOpenNote}
+                  onOpenStory={onOpenProject}
                 />
               ) : (
                 <WorksTab
@@ -818,9 +930,8 @@ export function WorkshopPane({
                   stories={listedStories}
                   selectedStoryId={selectedStory?.storyId ?? null}
                   selectedUniverseId={universeId}
+                  universe={universe}
                   onSelectStory={(storyId) => {
-                    // `null` is all the stories of the scope; it is stored as "all" because an
-                    // empty choice means "the first story".
                     setDraft(null)
                     const next = storyId ?? "all"
                     setStoryFilter(next)
@@ -859,6 +970,12 @@ export function WorkshopPane({
                     <WorldSection
                       categories={shownWorldCategories}
                       itemsByCategory={scoped.shown}
+                      storyLinkOf={storyLinkOf}
+                      footnoteOf={(key) =>
+                        outsideStory(
+                          (itemsByCategory[key]?.length ?? 0) - (scoped.shown[key]?.length ?? 0),
+                        )
+                      }
                       withoutStoryByCategory={scoped.withoutStory}
                       storyLabelsOf={labelsOf}
                       plotRowOf={plotRowOf}
@@ -896,26 +1013,23 @@ export function WorkshopPane({
             <ContextMenuLabel className="text-[11px] text-muted-foreground">
               {t("creative.workshop.menu.create")}
             </ContextMenuLabel>
-            {common.map(({ value, icon: Icon, title }) => (
-              <ContextMenuItem
-                key={value}
-                className="gap-2 text-[13px]"
-                onSelect={() => onCreate(value)}
-              >
-                <Icon className="size-3.5 text-muted-foreground" />
-                <span className="truncate">{title}</span>
-              </ContextMenuItem>
-            ))}
-            {common.length > 0 && rare.length > 0 && <ContextMenuSeparator />}
-            {rare.map(({ value, icon: Icon, title }) => (
-              <ContextMenuItem
-                key={value}
-                className="gap-2 text-[13px] text-muted-foreground"
-                onSelect={() => onCreate(value)}
-              >
-                <Icon className="size-3.5" />
-                <span className="truncate">{title}</span>
-              </ContextMenuItem>
+            {createGroups.map(({ group, options }, index) => (
+              <React.Fragment key={group}>
+                {index > 0 && <ContextMenuSeparator />}
+                <ContextMenuLabel className="text-[11px] text-muted-foreground">
+                  {t(`creative.chooser.groups.${group}`)}
+                </ContextMenuLabel>
+                {options.map(({ value, icon: Icon, title }) => (
+                  <ContextMenuItem
+                    key={value}
+                    className="gap-2 text-[13px]"
+                    onSelect={() => onCreate(value)}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    <span className="truncate">{title}</span>
+                  </ContextMenuItem>
+                ))}
+              </React.Fragment>
             ))}
           </ContextMenuContent>
         </ContextMenu>

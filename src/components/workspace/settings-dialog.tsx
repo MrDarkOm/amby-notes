@@ -15,13 +15,16 @@ import {
   Check,
   Download,
   FolderOpen,
+  Info,
+  Keyboard,
   Minus,
   Monitor,
-  Keyboard,
   Palette,
   PencilLine,
+  RefreshCw,
   Search,
   Sparkles,
+  SwatchBook,
   Type,
   UserRound,
   X,
@@ -41,8 +44,14 @@ import {
 } from "@/components/ui/select"
 import { isTauri } from "@/lib/storage"
 import { ACCENT_HEX } from "@/lib/themes"
-import { SUPPORTED_LANGUAGES } from "@/lib/i18n"
+import i18n, { SUPPORTED_LANGUAGES } from "@/lib/i18n"
 import { useSettingsStore } from "./use-settings-store"
+import { useVaultStore } from "./use-vault-store"
+import {
+  acceptSettingsGeneration,
+  readInitialSettingsGeneration,
+  useSettingsVaultActivation,
+} from "./windows/settings-window-vault"
 import {
   isSettingsModuleId,
   isSettingsSectionId,
@@ -55,10 +64,10 @@ import {
   SETTINGS_SAVE_ERROR_EVENT,
   type ContentWidth,
   type Density,
-  type FontScale,
   type FontFamily,
   type Language,
   type ThemePref,
+  type NotePagesPref,
   type ViewModePref,
 } from "./app-config"
 import { SHORTCUT_DEFINITIONS } from "./keyboard-shortcuts"
@@ -67,19 +76,34 @@ import {
   selectTrigger,
   SettingsGroup,
   UpdateSettings,
+  CliPathSettings,
+  AboutSettings,
   ThemeLibrary,
   ShortcutsTab,
   ModulesTab,
   DataTab,
   DeleteConfirmationSetting,
   DeleteModeSetting,
+  FolderClickSetting,
   SearchResults,
   DebugSettings,
 } from "./settings"
+import { SmoothSlider } from "./settings/smooth-slider"
+import { FONT_SIZE, fontScaleOf } from "@/themes/preferences"
+import { SyncSettings } from "./sync/sync-settings"
+
+/** Tooltip delay on the slider: 0–2 s, and the far right end turns tooltips off (stored as -1). */
+const TOOLTIP_DELAY_MAX = 2000
+const TOOLTIP_DELAY_STEP = 100
+const TOOLTIP_OFF = TOOLTIP_DELAY_MAX + TOOLTIP_DELAY_STEP
+
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 const SETTINGS_WINDOW_LABEL = "settings"
 const SETTINGS_MODULE_CHANGE_EVENT = "amby:settings-module-change"
+const SETTINGS_PRESET_CHANGE_EVENT = "amby:settings-preset-change"
 const SETTINGS_CONTEXT_CHANGE_EVENT = "amby:settings-context-change"
+const SETTINGS_READY_EVENT = "amby:settings-ready"
+let settingsWindowQueue: Promise<unknown> = Promise.resolve()
 
 interface ModuleChangePayload {
   id: string
@@ -89,12 +113,15 @@ interface ModuleChangePayload {
 interface SettingsContextPayload {
   activeModules: string[]
   vault: string | null
+  /** Backend generation of that vault: the settings window binds its vault writes to it (IPC-11). */
+  generation?: number | null
   target?: SettingsNavigationTarget
 }
 
 function settingsWindowUrl(
   activeModules: string[],
   vault: string | null,
+  generation: number | null,
   target: SettingsNavigationTarget | null,
 ): string {
   const params = new URLSearchParams({
@@ -102,6 +129,7 @@ function settingsWindowUrl(
     activeModules: JSON.stringify(activeModules),
   })
   if (vault) params.set("vault", vault)
+  if (generation !== null) params.set("generation", String(generation))
   if (target) {
     params.set("settingsSection", target.section)
     if (target.moduleId) params.set("settingsModule", target.moduleId)
@@ -109,35 +137,64 @@ function settingsWindowUrl(
   return `/?${params.toString()}`
 }
 
-async function openSettingsWindow(
+function openSettingsWindow(
   activeModules: string[],
   title: string,
   vault: string | null,
+  generation: number | null,
   target: SettingsNavigationTarget | null,
+  prewarm = false,
+): Promise<boolean> {
+  const operation = settingsWindowQueue.then(() =>
+    openSettingsWindowNow(activeModules, title, vault, generation, target, prewarm),
+  )
+  // Keeps the queue going: the failure itself reaches the caller of the previous opening
+  // (`operation`).
+  settingsWindowQueue = operation.catch(() => {})
+  return operation
+}
+
+async function openSettingsWindowNow(
+  activeModules: string[],
+  title: string,
+  vault: string | null,
+  generation: number | null,
+  target: SettingsNavigationTarget | null,
+  prewarm: boolean,
 ): Promise<boolean> {
   try {
     const existing = await WebviewWindow.getByLabel(SETTINGS_WINDOW_LABEL)
     if (existing) {
-      await existing.unminimize()
-      await existing.show()
-      await existing.setFocus()
+      if (prewarm) return true
+      // A context update that did not arrive: the window keeps the previous context until the next
+      // one is sent. Nothing is lost.
       await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
         activeModules,
         vault,
+        generation,
         target: target ?? undefined,
       }).catch(() => {})
+      await existing.unminimize()
+      await existing.show()
+      await existing.setFocus()
       return true
     }
 
+    let markReady: (() => void) | undefined
+    const readySignal = new Promise<void>((resolve) => {
+      markReady = resolve
+    })
+    const stopReady = await listen(SETTINGS_READY_EVENT, () => markReady?.())
     const child = new WebviewWindow(SETTINGS_WINDOW_LABEL, {
-      url: settingsWindowUrl(activeModules, vault, target),
+      url: settingsWindowUrl(activeModules, vault, generation, target),
       title,
       width: 1024,
       height: 720,
       minWidth: 680,
       minHeight: 480,
       center: true,
-      focus: true,
+      focus: false,
+      visible: false,
       resizable: true,
       maximizable: true,
       minimizable: true,
@@ -147,28 +204,39 @@ async function openSettingsWindow(
       hiddenTitle: isMac,
       trafficLightPosition: isMac ? new LogicalPosition(14, 22) : undefined,
     })
-    return await new Promise<boolean>((resolve) => {
+    const ready = await new Promise<boolean>((resolve) => {
       let settled = false
       const settle = (opened: boolean) => {
         if (settled) return
         settled = true
+        window.clearTimeout(timeout)
+        stopReady()
         resolve(opened)
       }
-      const timeout = window.setTimeout(() => settle(false), 3_000)
-      void child
-        .once("tauri://created", () => {
-          window.clearTimeout(timeout)
-          settle(true)
-        })
-        .catch(() => settle(false))
+      const timeout = window.setTimeout(() => settle(false), 8_000)
+      void readySignal.then(() => settle(true))
       void child
         .once("tauri://error", (event) => {
           console.error("Failed to open settings window:", event.payload)
-          window.clearTimeout(timeout)
           settle(false)
         })
         .catch(() => settle(false))
     })
+    if (!ready) {
+      // Closing a settings window that did not start: nothing else to clean up.
+      void child.destroy().catch(() => {})
+      return false
+    }
+    if (prewarm) return true
+    await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
+      activeModules,
+      vault,
+      generation,
+      target: target ?? undefined,
+    })
+    await child.show()
+    await child.setFocus()
+    return true
   } catch (error) {
     console.error("Failed to open settings window:", error)
     return false
@@ -182,6 +250,8 @@ const SETTINGS_NAV = [
   { id: "editor", labelKey: "settings.tabs.editor", icon: PencilLine },
   { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
   { id: "modules", labelKey: "settings.tabs.modules", icon: Blocks },
+  { id: "sync", labelKey: "settings.tabs.sync", icon: RefreshCw },
+  { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ] as const
 
 interface SettingsDialogProps {
@@ -192,6 +262,8 @@ interface SettingsDialogProps {
   navigationTarget?: SettingsNavigationTarget | null
   activeModules: string[]
   onModuleEnabledChange: (id: string, enabled: boolean) => void
+  /** The user picked or edited a preset in the settings: the app should run that one. */
+  onPresetChange?: (id: string) => void
 }
 
 function SettingsWindowFrame({
@@ -225,6 +297,15 @@ function SettingsWindowFrame({
           event.preventDefault()
           searchInputRef.current?.focus()
         }}
+        onCloseAutoFocus={(event) => {
+          // Return keyboard focus to the dock's Settings button instead of the page body.
+          const settingsButton = document.querySelector<HTMLElement>(
+            '[data-activity-button="settings"]',
+          )
+          if (!settingsButton) return
+          event.preventDefault()
+          settingsButton.focus()
+        }}
         className="flex max-w-none flex-col gap-0 overflow-hidden rounded-xl border-border bg-background p-0 shadow-2xl sm:max-w-none"
         style={{
           width: maximized ? "calc(100vw - 16px)" : "min(1024px, calc(100vw - 32px))",
@@ -250,8 +331,10 @@ export function SettingsDialog({
   navigationTarget = null,
   activeModules,
   onModuleEnabledChange,
+  onPresetChange,
 }: SettingsDialogProps) {
   const { t } = useTranslation()
+  const generation = useVaultStore((s) => s.backendGeneration)
   const prefs = useSettingsStore((s) => s.prefs)
   const themes = useSettingsStore((s) => s.themes)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
@@ -263,7 +346,6 @@ export function SettingsDialog({
   const [query, setQuery] = React.useState("")
   const [maximized, setMaximized] = React.useState(false)
   const [useInlineFallback, setUseInlineFallback] = React.useState(false)
-
   React.useEffect(() => {
     if (!navigationTarget) return
     setActiveSection(navigationTarget.section)
@@ -273,8 +355,8 @@ export function SettingsDialog({
 
   React.useEffect(() => {
     const onSaveError = (event: Event) => {
-      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message
-      if (typeof message === "string") setSaveError(message)
+      const text = (event as CustomEvent<{ text?: unknown }>).detail?.text
+      if (typeof text === "string") setSaveError(text)
     }
     window.addEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
     return () => window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
@@ -301,10 +383,21 @@ export function SettingsDialog({
         label: t("settings.groups.startup"),
         description: `${t("settings.startup.reopenLastVault")} · ${t("settings.startup.restoreSession")}`,
       },
+      { section: "sync", label: t("backups.title"), description: t("backups.intro") },
+      {
+        section: "about",
+        label: t("settings.tabs.about"),
+        description: `${t("settings.updates.currentVersion")} · ${t("settings.updates.license")} · ${t("settings.updates.thirdPartyLicenses")}`,
+      },
       {
         section: "general",
+        label: t("settings.groups.commandLine"),
+        description: `${t("settings.cliPath.label")} · PATH · MCP · Claude Code · Codex · Cursor`,
+      },
+      {
+        section: "about",
         label: t("settings.groups.updates"),
-        description: `${t("settings.updates.autoUpdate")} · ${t("settings.updates.check")} · ${t("settings.updates.currentVersion")}`,
+        description: `${t("settings.updates.autoUpdate")} · ${t("settings.updates.check")} · ${t("settings.updates.channel")}`,
       },
       {
         section: "general",
@@ -317,7 +410,7 @@ export function SettingsDialog({
         description: `${t("settings.data.location")} · ${t("settings.data.reset")}`,
       },
       {
-        section: "general",
+        section: "about",
         label: t("settings.debug.groupTitle"),
         description: `${t("settings.debug.enabled")} · ${t("settings.debug.logLevel")} · ${t("settings.debug.logToFile")} · ${t("settings.debug.viewLogs")}`,
       },
@@ -334,12 +427,17 @@ export function SettingsDialog({
       {
         section: "editor",
         label: t("settings.tabs.editor"),
-        description: `${t("settings.editor.defaultViewMode")} · ${t("settings.editor.contentWidth")} · ${t("settings.editor.autosave")}`,
+        description: `${t("settings.editor.defaultViewMode")} · ${t("settings.editor.contentWidth")} · ${t("settings.editor.autosave")} · ${t("settings.editor.notePages")}`,
       },
       {
         section: "shortcuts",
         label: t("settings.tabs.shortcuts"),
         description: SHORTCUT_DEFINITIONS.map(({ labelKey }) => t(labelKey)).join(" · "),
+      },
+      {
+        section: "sync" as const,
+        label: t("sync.title"),
+        description: `${t("sync.wizard.server.address")} · ${t("sync.wizard.choice.create")} · ${t("sync.recovery.title")} · ${t("sync.connected.devices")}`,
       },
       ...MODULE_REGISTRY.map((module) => ({
         section: "modules" as const,
@@ -363,12 +461,41 @@ export function SettingsDialog({
   }, [onModuleEnabledChange, standalone])
 
   React.useEffect(() => {
+    if (standalone || !isTauri() || !onPresetChange) return
+    return adoptAsyncDisposer(
+      listen<{ id: string }>(SETTINGS_PRESET_CHANGE_EVENT, (event) => {
+        onPresetChange(event.payload.id)
+      }),
+    )
+  }, [onPresetChange, standalone])
+
+  React.useEffect(() => {
     if (standalone || !isTauri()) return
+    // A context update that did not arrive: the window keeps the previous context until the next
+    // one is sent. Nothing is lost.
     void emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
       activeModules,
       vault,
+      generation,
     }).catch(() => {})
-  }, [activeModules, standalone, vault])
+  }, [activeModules, generation, standalone, vault])
+
+  React.useEffect(() => {
+    if (standalone || !isTauri()) return
+    const timer = window.setTimeout(() => {
+      void openSettingsWindow(
+        activeModules,
+        t("settings.window.title"),
+        vault,
+        generation,
+        null,
+        true,
+      )
+    }, 500)
+    return () => window.clearTimeout(timer)
+    // Warm up only once; current context is sent again when opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standalone])
 
   React.useEffect(() => {
     if (!open || standalone || !isTauri() || useInlineFallback) return
@@ -377,6 +504,7 @@ export function SettingsDialog({
       activeModules,
       t("settings.window.title"),
       vault,
+      generation,
       navigationTarget,
     ).then((opened) => {
       if (cancelled) return
@@ -386,7 +514,17 @@ export function SettingsDialog({
     return () => {
       cancelled = true
     }
-  }, [activeModules, navigationTarget, onOpenChange, open, standalone, t, useInlineFallback, vault])
+  }, [
+    activeModules,
+    generation,
+    navigationTarget,
+    onOpenChange,
+    open,
+    standalone,
+    t,
+    useInlineFallback,
+    vault,
+  ])
 
   React.useEffect(() => {
     if (!standalone || !open) return
@@ -416,7 +554,7 @@ export function SettingsDialog({
           setMaximized((value) => !value)
         }}
         onClose={() => {
-          if (standalone && isTauri()) void getCurrentWindow().close()
+          if (standalone && isTauri()) void getCurrentWindow().hide()
           else onOpenChange(false)
         }}
       />
@@ -435,7 +573,7 @@ export function SettingsDialog({
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("settings.search.placeholder")}
               aria-label={t("settings.search.placeholder")}
-              className="h-8 bg-card pl-8 text-[12px]"
+              className="amby-inset-icon-input h-8 bg-card pl-8 text-[12px]"
             />
           </div>
           {saveError && (
@@ -458,8 +596,10 @@ export function SettingsDialog({
 
         <div
           className={cn(
-            "m-3 ml-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
-            activeSection === "modules" && !query.trim() ? "p-0" : "px-4 py-5 sm:px-7",
+            "settings-section-panel m-3 ml-0 min-w-0 flex-1 rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
+            activeSection === "modules" && !query.trim()
+              ? "flex flex-col overflow-hidden p-0"
+              : "overflow-y-auto px-4 py-5 sm:px-7",
           )}
         >
           {query.trim() ? (
@@ -495,6 +635,7 @@ export function SettingsDialog({
                     </Select>
                   </Row>
                   <DeleteModeSetting />
+                  <FolderClickSetting />
                   <DeleteConfirmationSetting vault={vault} />
                 </SettingsGroup>
                 <SettingsGroup title={t("settings.groups.startup")} icon={Sparkles}>
@@ -515,14 +656,9 @@ export function SettingsDialog({
                     />
                   </Row>
                 </SettingsGroup>
-                <SettingsGroup title={t("settings.groups.updates")} icon={Download}>
-                  <UpdateSettings />
-                </SettingsGroup>
+                <CliPathSettings vault={vault} />
                 <SettingsGroup title={t("settings.groups.data")} icon={FolderOpen}>
                   <DataTab vault={vault} />
-                </SettingsGroup>
-                <SettingsGroup title={t("settings.debug.groupTitle")} icon={Bug}>
-                  <DebugSettings />
                 </SettingsGroup>
               </TabsContent>
 
@@ -536,7 +672,7 @@ export function SettingsDialog({
                     onThemesChange={setThemes}
                   />
                 </SettingsGroup>
-                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={Palette}>
+                <SettingsGroup title={t("settings.groups.colorsEffects")} icon={SwatchBook}>
                   <Row label={t("settings.appearance.accent")}>
                     <div className="flex items-center gap-1.5">
                       {ACCENTS.map((a) => (
@@ -604,19 +740,25 @@ export function SettingsDialog({
                     </Select>
                   </Row>
                   <Row label={t("settings.appearance.fontScale")}>
-                    <Select
-                      value={prefs.fontScale}
-                      onValueChange={(v) => setPrefs({ fontScale: v as FontScale })}
-                    >
-                      <SelectTrigger className={selectTrigger}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sm">{t("settings.appearance.fontSm")}</SelectItem>
-                        <SelectItem value="md">{t("settings.appearance.fontMd")}</SelectItem>
-                        <SelectItem value="lg">{t("settings.appearance.fontLg")}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <SmoothSlider
+                      value={prefs.fontSize}
+                      min={FONT_SIZE.min}
+                      max={FONT_SIZE.max}
+                      snap={FONT_SIZE.default}
+                      format={(size) => `${size}%`}
+                      ariaLabel={t("settings.appearance.fontScale")}
+                      // The whole interface follows the thumb while it moves; the size is saved
+                      // once it is let go.
+                      onPreview={(size) =>
+                        document.documentElement.style.setProperty(
+                          "--app-font-scale",
+                          String(size / 100),
+                        )
+                      }
+                      onChange={(fontSize) =>
+                        setPrefs({ fontSize, fontScale: fontScaleOf(fontSize) })
+                      }
+                    />
                   </Row>
                 </SettingsGroup>
               </TabsContent>
@@ -652,33 +794,44 @@ export function SettingsDialog({
                       aria-label={t("settings.interface.rightPanel")}
                     />
                   </Row>
+                  <Row
+                    label={t("settings.interface.bottomBar")}
+                    hint={t("settings.interface.bottomBarHint")}
+                  >
+                    <Switch
+                      checked={prefs.editor.showAreaControls ?? true}
+                      onCheckedChange={(showAreaControls) =>
+                        setPrefs({ editor: { ...prefs.editor, showAreaControls } })
+                      }
+                      aria-label={t("settings.interface.bottomBar")}
+                    />
+                  </Row>
                   <Row label={t("settings.interface.tooltipDelay")}>
-                    <Select
-                      value={String(prefs.tooltipDelayMs)}
-                      onValueChange={(value) => {
-                        const next = Number(value)
-                        setPrefs({ tooltipDelayMs: next })
-                      }}
-                    >
-                      <SelectTrigger className={selectTrigger}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="0">{t("settings.interface.tooltipNone")}</SelectItem>
-                        <SelectItem value="1000">
-                          {t("settings.interface.tooltipOneSecond")}
-                        </SelectItem>
-                        <SelectItem value="1500">
-                          {t("settings.interface.tooltipOneHalfSeconds")}
-                        </SelectItem>
-                        <SelectItem value="2000">
-                          {t("settings.interface.tooltipTwoSeconds")}
-                        </SelectItem>
-                        <SelectItem value="-1">
-                          {t("settings.interface.tooltipDisabled")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <SmoothSlider
+                      value={
+                        prefs.tooltipDelayMs < 0
+                          ? TOOLTIP_OFF
+                          : Math.min(TOOLTIP_DELAY_MAX, prefs.tooltipDelayMs)
+                      }
+                      min={0}
+                      max={TOOLTIP_OFF}
+                      step={TOOLTIP_DELAY_STEP}
+                      bigStep={500}
+                      valueClassName="w-24 text-left"
+                      format={(ms) =>
+                        ms >= TOOLTIP_OFF
+                          ? t("settings.interface.tooltipDisabled")
+                          : ms === 0
+                            ? t("settings.interface.tooltipNone")
+                            : t("settings.interface.tooltipSeconds", {
+                                seconds: new Intl.NumberFormat(i18n.language, {
+                                  maximumFractionDigits: 1,
+                                }).format(ms / 1000),
+                              })
+                      }
+                      ariaLabel={t("settings.interface.tooltipDelay")}
+                      onChange={(ms) => setPrefs({ tooltipDelayMs: ms >= TOOLTIP_OFF ? -1 : ms })}
+                    />
                   </Row>
                 </SettingsGroup>
               </TabsContent>
@@ -742,6 +895,31 @@ export function SettingsDialog({
                       className="h-8 w-24 rounded-md border border-border bg-card px-2 text-right text-[13px] text-foreground outline-none focus:border-border"
                     />
                   </Row>
+
+                  <Row
+                    label={t("settings.editor.notePages")}
+                    hint={t("settings.editor.notePagesHint")}
+                  >
+                    <Select
+                      value={prefs.editor.notePages}
+                      onValueChange={(v) =>
+                        setPrefs({ editor: { ...prefs.editor, notePages: v as NotePagesPref } })
+                      }
+                    >
+                      <SelectTrigger className={selectTrigger}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="flagged">
+                          {t("settings.editor.notePagesFlagged")}
+                        </SelectItem>
+                        <SelectItem value="always">
+                          {t("settings.editor.notePagesAlways")}
+                        </SelectItem>
+                        <SelectItem value="off">{t("settings.editor.notePagesOff")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Row>
                 </SettingsGroup>
               </TabsContent>
 
@@ -750,10 +928,27 @@ export function SettingsDialog({
                 <ShortcutsTab />
               </TabsContent>
 
-              <TabsContent value="modules">
+              {/* ── Synchronization ───────────────────────────────────────── */}
+              <TabsContent value="sync" className="space-y-6">
+                <SyncSettings vault={vault} />
+              </TabsContent>
+
+              <TabsContent value="about" className="space-y-6">
+                <AboutSettings>
+                  <SettingsGroup title={t("settings.groups.updates")} icon={Download}>
+                    <UpdateSettings />
+                  </SettingsGroup>
+                  <SettingsGroup title={t("settings.debug.groupTitle")} icon={Bug}>
+                    <DebugSettings />
+                  </SettingsGroup>
+                </AboutSettings>
+              </TabsContent>
+
+              <TabsContent value="modules" className="flex min-h-0 flex-1 flex-col">
                 <ModulesTab
                   activeModules={activeModules}
                   onModuleEnabledChange={onModuleEnabledChange}
+                  onPresetChange={onPresetChange}
                   selectedId={selectedModuleId}
                   onSelectedChange={setSelectedModuleId}
                 />
@@ -792,20 +987,57 @@ function initialSettingsNavigationTarget(): SettingsNavigationTarget | null {
 }
 
 export function StandaloneSettingsWindow() {
+  const [generation, setGeneration] = React.useState(() => {
+    // Before the first render: the sections below read and write vault files as they mount.
+    const initial = readInitialSettingsGeneration(window.location.search)
+    acceptSettingsGeneration(initial)
+    return initial
+  })
   const [activeModules, setActiveModules] = React.useState(initialSettingsModules)
   const [vault, setVault] = React.useState(initialSettingsVault)
   const [navigationTarget, setNavigationTarget] = React.useState(initialSettingsNavigationTarget)
 
   React.useEffect(() => {
     if (!isTauri()) return
-    return adoptAsyncDisposer(
+    let disposed = false
+    let stopContext: (() => void) | undefined
+    let stopClose: (() => void) | undefined
+    void Promise.all([
       listen<SettingsContextPayload>(SETTINGS_CONTEXT_CHANGE_EVENT, (event) => {
         setActiveModules(event.payload.activeModules)
         setVault(event.payload.vault)
-        if (event.payload.target) setNavigationTarget(event.payload.target)
+        acceptSettingsGeneration(event.payload.generation)
+        setGeneration(useVaultStore.getState().backendGeneration)
+        setNavigationTarget(event.payload.target ?? null)
       }),
-    )
+      getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault()
+        void getCurrentWindow().hide()
+      }),
+    ])
+      .then(([context, close]) => {
+        if (disposed) {
+          context()
+          close()
+          return
+        }
+        stopContext = context
+        stopClose = close
+        void emitTo("main", SETTINGS_READY_EVENT)
+      })
+      .catch((error) => console.error("Failed to initialize settings window:", error))
+    return () => {
+      disposed = true
+      stopContext?.()
+      stopClose?.()
+    }
   }, [])
+
+  // The main window switched to another vault while this window is open: show that vault.
+  useSettingsVaultActivation((path) => {
+    setVault(path)
+    setGeneration(useVaultStore.getState().backendGeneration)
+  }, isTauri())
 
   const handleModuleEnabledChange = React.useCallback((id: string, enabled: boolean) => {
     setActiveModules((current) =>
@@ -818,17 +1050,24 @@ export function StandaloneSettingsWindow() {
     void emitTo<ModuleChangePayload>("main", SETTINGS_MODULE_CHANGE_EVENT, { id, enabled })
   }, [])
 
+  const handlePresetChange = React.useCallback((id: string) => {
+    void emitTo("main", SETTINGS_PRESET_CHANGE_EVENT, { id })
+  }, [])
+
   return (
     <SettingsDialog
+      // A new vault has its own presets, modules and history settings: start the sections afresh.
+      key={`${vault ?? ""}:${generation ?? ""}`}
       standalone
       open
       vault={vault}
       navigationTarget={navigationTarget}
       onOpenChange={(next) => {
-        if (!next && isTauri()) void getCurrentWindow().close()
+        if (!next && isTauri()) void getCurrentWindow().hide()
       }}
       activeModules={activeModules}
       onModuleEnabledChange={handleModuleEnabledChange}
+      onPresetChange={handlePresetChange}
     />
   )
 }

@@ -90,7 +90,7 @@ fn queue_change(context: &VaultContext, root: &Path, path: PathBuf) {
             watcher::queue_external_changes(
                 Ok(notify::Event::new(notify::EventKind::Any).add_path(path)),
                 root,
-                &state.own_writes,
+                &state.self_writes.own_writes,
                 active.generation,
                 &active.index_changes,
             );
@@ -173,6 +173,9 @@ fn desktop_e2e_switching_vault_rejects_old_generation_and_keeps_flush() {
         .unwrap();
 
     let reopened = VaultContext::new();
+    let result = reopened.activate(first_vault.0.to_str().unwrap(), |_| Ok(()), |_, _| ());
+    assert_eq!(result, Err("vaultBusy".into()));
+    drop(context);
     activate(&reopened, &first_vault.0);
     reopened
         .with_active(|active| {
@@ -304,7 +307,7 @@ fn desktop_e2e_failed_save_and_rename_leave_existing_data_and_index_intact() {
             assert!(matches!(error, WriteNoteError::RevisionConflict { .. }));
             assert_eq!(fs::read_to_string(&path).unwrap(), external);
 
-            assert!(crate::bundle::rename_item_impl(&path, "Taken").is_err());
+            assert!(crate::bundle::rename_item_impl(&active.root, &path, "Taken").is_err());
             assert_eq!(fs::read_to_string(&path).unwrap(), external);
             assert_eq!(
                 frontmatter::parse_markdown(&fs::read_to_string(&collision).unwrap()).body,
@@ -431,10 +434,116 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
     reopened
         .with_active(|active| index::search_notes(active, &active.root, "updated-token"))
         .unwrap();
+    let search = search_started.elapsed();
     eprintln!(
-        "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={:?}",
-        search_started.elapsed()
+        "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={search:?}",
     );
+    report_single_file_actions(&reopened, &vault.0, count);
+}
+
+/// Times one create, rename, move and delete through the same functions the IPC commands run
+/// (`*_inner`), each followed by the full refresh the renderer did after every action
+/// (`active.refresh()`), so the cost of the action and of the refresh are visible apart.
+fn report_single_file_actions(context: &VaultContext, root: &Path, count: usize) {
+    use crate::commands::mutations::{
+        create_note_inner, delete_item_inner, move_item_inner, rename_item_inner,
+    };
+    use crate::database::runtime_state::DatabaseRuntimeState;
+    use crate::recycle_bin::DeleteMode;
+
+    let watcher_state = WatcherState::new();
+    // The app enables the database runtime as soon as a vault is open, so a rename or a move also
+    // pays for refreshing the database projection.
+    let runtime = DatabaseRuntimeState::default();
+    runtime.set_enabled(context.generation().unwrap(), true);
+    let no_hints = |_: &Path, _: &[crate::model::PathChange]| {};
+    let path_of = |relative: &str| root.join(relative).to_string_lossy().to_string();
+    let timed_refresh = || {
+        let started = Instant::now();
+        context
+            .with_active(|active| active.refresh().map(|_| ()))
+            .unwrap();
+        started.elapsed()
+    };
+    let mut line = format!("desktop-e2e large-vault-actions notes={count}");
+
+    let started = Instant::now();
+    let created = create_note_inner(
+        context,
+        &watcher_state,
+        path_of("Projects"),
+        "Bench created".to_string(),
+    )
+    .unwrap();
+    line += &format!(
+        " create={:?} create_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+    assert!(created.mutation.primary_path.is_some());
+
+    let started = Instant::now();
+    rename_item_inner(
+        context,
+        &runtime,
+        &watcher_state,
+        &no_hints,
+        path_of("Заметки/Note-00001.md"),
+        "Bench renamed".to_string(),
+    )
+    .unwrap();
+    line += &format!(
+        " rename={:?} rename_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+
+    let started = Instant::now();
+    move_item_inner(
+        context,
+        &runtime,
+        &watcher_state,
+        &no_hints,
+        path_of("日本語 🔥/Note-00002.md"),
+        path_of("Projects"),
+    )
+    .unwrap();
+    line += &format!(
+        " move={:?} move_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+
+    let started = Instant::now();
+    delete_item_inner(
+        context,
+        &watcher_state,
+        None,
+        path_of("日本語 🔥/Note-00005.md"),
+        DeleteMode::Archive,
+    )
+    .unwrap();
+    line += &format!(
+        " delete={:?} delete_refresh={:?}",
+        started.elapsed(),
+        timed_refresh()
+    );
+    // An edit made outside the app: the watcher names the path, and only that path is refreshed.
+    let edited = root.join("Projects/Note-00006.md");
+    fs::write(
+        &edited,
+        fs::read_to_string(&edited)
+            .unwrap()
+            .replace("token-6", "externally-edited-token"),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let refreshed = context
+        .with_active(|active| active.refresh_paths(std::collections::HashSet::from([edited])))
+        .unwrap();
+    line += &format!(" external_edit_by_path={:?}", started.elapsed());
+    assert!(refreshed.is_some(), "one edited path is refreshed by path");
+    eprintln!("{line}");
 }
 
 #[test]
@@ -532,4 +641,40 @@ fn bench_300_stories_50_pages() {
          warm_reopen: {:?}",
         discover_elapsed, initial_scan, reopen
     );
+}
+
+/// SAVE-11 measurement. Run with
+/// `cargo test --manifest-path src-tauri/Cargo.toml note_write_timing -- --ignored --nocapture`.
+/// It times the durable part of `write_note` (revision check, history snapshot,
+/// fsync'd atomic write, index update) on this machine's disk, per note size.
+#[test]
+#[ignore = "timing measurement, not a correctness test"]
+fn note_write_timing_by_size() {
+    let vault = DesktopVault::new("timing");
+    let context = VaultContext::new();
+    let mut notes = Vec::new();
+    for (label, size) in [
+        ("1 KB", 1_000usize),
+        ("100 KB", 100_000),
+        ("1 MB", 1_000_000),
+    ] {
+        let (_, id) = vault.note(&format!("{}.md", label.replace(' ', "")), "start");
+        notes.push((label, size, id));
+    }
+    activate(&context, &vault.0);
+    for (label, size, id) in notes {
+        let mut samples = Vec::new();
+        for round in 0..30 {
+            let line = "lorem ipsum dolor sit amet\n";
+            let mut body = line.repeat(size / line.len());
+            body.push_str(&format!("round {round}\n"));
+            let started = Instant::now();
+            save(&context, &id, &body);
+            samples.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = samples[samples.len() / 2];
+        let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+        println!("note.write {label}: median {median:.1} ms, p95 {p95:.1} ms");
+    }
 }

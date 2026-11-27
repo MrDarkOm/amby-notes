@@ -26,10 +26,13 @@ import {
 import type { NotebookActions } from "./use-notebook-actions"
 import { treeIndent } from "./tree-indent"
 import type { StoryLabels, WorkshopDraft } from "./workshop-model"
+import { reportOperationError } from "@/lib/operation-errors"
+import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface NotesPartProps {
   /** The notebooks and notes the filter lets through; every notebook is in it, empty or not. */
   tree: NotebookTree
+  notebooksWithNotes: ReadonlySet<string> | null
   /** Notes in no story, only when the standalone stories are shown: a group of their own at the end. */
   withoutStory: NotebookTree | null
   canWrite: boolean
@@ -41,6 +44,7 @@ interface NotesPartProps {
   collapsed: Record<string, boolean>
   onToggle: (key: string) => void
   /** The story names for a note's row (up to two and "+N"); `null` shows none. */
+  storyLinkOf?: (note: NoteItem) => React.ReactNode
   storyLabelsOf: ((noteId: string) => StoryLabels) | null
   draft: WorkshopDraft | null
   onCommitDraft: (title: string) => Promise<void>
@@ -67,6 +71,7 @@ const ROOT = "root"
  */
 export function NotesPart({
   tree,
+  notebooksWithNotes,
   withoutStory,
   canWrite,
   loading,
@@ -75,6 +80,7 @@ export function NotesPart({
   collapsed,
   onToggle,
   storyLabelsOf,
+  storyLinkOf,
   draft,
   onCommitDraft,
   onCancelDraft,
@@ -117,57 +123,59 @@ export function NotesPart({
   const noteRow = (note: NoteItem, depth: number) => {
     const labels = storyLabelsOf?.(note.noteId)
     return (
-      <ItemMenu
-        key={note.noteId}
-        noteId={note.noteId}
-        title={note.title}
-        indent={treeIndent(depth) - 6}
-        move={
-          canWrite
-            ? {
-                targets,
-                current: note.categoryPath,
-                onMove: (segments) => void actions.moveNote(note.noteId, segments),
-              }
-            : undefined
-        }
-      >
-        <button
-          type="button"
-          draggable={canWrite}
-          data-note-row={note.noteId}
-          aria-current={activeNoteId === note.noteId ? "true" : undefined}
-          onClick={() => onOpenNote(note.noteId)}
-          onDragStart={
+      <React.Fragment key={note.noteId}>
+        <ItemMenu
+          noteId={note.noteId}
+          title={note.title}
+          indent={treeIndent(depth) - 6}
+          move={
             canWrite
-              ? (event) => {
-                  event.dataTransfer.setData("text/plain", note.noteId)
-                  event.dataTransfer.effectAllowed = "move"
-                  setDragId(note.noteId)
+              ? {
+                  targets,
+                  current: note.categoryPath,
+                  onMove: (segments) => void actions.moveNote(note.noteId, segments),
                 }
               : undefined
           }
-          onDragEnd={endDrag}
-          style={{ paddingLeft: treeIndent(depth) }}
-          className={cn(
-            "amby-tree-row flex w-full items-center gap-1.5 rounded py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
-            activeNoteId === note.noteId && "bg-accent",
-            dragId === note.noteId && "opacity-50",
-          )}
         >
-          <FileText className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{note.title}</span>
-          {labels && labels.names.length > 0 && (
-            <span
-              className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
-              title={labels.names.join(", ")}
-            >
-              {labels.names.join(", ")}
-              {labels.more > 0 ? ` +${labels.more}` : ""}
-            </span>
-          )}
-        </button>
-      </ItemMenu>
+          <button
+            type="button"
+            draggable={canWrite}
+            data-note-row={note.noteId}
+            aria-current={activeNoteId === note.noteId ? "true" : undefined}
+            onClick={() => onOpenNote(note.noteId)}
+            onDragStart={
+              canWrite
+                ? (event) => {
+                    event.dataTransfer.setData("text/plain", note.noteId)
+                    event.dataTransfer.effectAllowed = "move"
+                    setDragId(note.noteId)
+                  }
+                : undefined
+            }
+            onDragEnd={endDrag}
+            style={{ paddingLeft: treeIndent(depth) }}
+            className={cn(
+              "amby-tree-row flex w-full items-center gap-1.5 rounded py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
+              activeNoteId === note.noteId && "bg-accent",
+              dragId === note.noteId && "opacity-50",
+            )}
+          >
+            <FileText className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{note.title}</span>
+            {labels && labels.names.length > 0 && (
+              <span
+                className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
+                title={labels.names.join(", ")}
+              >
+                {labels.names.join(", ")}
+                {labels.more > 0 ? ` +${labels.more}` : ""}
+              </span>
+            )}
+          </button>
+        </ItemMenu>
+        {storyLinkOf?.(note)}
+      </React.Fragment>
     )
   }
 
@@ -191,7 +199,7 @@ export function NotesPart({
             onCommit={(name) => {
               setRenaming(null)
               void actions.renameNotebook(node, name).catch((caught: unknown) => {
-                actions.report(caught instanceof Error ? caught.message : String(caught))
+                actions.report(reportOperationError(caught))
               })
             }}
             onCancel={() => setRenaming(null)}
@@ -229,6 +237,11 @@ export function NotesPart({
             <Folder className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{node.name}</span>
             <span
+              title={
+                muted && notebooksWithNotes?.has(node.key)
+                  ? t("creative.notebooks.hiddenByStory")
+                  : undefined
+              }
               className={cn(
                 "shrink-0 text-[11px] tabular-nums text-muted-foreground",
                 muted && "opacity-60",
@@ -289,7 +302,7 @@ export function NotesPart({
                   className="gap-2 text-[13px] text-destructive focus:text-destructive"
                   onSelect={() =>
                     void actions.deleteNotebook(node).catch((caught: unknown) => {
-                      actions.report(caught instanceof Error ? caught.message : String(caught))
+                      actions.report(reportOperationError(caught))
                     })
                   }
                 >
@@ -370,11 +383,7 @@ export function NotesPart({
           onClick={link.onLink}
         />
       )}
-      {link?.error && (
-        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
-          {link.error}
-        </p>
-      )}
+      {link?.error && <NoticeLine role="alert" text={link.error} className="px-2 py-1" />}
       {actions.error && (
         <div
           role="alert"

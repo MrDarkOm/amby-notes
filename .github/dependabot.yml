@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Keeps the pinned commit of tauri-action (the step that holds the signing key) and the
+  # version tags of the other actions current. Each update arrives as a pull request to review.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

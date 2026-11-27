@@ -1,5 +1,6 @@
 "use client"
 
+import { insertImageBlock } from "./image-placement"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { Editor, Range } from "@tiptap/core"
@@ -21,6 +22,7 @@ import { bookmarkParagraph, parseBookmarkAddress } from "./bookmark-card"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { motionTransitions } from "@/lib/motion-config"
+import { isEnterKey } from "@/lib/keyboard"
 
 type Mode = "list" | "url" | "emoji" | "database"
 type UrlPurpose = "image" | "bookmark"
@@ -195,7 +197,12 @@ export function BlockInsertPanel({
     if (!url) return
     const chain = editor.chain().focus()
     if (source === "slash" && range) chain.deleteRange(range)
-    chain.insertContent({ type: "image", attrs: { src: url } }).run()
+    chain
+      .command(({ tr, state }) => {
+        insertImageBlock(tr, tr.selection.from, state.schema.nodes.image.create({ src: url }))
+        return true
+      })
+      .run()
     onClose()
   }
 
@@ -206,7 +213,7 @@ export function BlockInsertPanel({
         else onClose()
         return true
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      if (isEnterKey(event) || event.key === "Tab") {
         const item = filtered[active]
         if (item) choose(item)
         return true
@@ -240,7 +247,7 @@ export function BlockInsertPanel({
   }, [handleListKey, mode, source])
 
   function onUrlKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
+    if (isEnterKey(e)) {
       e.preventDefault()
       applyUrl()
     } else if (e.key === "Escape") {

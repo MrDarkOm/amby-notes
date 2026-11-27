@@ -1,9 +1,28 @@
 "use client"
 
+import { IS_SITE_DEMO } from "@/lib/site-demo"
 import * as React from "react"
-import { ArrowLeft, ArrowRight, Check, Download, Pin, Settings2, Upload } from "lucide-react"
+import {
+  ArrowDownUp,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Download,
+  EyeOff,
+  FolderSync,
+  LayoutTemplate,
+  PanelsTopLeft,
+  Pin,
+  Plus,
+  RotateCcw,
+  Save,
+  Settings2,
+  Upload,
+  Zap,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
+import { motion, useReducedMotion } from "motion/react"
+import { MotionSpinner } from "@/lib/motion"
 
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
@@ -13,6 +32,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -21,18 +43,32 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
 import { findButtonDef, buttonsForSide } from "./panel-definitions"
+import { canHideButton } from "./activity-buttons"
 import {
   settingsLabelKeyForActivityButton,
   settingsTargetForActivityButton,
   type SettingsNavigationTarget,
 } from "./settings-navigation"
+import type { useRefreshSync } from "./sync/use-refresh-sync"
+import { syncErrorMessage } from "@/lib/sync/sync-errors"
+import { syncInactiveText } from "./sync/sync-inactive"
+import { SYNC_ACTION_ICONS } from "./sync/sync-action-icons"
+import { SyncInactiveMenu } from "./sync/sync-inactive-menu"
+import { useNoticesDockSummary } from "./sync/use-notices-dock-summary"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
+import { noticeBadgeClass } from "./notices/notice-look"
 import type { HelpContext } from "./help-modal"
+import { useSettingsStore } from "./use-settings-store"
 
 interface ActivityBarProps {
+  refreshSync?: ReturnType<typeof useRefreshSync>
   side: Side
   buttons: ActivityButton[]
   activeView: PanelId | null
@@ -42,7 +78,13 @@ interface ActivityBarProps {
   onMoveToOtherSide?: (defId: string) => void
   onPointerDownButton: (defId: string) => (event: React.PointerEvent<HTMLElement>) => void
   draggingId: string | null
-  presets?: { id: string; label: string }[]
+  presets?: { id: string; label: string; hint?: string }[]
+  /** The running modules or dock differ from what the active preset stores. */
+  presetModified?: boolean
+  canSaveActivePreset?: boolean
+  onSaveActivePreset?: () => void
+  onSavePresetAs?: () => void
+  onResetActivePreset?: () => void
   activePresetId?: string
   onSwitchPreset?: (id: string) => void
   onImportPreset?: () => void
@@ -53,6 +95,8 @@ interface ActivityBarProps {
   autoHideReveal?: boolean
   onPinnedChange?: (pinned: boolean) => void
   onAutoHideChange?: (hovering: boolean) => void
+  /** Hides or shows a button on its dock; absent where the dock cannot be changed. */
+  onSetButtonHidden?: (defId: string, hidden: boolean) => void
   onOpenSettings: (target: SettingsNavigationTarget) => void
   helpContext?: HelpContext
 }
@@ -73,6 +117,11 @@ export function ActivityBar({
   onPointerDownButton,
   draggingId,
   presets,
+  presetModified = false,
+  canSaveActivePreset = false,
+  onSaveActivePreset,
+  onSavePresetAs,
+  onResetActivePreset,
   activePresetId,
   onSwitchPreset,
   onImportPreset,
@@ -83,32 +132,44 @@ export function ActivityBar({
   autoHideReveal = false,
   onPinnedChange,
   onAutoHideChange,
+  onSetButtonHidden,
   onOpenSettings,
   helpContext,
+  refreshSync,
 }: ActivityBarProps) {
   const { t } = useTranslation()
+  const dockWidth = useSettingsStore((state) => (state.prefs.density === "compact" ? 32 : 48))
+  const reducedMotion = useReducedMotion()
+  const noticesSummary = useNoticesDockSummary()
+  const stackOpen = useNoticesStackStore((state) => state.isOpen)
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
   const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
-  const viewButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "view")
-  const actionButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "action")
+  // Every zone keeps its hidden buttons: its menu lists them so they can be shown again.
+  const zoneButtons = (zone: ActivityZone) =>
+    sideButtons.filter((button) => findDef(button.defId)?.kind === zone)
+  const viewButtons = zoneButtons("view").filter((button) => !button.hidden)
+  const actionButtons = zoneButtons("action").filter((button) => !button.hidden)
 
   function presetMenu() {
+    const itemClass =
+      "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+    const activePreset = (presets ?? []).find((preset) => preset.id === activePresetId)
     return (
       <DropdownMenuContent
         side={side === "left" ? "right" : "left"}
         align="end"
-        className="w-52 border-border bg-popover text-foreground"
+        className="w-60 border-border bg-popover text-foreground"
       >
         <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
           {t("activityBar.presetSection")}
         </DropdownMenuLabel>
-        <DropdownMenuSeparator className="bg-border" />
         {(presets ?? []).map((preset) => (
           <DropdownMenuItem
             key={preset.id}
+            title={preset.hint}
             onSelect={() => onSwitchPreset?.(preset.id)}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+            className={itemClass}
           >
             <Check
               className={cn(
@@ -116,99 +177,213 @@ export function ActivityBar({
                 preset.id === activePresetId ? "text-primary opacity-100" : "opacity-0",
               )}
             />
-            {preset.label}
+            <span className="min-w-0 flex-1 truncate">{preset.label}</span>
+            {preset.id === activePresetId && presetModified && (
+              <span
+                role="img"
+                aria-label={t("activityBar.presetModified")}
+                title={t("activityBar.presetModified")}
+                className="size-1.5 shrink-0 rounded-full bg-primary"
+              />
+            )}
           </DropdownMenuItem>
         ))}
-        {(onExportPreset || onImportPreset) && <DropdownMenuSeparator className="bg-border" />}
-        {onExportPreset && (
-          <DropdownMenuItem
-            onSelect={onExportPreset}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-          >
-            <Download className="size-3.5 text-muted-foreground" />
-            {t("activityBar.exportCurrent")}
+        <DropdownMenuSeparator className="bg-border" />
+        {presetModified && canSaveActivePreset && (
+          <DropdownMenuItem onSelect={onSaveActivePreset} className={itemClass}>
+            <Save className="size-3.5 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("activityBar.presetSaveChanges", { name: activePreset?.label ?? "" })}
+            </span>
           </DropdownMenuItem>
         )}
-        {onImportPreset && (
-          <DropdownMenuItem
-            onSelect={onImportPreset}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-          >
-            <Upload className="size-3.5 text-muted-foreground" />
-            {t("activityBar.importPreset")}
+        {onSavePresetAs && (
+          <DropdownMenuItem onSelect={onSavePresetAs} className={itemClass}>
+            <Plus className="size-3.5 text-muted-foreground" />
+            {t("activityBar.presetSaveAs")}
           </DropdownMenuItem>
+        )}
+        {presetModified && onResetActivePreset && (
+          <DropdownMenuItem onSelect={onResetActivePreset} className={itemClass}>
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            {t("activityBar.presetReset")}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator className="bg-border" />
+        <DropdownMenuItem
+          onSelect={() => onOpenSettings({ section: "modules" })}
+          className={itemClass}
+        >
+          <Settings2 className="size-3.5 text-muted-foreground" />
+          {t("activityBar.presetManage")}
+        </DropdownMenuItem>
+        {(onExportPreset || onImportPreset) && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className={itemClass}>
+              <ArrowDownUp className="size-3.5 text-muted-foreground" />
+              {t("activityBar.presetTransfer")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="border-border bg-popover text-foreground">
+              {onExportPreset && (
+                <DropdownMenuItem onSelect={onExportPreset} className={itemClass}>
+                  <Download className="size-3.5 text-muted-foreground" />
+                  {t("activityBar.exportCurrent")}
+                </DropdownMenuItem>
+              )}
+              {onImportPreset && (
+                <DropdownMenuItem onSelect={onImportPreset} className={itemClass}>
+                  <Upload className="size-3.5 text-muted-foreground" />
+                  {t("activityBar.importPreset")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
         {onSetPanelScope && (
-          <>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className={itemClass} title={t("activityBar.layoutHint")}>
+              <LayoutTemplate className="size-3.5 text-muted-foreground" />
               {t("activityBar.layoutSection")}
-            </DropdownMenuLabel>
-            {(
-              [
-                { id: "global", labelKey: "activityBar.layoutGlobal" },
-                { id: "workspace", labelKey: "activityBar.layoutWorkspace" },
-              ] as const
-            ).map((option) => (
-              <DropdownMenuItem
-                key={option.id}
-                onSelect={() => onSetPanelScope(option.id)}
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-              >
-                <Check
-                  className={cn(
-                    "size-3.5",
-                    option.id === panelScope ? "text-primary opacity-100" : "opacity-0",
-                  )}
-                />
-                {t(option.labelKey)}
-              </DropdownMenuItem>
-            ))}
-          </>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="border-border bg-popover text-foreground">
+              {(
+                [
+                  { id: "global", labelKey: "activityBar.layoutGlobal" },
+                  { id: "workspace", labelKey: "activityBar.layoutWorkspace" },
+                ] as const
+              ).map((option) => (
+                <DropdownMenuItem
+                  key={option.id}
+                  onSelect={() => onSetPanelScope(option.id)}
+                  className={itemClass}
+                >
+                  <Check
+                    className={cn(
+                      "size-3.5",
+                      option.id === panelScope ? "text-primary opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {t(option.labelKey)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
       </DropdownMenuContent>
     )
   }
 
+  /** The switches of the buttons in a zone. Switching keeps the menu open for the next one. */
+  function zoneToggleItems(zone: ActivityZone) {
+    if (!onSetButtonHidden) return []
+    return zoneButtons(zone).flatMap((button) => {
+      const def = findDef(button.defId)
+      // A button that cannot be hidden (Settings) is not listed at all.
+      if (!def || !canHideButton(def.id)) return []
+      const Icon = def.icon
+      return [
+        <ContextMenuCheckboxItem
+          key={def.id}
+          data-dock-toggle={def.id}
+          indicatorPosition="right"
+          checked={!button.hidden}
+          onSelect={(event) => event.preventDefault()}
+          onCheckedChange={(checked) => onSetButtonHidden(def.id, !checked)}
+          className="gap-2 text-[13px]"
+        >
+          <Icon className="size-4 text-muted-foreground" />
+          {t(def.labelKey)}
+        </ContextMenuCheckboxItem>,
+      ]
+    })
+  }
+
+  /**
+   * The end of every dock menu: pinning the dock, plus both section-button and action-button
+   * submenus (whenever that dock has toggleable buttons in each zone) so either group can be
+   * configured from anywhere on the activity bar.
+   */
   function dockMenuItems() {
+    const zoneSubmenu = (zone: ActivityZone) => {
+      if (!onSetButtonHidden) return null
+      const items = zoneToggleItems(zone)
+      if (items.length === 0) return null
+      const Icon = zone === "view" ? PanelsTopLeft : Zap
+      return (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger data-dock-zone-buttons={zone} className="gap-2 text-[13px]">
+            <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
+            {t(zone === "view" ? "activityBar.zoneSections" : "activityBar.zoneActions")}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="min-w-56 border-border bg-popover p-1 text-foreground">
+            {items}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )
+    }
+
     return (
       <>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          className="flex min-w-64 items-center justify-between gap-4"
-          onSelect={() => onPinnedChange?.(!pinned)}
+        <ContextMenuCheckboxItem
+          indicatorPosition="right"
+          checked={pinned}
+          onCheckedChange={onPinnedChange}
+          className="gap-2 text-[13px]"
         >
-          <span className="flex items-center gap-2">
-            <Pin className="size-4 text-muted-foreground" />
-            {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
-          </span>
-          {pinned && <Check className="size-4" />}
-        </ContextMenuItem>
+          <Pin className="size-4 text-muted-foreground" />
+          {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
+        </ContextMenuCheckboxItem>
+        {zoneSubmenu("view")}
+        {zoneSubmenu("action")}
       </>
+    )
+  }
+
+  /** A zone's own menu (a right click beside the buttons): the dock part of the button menus. */
+  function zoneMenu() {
+    return (
+      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+        {dockMenuItems()}
+      </ContextMenuContent>
     )
   }
 
   function renderButton(button: ActivityButton, zone: ActivityZone) {
     const def = findDef(button.defId)
     if (!def) return null
-    const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
+    // The bell is lit while the stack of the notification centre is open.
+    const isActive =
+      def.id === "notices" ? stackOpen : def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
+    const sync = def.id === "refresh" ? refreshSync : undefined
+    // While sync does not work the button opens a menu with the reason and the way to fix it.
+    const syncInactive = sync?.inactive ?? null
     const Icon = def.icon
-    const label =
-      def.id === "help" && helpContext && helpContext !== "workspace"
-        ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
-        : t(def.labelKey)
+    const label = syncInactive
+      ? syncInactiveText(syncInactive, t)
+      : sync
+        ? `${t("sync.refresh.action")} — ${t(`sync.refresh.${sync.state}`)}${sync.error ? `: ${syncErrorMessage(sync.error, t)}` : ""}`
+        : def.id === "notices" && noticesSummary
+          ? t("actions.noticesCount", { count: noticesSummary.count })
+          : def.id === "help" && helpContext && helpContext !== "workspace"
+            ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
+            : t(def.labelKey)
     const settingsTarget = settingsTargetForActivityButton(def.id)
     const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
       <motion.button
         type="button"
         draggable={false}
+        disabled={sync?.busy || (IS_SITE_DEMO && def.id === "settings")}
+        aria-busy={sync ? sync.busy || sync.state === "running" : undefined}
         title={label}
         aria-label={label}
         data-tooltip-side={side === "left" ? "right" : "left"}
+        data-sync-state={sync?.state}
         data-activity-button={def.id}
         data-activity-zone={zone}
+        aria-expanded={def.id === "notices" ? stackOpen : undefined}
+        aria-pressed={def.kind === "view" ? isActive : undefined}
         data-active={isActive || undefined}
         data-dragging={isDragging || undefined}
         onPointerDown={(event) => {
@@ -225,7 +400,7 @@ export function ActivityBar({
             event.currentTarget.removeAttribute("data-suppress-click")
             return
           }
-          if (def.id !== "presets") onActivate(def.id)
+          if (def.id !== "presets" && !syncInactive) onActivate(def.id)
         }}
         className={cn(
           "amby-activity-button relative flex size-8 items-center justify-center rounded-md border text-muted-foreground",
@@ -237,7 +412,42 @@ export function ActivityBar({
         whileTap={{ scale: 0.88, y: 1 }}
         transition={motionTransitions.fast}
       >
-        <Icon className="size-4" />
+        {sync && (
+          <span
+            className="amby-sync-badge"
+            data-sync-state={sync.state}
+            role="status"
+            aria-label={t(`sync.refresh.${sync.state}`)}
+          />
+        )}
+        {sync && (sync.busy || sync.state === "running") && !reducedMotion ? (
+          <MotionSpinner>
+            <Icon className={cn("size-4", sync && "amby-sync-arrows")} />
+          </MotionSpinner>
+        ) : (
+          <Icon
+            className={cn(
+              "size-4",
+              sync && "amby-sync-arrows",
+              isActive &&
+                "fill-primary text-primary [fill-opacity:0.25] [&_path:not([d$=Z]):not([d$=z])]:fill-none",
+            )}
+          />
+        )}
+
+        {def.id === "notices" && noticesSummary && (
+          <span
+            data-testid="notices-dock-count"
+            data-level={noticesSummary.level}
+            aria-hidden="true"
+            className={cn(
+              "absolute -right-1 -top-1 min-w-4 rounded-full border px-1 text-[10px] leading-[14px] font-semibold",
+              noticeBadgeClass(noticesSummary.level),
+            )}
+          >
+            {noticesSummary.count}
+          </span>
+        )}
       </motion.button>
     )
 
@@ -251,33 +461,82 @@ export function ActivityBar({
               </ContextMenuTrigger>
               {presetMenu()}
             </DropdownMenu>
+          ) : sync && syncInactive ? (
+            <SyncInactiveMenu
+              sync={sync}
+              reason={syncInactive}
+              side={side === "left" ? "right" : "left"}
+              onOpenSettings={() => onOpenSettings(settingsTarget)}
+            >
+              {element}
+            </SyncInactiveMenu>
           ) : (
             <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
           )}
           <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+            {sync && (
+              <>
+                {syncInactive?.action && syncInactive.action !== "settings" && (
+                  <ContextMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                    disabled={sync.busy || sync.fixBusy}
+                    onSelect={() => {
+                      const action = syncInactive.action
+                      if (action && action !== "settings") void sync.fix(action)
+                    }}
+                  >
+                    {React.createElement(SYNC_ACTION_ICONS[syncInactive.action], {
+                      className: "size-4 text-muted-foreground",
+                    })}
+                    {t(`sync.inactive.action.${syncInactive.id}`)}
+                  </ContextMenuItem>
+                )}
+                {syncInactive?.action !== "refresh" && (
+                  <ContextMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                    disabled={sync.busy}
+                    onSelect={() => void sync.refresh()}
+                  >
+                    <FolderSync className="size-4 text-muted-foreground" />
+                    {t("sync.inactive.refreshFiles")}
+                  </ContextMenuItem>
+                )}
+              </>
+            )}
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+              disabled={IS_SITE_DEMO}
               onSelect={() => onOpenSettings(settingsTarget)}
             >
               <Settings2 className="size-4 text-muted-foreground" />
               {t(settingsLabelKey)}
             </ContextMenuItem>
-            {onMoveToOtherSide && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-                  onSelect={() => onMoveToOtherSide(def.id)}
-                >
-                  {side === "left" ? (
-                    <ArrowRight className="size-4 text-muted-foreground" />
-                  ) : (
-                    <ArrowLeft className="size-4 text-muted-foreground" />
-                  )}
-                  {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
-                </ContextMenuItem>
-              </>
+            {(onMoveToOtherSide || (onSetButtonHidden && canHideButton(def.id))) && (
+              <ContextMenuSeparator />
             )}
+            {onMoveToOtherSide && (
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                onSelect={() => onMoveToOtherSide(def.id)}
+              >
+                {side === "left" ? (
+                  <ArrowRight className="size-4 text-muted-foreground" />
+                ) : (
+                  <ArrowLeft className="size-4 text-muted-foreground" />
+                )}
+                {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
+              </ContextMenuItem>
+            )}
+            {onSetButtonHidden && canHideButton(def.id) && (
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                onSelect={() => onSetButtonHidden(def.id, true)}
+              >
+                <EyeOff className="size-4 text-muted-foreground" />
+                {t("activityBar.hideButton")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
             {dockMenuItems()}
           </ContextMenuContent>
         </ContextMenu>
@@ -291,7 +550,7 @@ export function ActivityBar({
         <motion.div
           className="relative shrink-0"
           initial={false}
-          animate={{ width: isExpanded ? 48 : 4 }}
+          animate={{ width: isExpanded ? dockWidth : 4 }}
           transition={motionTransitions.panel}
           onMouseEnter={() => {
             setIsAutoHideHover(true)
@@ -305,35 +564,45 @@ export function ActivityBar({
           <motion.div
             data-activity-bar={side}
             className={cn(
-              "absolute inset-y-0 flex w-12 flex-col bg-background",
+              "absolute inset-y-0 flex flex-col bg-background",
               side === "left" ? "left-0" : "right-0",
             )}
+            style={{ width: "var(--amby-dock-width)" }}
             initial={false}
-            animate={{ x: isExpanded ? 0 : side === "left" ? -44 : 44 }}
+            animate={{ x: isExpanded ? 0 : (side === "left" ? -1 : 1) * (dockWidth - 4) }}
             transition={motionTransitions.panel}
           >
-            <div
-              data-activity-zone="view"
-              className="flex min-h-8 flex-col items-center gap-1.5 pt-2"
-            >
-              {viewButtons.map((button) => renderButton(button, "view"))}
-            </div>
+            {/* The bar is split 2:1 from the top: the upper two thirds hold the section buttons,
+                the lower third holds the action buttons; right-clicking anywhere opens the dock
+                menu with both button groups available. */}
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-activity-zone="view"
+                  className="flex min-h-min flex-[2_1_0%] flex-col items-center gap-1.5 py-2"
+                >
+                  {viewButtons.map((button) => renderButton(button, "view"))}
+                </div>
+              </ContextMenuTrigger>
+              {zoneMenu()}
+            </ContextMenu>
 
-            <div className="flex-1" />
-
-            <div
-              data-activity-zone="action"
-              className="mb-2 flex min-h-8 flex-col items-center gap-1.5 pb-2"
-            >
-              {actionButtons.map((button) => renderButton(button, "action"))}
-            </div>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-activity-zone="action"
+                  className="flex min-h-min flex-[1_1_0%] flex-col items-center justify-end gap-1.5 pb-4"
+                >
+                  {actionButtons.map((button) => renderButton(button, "action"))}
+                </div>
+              </ContextMenuTrigger>
+              {zoneMenu()}
+            </ContextMenu>
           </motion.div>
         </motion.div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
-        <ContextMenuCheckboxItem checked={pinned} onCheckedChange={onPinnedChange}>
-          {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
-        </ContextMenuCheckboxItem>
+      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+        {dockMenuItems()}
       </ContextMenuContent>
     </ContextMenu>
   )

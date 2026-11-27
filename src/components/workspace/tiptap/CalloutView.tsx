@@ -8,6 +8,7 @@ import { motion } from "motion/react"
 import { ChevronDown } from "lucide-react"
 
 import { motionTransitions } from "@/lib/motion-config"
+import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 
@@ -126,7 +127,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
             title={editor.isEditable ? t("callout.changeEmoji") : undefined}
             aria-label={t("callout.emoji")}
           >
-            {emoji}
+            <EmojiGlyph value={emoji} />
           </motion.button>
 
           {pickerOpen && (

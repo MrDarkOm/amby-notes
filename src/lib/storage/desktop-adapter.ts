@@ -1,4 +1,3 @@
-import i18n from "@/lib/i18n"
 import { commands, type DatabaseSummary as BindingDatabaseSummary } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
 import { desktopOperationError } from "./operation-error"
@@ -7,10 +6,14 @@ import type { StoragePort, WriteNoteOptions } from "./port"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
+import type { DailyNote, NoteTemplate } from "./note-modules-port"
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
   InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
@@ -30,6 +33,8 @@ import type {
   MovedTextPage,
   NoteReference,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -106,6 +111,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  UndoRecord,
   DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
@@ -119,25 +125,23 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  PathsRefresh,
   MutationOutcome,
   NoteReadOutcome,
   NoteLayers,
   NoteProperties,
-  RefactorPreview,
   SearchResult,
   SnapshotEntry,
   SnapshotText,
+  ArchiveEntry,
   TrashEntry,
+  TrashPreview,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
+  ImportFilesResult,
 } from "./types"
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-  return tauriInvoke<T>(cmd, args)
-}
 
 function reportIndexOutcome(outcome: Pick<MutationOutcome, "indexState" | "warnings">): void {
   if (outcome.indexState === "rebuildRequired" && typeof window !== "undefined") {
@@ -259,6 +263,9 @@ function toBindingQuerySource(sourceRequest: DatabaseQueryRequest["source"]) {
         }
   return source
 }
+
+const BY_NAME_ONLY =
+  "The desktop app changes properties by name (docs/sync-plan.md, З60), not by the old contract"
 
 export class DesktopAdapter implements StoragePort {
   async getDatabaseModuleState(): Promise<DatabaseModuleState> {
@@ -589,6 +596,16 @@ export class DesktopAdapter implements StoragePort {
     )
   }
 
+  async getDossierTemplate(databaseId: string): Promise<DossierTemplate> {
+    return unwrapProjectCommand(await commands.getDossierTemplate(databaseId))
+  }
+
+  async updateDossierTemplate(
+    request: UpdateDossierTemplateRequest,
+  ): Promise<UpdatedDossierTemplate> {
+    return unwrapProjectCommand(await commands.updateDossierTemplate(request))
+  }
+
   async ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {
     return unwrapProjectCommand(
       await commands.ensurePlotLinks({
@@ -626,6 +643,10 @@ export class DesktopAdapter implements StoragePort {
 
   async listTextStats(databaseId: string): Promise<TextPageStat[]> {
     return unwrapProjectCommand(await commands.listTextStats(databaseId))
+  }
+
+  async workshopImport(request: WorkshopImportRequest): Promise<WorkshopImportResult> {
+    return unwrapProjectCommand(await commands.workshopImport(request))
   }
 
   async listNotebooks(databaseId: string): Promise<NotebookCatalog> {
@@ -750,6 +771,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.reindexVault())
   }
 
+  async refreshVaultPaths(paths: string[]): Promise<PathsRefresh | null> {
+    return unwrapCommand(commands.refreshVaultPaths(paths)) as Promise<PathsRefresh | null>
+  }
+
   async preflightVault(vaultPath: string): Promise<VaultPreflight> {
     return unwrapCommand(commands.preflightVault(vaultPath))
   }
@@ -787,10 +812,10 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     operationId?: string,
   ): Promise<NoteReadOutcome> {
-    // A file can arrive through the watcher after vault activation. Re-run the
-    // safe identity migration before opening it so notes without amby-id become
-    // editable immediately (malformed/conflicting files remain untouched).
-    await unwrapCommand(commands.applyIdMigration(_vaultPath))
+    // A note without amby-id becomes editable as it is opened. Only this note is
+    // examined (the watcher and index already give new files their IDs); the full
+    // vault pass runs only when the vault is opened (CORE-04).
+    await unwrapCommand(commands.applyNoteIdMigration(noteId))
     return unwrapCommand(commands.readNote(noteId, operationId ?? null))
   }
 
@@ -883,6 +908,32 @@ export class DesktopAdapter implements StoragePort {
     return unwrapMutation(commands.createNote(parentPath, name))
   }
 
+  async listNoteTemplates(): Promise<NoteTemplate[]> {
+    return unwrapCommand(commands.listNoteTemplates())
+  }
+
+  async createNoteFromTemplate(
+    parentPath: string,
+    name: string,
+    template: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteFromTemplate(parentPath, name, template))
+  }
+
+  async createNoteTemplate(name: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.createNoteTemplate(name))
+  }
+
+  async openDailyNote(): Promise<DailyNote> {
+    const daily = await unwrapCommand<{
+      path: string
+      created: boolean
+      mutation: MutationOutcome | null
+    }>(commands.openDailyNote())
+    if (daily.mutation) reportIndexOutcome(daily.mutation)
+    return { path: daily.path, created: daily.created, mutation: daily.mutation?.mutation ?? null }
+  }
+
   async createFolder(_vaultPath: string, name: string): Promise<string> {
     const path = _vaultPath ? joinStoragePath(_vaultPath, name) : name
     await unwrapCommand(commands.createFolder(path))
@@ -937,6 +988,23 @@ export class DesktopAdapter implements StoragePort {
     return unwrapMutation(commands.archiveItem(path))
   }
 
+  async undoMutation(record: UndoRecord): Promise<FsMutationResult> {
+    return unwrapMutation(commands.undoMutation(record))
+  }
+
+  async beginMerge(targetPath: string): Promise<string | null> {
+    return unwrapCommand<string>(commands.beginMerge(targetPath))
+  }
+
+  async finishMerge(
+    _vaultPath: string,
+    sourcePath: string,
+    targetPath: string,
+    snapshotId: string,
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.finishMerge(sourcePath, targetPath, snapshotId))
+  }
+
   async noteLayers(notePath: string): Promise<NoteLayers> {
     return unwrapCommand(commands.noteLayers(notePath))
   }
@@ -973,12 +1041,17 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.getNoteProperties(noteId))
   }
 
+  async setNotePagesFlag(_vaultPath: string, noteId: string, flag: boolean | null): Promise<void> {
+    await unwrapCommand(commands.setNotePagesFlag(noteId, flag))
+  }
+
   async upsertCustomProperty(
     _vaultPath: string,
     noteId: string,
     property: CustomProperty,
   ): Promise<CustomProperty> {
-    return unwrapCommand(commands.upsertCustomProperty(noteId, property))
+    void [noteId, property]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async deleteCustomProperty(
@@ -986,7 +1059,8 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     propertyId: string,
   ): Promise<void> {
-    await unwrapCommand(commands.deleteCustomProperty(noteId, propertyId))
+    void [noteId, propertyId]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async reorderCustomProperties(
@@ -994,7 +1068,8 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     propertyIds: string[],
   ): Promise<void> {
-    await unwrapCommand(commands.reorderCustomProperties(noteId, propertyIds))
+    void [noteId, propertyIds]
+    throw new Error(BY_NAME_ONLY)
   }
 
   async backupCustomProperties(_vaultPath: string, noteId: string): Promise<string> {
@@ -1043,6 +1118,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.readSnapshotText(snapshotId))
   }
 
+  async readTrashPreview(trashId: string, relativePath: string): Promise<TrashPreview> {
+    return unwrapCommand(commands.readTrashPreview(trashId, relativePath))
+  }
+
   async listTrash(): Promise<TrashEntry[]> {
     return unwrapCommand(commands.listTrash())
   }
@@ -1054,28 +1133,40 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.purgeTrash(trashId))
   }
 
-  async previewRenameRefactor(
-    _vaultPath: string,
-    path: string,
-    newName: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewRenameRefactor(path, newName))
+  async listArchive(vaultPath: string): Promise<ArchiveEntry[]> {
+    return unwrapCommand(commands.listArchive(vaultPath))
   }
 
-  async previewMoveRefactor(
-    _vaultPath: string,
-    sourcePath: string,
-    targetPath: string,
-  ): Promise<RefactorPreview> {
-    return unwrapCommand(commands.previewMoveRefactor(sourcePath, targetPath))
+  async readArchivePreview(archiveId: string, relativePath: string): Promise<TrashPreview> {
+    return unwrapCommand(commands.readArchivePreview(archiveId, relativePath))
+  }
+
+  async restoreArchive(archiveId: string, vaultPath: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.restoreArchive(archiveId, vaultPath))
+  }
+
+  async purgeArchive(archiveId: string, mode: DeleteMode): Promise<void> {
+    await unwrapCommand(commands.purgeArchive(archiveId, mode))
   }
 
   async openInExplorer(path: string): Promise<void> {
     await unwrapCommand(commands.openInExplorer(path))
   }
 
+  async revealVaultFolder(id: string): Promise<void> {
+    await unwrapCommand(commands.revealVaultFolder(id))
+  }
+
+  async revealAppDataFolder(): Promise<void> {
+    await unwrapCommand(commands.revealAppDataFolder())
+  }
+
   async openAttachment(notePath: string, attachmentPath: string): Promise<void> {
     await unwrapCommand(commands.openAttachment(notePath, attachmentPath))
+  }
+
+  async saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null> {
+    return unwrapCommand(commands.saveAttachmentCopy(notePath, attachmentPath))
   }
 
   async openWebAddress(address: string): Promise<void> {
@@ -1096,6 +1187,11 @@ export class DesktopAdapter implements StoragePort {
     sourcePath: string,
   ): Promise<ImportedAsset | null> {
     return unwrapCommand(commands.importAsset(notePath, sourcePath))
+  }
+
+  async importFiles(targetDir: string | null, sources: string[]): Promise<ImportFilesResult> {
+    const result = await unwrapCommand(commands.importFiles(targetDir, sources))
+    return result as ImportFilesResult
   }
 
   async importAssetBytes(
@@ -1120,25 +1216,6 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.importTextFile())
   }
 
-  async confirmAction(message: string): Promise<boolean> {
-    const result = await invoke<string>("plugin:dialog|message", {
-      message,
-      title: i18n.t("app.name"),
-      kind: "warning",
-      buttons: "OkCancel",
-    })
-    return result === "Ok"
-  }
-
-  async showErrorMessage(message: string): Promise<void> {
-    await invoke("plugin:dialog|message", {
-      message,
-      title: i18n.t("app.name"),
-      kind: "error",
-      buttons: "Ok",
-    })
-  }
-
   async readGlobalRaw(file: string): Promise<string | null> {
     return unwrapCommand(commands.readAppData(file))
   }
@@ -1147,20 +1224,36 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.writeAppData(file, contents))
   }
 
+  async compareWriteGlobalRaw(
+    file: string,
+    expected: string | null,
+    contents: string,
+  ): Promise<boolean> {
+    return unwrapCommand(commands.compareWriteAppData(file, expected, contents))
+  }
+
   async readVaultRaw(rel: string): Promise<string | null> {
     return unwrapCommand(commands.readVaultMeta(rel))
   }
 
-  async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    return unwrapCommand(commands.writeVaultMeta(rel, contents))
+  async writeVaultRaw(
+    rel: string,
+    contents: string,
+    expectedGeneration?: number | null,
+  ): Promise<void> {
+    return unwrapCommand(commands.writeVaultMeta(rel, contents, expectedGeneration ?? null))
   }
 
   async deleteVaultMeta(rel: string): Promise<void> {
-    await unwrapCommand(commands.deleteVaultMeta(rel))
+    await unwrapCommand(commands.deleteVaultMeta(rel, null))
   }
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
     await unwrapCommand(commands.storeAiCredential(credentialId, secret))
+  }
+
+  async deleteUnreferencedAiCredential(credentialId: string): Promise<boolean> {
+    return unwrapCommand(commands.deleteUnreferencedAiCredential(credentialId))
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {

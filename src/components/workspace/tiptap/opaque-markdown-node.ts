@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from "@tiptap/core"
+import { formatShortcut } from "../keyboard-shortcuts"
 
 import i18n from "@/lib/i18n"
 import {
@@ -12,6 +13,7 @@ import {
   takeOpenRequest,
 } from "./math-block"
 import { displayMathSource, renderMath } from "./rendered-source"
+import { isEnterKey } from "@/lib/keyboard"
 
 // Portable Markdown blocks the editor does not rebuild stay atomic in the visual
 // document: their raw source is the block and is changed in Source mode. Display math
@@ -204,7 +206,7 @@ export const OpaqueMarkdownBlock = Node.create({
         error.hidden = true
         const hint = document.createElement("p")
         hint.className = "amby-math-hint"
-        hint.textContent = i18n.t("editor.math.hint")
+        hint.textContent = i18n.t("editor.math.hint", { shortcut: formatShortcut("Mod+Enter") })
         panel.append(area, error, hint)
         dom.append(panel)
         dom.classList.add("is-writing")
@@ -218,7 +220,7 @@ export const OpaqueMarkdownBlock = Node.create({
           if (event.key === "Escape") {
             event.preventDefault()
             cancel()
-          } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          } else if (isEnterKey(event) && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
             apply(true)
           }

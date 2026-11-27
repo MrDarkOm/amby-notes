@@ -590,6 +590,45 @@ describe("markdown <-> tiptap round-trip", () => {
     }
   })
 
+  it("reads and writes picture alignment after the alt text and before the size", () => {
+    const images = [
+      "![Alt|center|300](assets/photo.png)",
+      "![Alt|right](assets/photo.png)",
+      "![|center](assets/photo.png)",
+      "![|left|300x200](assets/photo.png)",
+      "![Alt|left](assets/photo.png)",
+      // Not a position word, or not at the end of the alt text: ordinary alt text.
+      "![Alt|centered](assets/photo.png)",
+      "![a|left|b|300](assets/photo.png)",
+    ]
+    for (const img of images) {
+      expect(roundTripCheck(img)).toEqual({ ok: true, result: img })
+    }
+    const firstImage = (md: string) =>
+      editorSchema.nodeFromJSON(markdownToDoc(md)).child(0).child(0).attrs
+    expect(firstImage("![Alt|center|300](assets/photo.png)")).toMatchObject({
+      alt: "Alt",
+      align: "center",
+      width: 300,
+    })
+    expect(firstImage("![a|left|b|300](assets/photo.png)")).toMatchObject({
+      alt: "a|left|b",
+      align: null,
+      width: 300,
+    })
+  })
+
+  it("writes a picture aligned in the editor as the same Markdown a note carries", () => {
+    const node = editorSchema.nodeFromJSON(markdownToDoc("![Alt|300](assets/photo.png)"))
+    const paragraph = node.child(0)
+    const image = paragraph.child(0)
+    const aligned = node.type.create(
+      null,
+      paragraph.type.create(null, image.type.create({ ...image.attrs, align: "right" })),
+    )
+    expect(docToMarkdown(aligned)).toBe("![Alt|right|300](assets/photo.png)")
+  })
+
   it("preserves a note with tags, wiki links, and separate callouts", () => {
     const note =
       "#Тег #привет\n\nПросто  для [[теста]]\n\n> [!NOTE] 😍\n> \n\n> [!NOTE] ☺️\n> asdsadasdsad\n\n[[Назуар]] [[Тестовая]]"

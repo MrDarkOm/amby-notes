@@ -62,7 +62,7 @@ describe("ExternalConflictDialog component", () => {
 
   it("closes with the cross, preserves unsaved edits, and can be reopened explicitly", () => {
     showConflict()
-    fireEvent.click(screen.getByRole("button", { name: "Закрыть", exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }))
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(useDocStore.getState().openDocs["note-1"].content).toBe("Local draft content")
     expect(useDocStore.getState().unsavedFileIds.has("note-1")).toBe(true)
@@ -81,7 +81,7 @@ describe("ExternalConflictDialog component", () => {
 
   it("shows the latest local buffer after the user dismissed the conflict and continued editing", () => {
     showConflict()
-    fireEvent.click(screen.getByRole("button", { name: "Закрыть", exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть" }))
     act(() => {
       useDocStore.getState().patchDoc("note-1", { content: "More recent edits" })
       useDocStore.getState().openConflictDialog("note-1")
@@ -123,7 +123,7 @@ describe("ExternalConflictDialog component", () => {
   })
 
   it("preserves edits that arrive while the local version is saving", async () => {
-    let finish!: () => void
+    let finish!: (value: string) => void
     vi.spyOn(storage, "writeFile").mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -135,9 +135,9 @@ describe("ExternalConflictDialog component", () => {
     try {
       showConflict()
       fireEvent.click(screen.getByRole("button", { name: "Сохранить текст из Amby" }))
-      expect(screen.queryByRole("button", { name: "Закрыть", exact: true })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Закрыть" })).toBeNull()
       act(() => useDocStore.getState().patchDoc("note-1", { content: "Newer edits during save" }))
-      await act(async () => finish())
+      await act(async () => finish(""))
       expect(useDocStore.getState().unsavedFileIds.has("note-1")).toBe(true)
       expect(useDocStore.getState().openDocs["note-1"].content).toBe("Newer edits during save")
       expect((resolved.mock.calls[0][0] as CustomEvent).detail.resolution).toBe("resume")
@@ -209,7 +209,7 @@ describe("ExternalConflictDialog component", () => {
     expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
   })
 
-  it("renders external deletion message when externalContent is null", async () => {
+  it("opens no window for a file that is gone; its card is in the notices of the note (К12)", () => {
     act(() => {
       useDocStore.getState().setExternalConflict({
         fileId: "note-1",
@@ -221,15 +221,9 @@ describe("ExternalConflictDialog component", () => {
 
     render(<ExternalConflictDialog />)
 
-    expect(screen.getByText("Файл был удалён вне Amby")).toBeTruthy()
-    expect(screen.getByText("Оставить вкладку открытой")).toBeTruthy()
-    expect(screen.getByText("Восстановить локальную")).toBeTruthy()
-
-    const keepBtn = screen.getByText("Оставить вкладку открытой")
-    await act(async () => {
-      fireEvent.click(keepBtn)
-    })
-
-    expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
+    expect(screen.queryByText("Файл был удалён вне Amby")).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
+    // the conflict stays: autosave stays paused and the text is kept until the person decides
+    expect(useDocStore.getState().externalConflicts["note-1"]).toBeDefined()
   })
 })

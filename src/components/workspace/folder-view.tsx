@@ -2,30 +2,31 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  Database,
-  FileText,
-  Folder,
-  FolderPlus,
-  LayoutGrid,
-  PenTool,
-  Plus,
-  Search,
-} from "lucide-react"
+import { Database, Folder, FolderPlus, LayoutGrid, PenTool, Plus, Search } from "lucide-react"
 import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 import { IconValue } from "./icon-value"
 import type { TreeItem } from "./sidebar-tree"
 import { countFolderContents } from "./folder-view-utils"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
+import { TreeItemIcon } from "./tree/tree-icons"
 
 interface FolderViewProps {
   folder: TreeItem
   onOpenItem: (id: string) => void
   onNewNote: (parentId: string | null) => void
   onNewFolder: (parentId: string | null) => void
+  onConvertToNote?: (folderId: string) => void
   onIconChange: (icon: string) => void
+}
+
+/** What each card is, under its name; any other kind of file reads as a note. */
+const KIND_LABELS: Partial<Record<string, string>> = {
+  canvas: "folderView.canvas",
+  sketch: "folderView.sketch",
+  database: "folderView.database",
 }
 
 function itemIcon(item: TreeItem) {
@@ -47,7 +48,7 @@ function itemIcon(item: TreeItem) {
   if (item.type === "canvas") return <LayoutGrid className="size-5" />
   if (item.type === "sketch") return <PenTool className="size-5" />
   if (item.type === "database") return <Database className="size-5" />
-  return <FileText className="size-5" />
+  return <TreeItemIcon item={item} className="size-5" />
 }
 
 export function FolderView({
@@ -55,9 +56,12 @@ export function FolderView({
   onOpenItem,
   onNewNote,
   onNewFolder,
+  onConvertToNote,
   onIconChange,
 }: FolderViewProps) {
   const { t, i18n } = useTranslation()
+  const bundleFolder = folder.children?.some((item) => item.bundleMember)
+  const destination = bundleFolder ? folder.path : folder.id
   const [query, setQuery] = React.useState("")
   const [iconPickerOpen, setIconPickerOpen] = React.useState(false)
   const iconTriggerRef = React.useRef<HTMLDivElement>(null)
@@ -132,11 +136,21 @@ export function FolderView({
               {t("folderView.summary", { notes: counts.notes, folders: counts.folders })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onConvertToNote && !bundleFolder && (
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
+                onClick={() => onConvertToNote(folder.id)}
+              >
+                <CompositeNoteIcon className="size-4" />
+                {t("folderView.convertToSupernote")}
+              </button>
+            )}
             <button
               type="button"
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
-              onClick={() => onNewFolder(folder.id)}
+              onClick={() => onNewFolder(destination)}
             >
               <FolderPlus className="size-4" />
               {t("folderView.newFolder")}
@@ -144,7 +158,7 @@ export function FolderView({
             <button
               type="button"
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:opacity-90"
-              onClick={() => onNewNote(folder.id)}
+              onClick={() => onNewNote(destination)}
             >
               <Plus className="size-4" />
               {t("folderView.newNote")}
@@ -158,7 +172,7 @@ export function FolderView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("folderView.search")}
-            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring/40"
+            className="amby-inset-icon-input h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring/40"
           />
         </div>
 
@@ -194,9 +208,7 @@ export function FolderView({
                             notes: nested.notes,
                             folders: nested.folders,
                           })
-                        : item.type === "canvas"
-                          ? t("folderView.canvas")
-                          : t("folderView.note")}
+                        : t(KIND_LABELS[item.type] ?? "folderView.note")}
                     </span>
                   </span>
                 </motion.button>

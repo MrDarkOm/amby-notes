@@ -38,7 +38,8 @@ export const schemaExtensions: Extensions = [
     trailingNode: false,
   }),
   AmbyCodeBlock,
-  MarkdownTable.configure({ resizable: true }),
+  // A Markdown table has no place to store a column width, so a drag would be lost on save.
+  MarkdownTable.configure({ resizable: false }),
   TableRow,
   MarkdownTableHeader,
   MarkdownTableCell,

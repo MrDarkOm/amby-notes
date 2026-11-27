@@ -1,46 +1,46 @@
-# Пользовательские сценарии баз данных Amby
+# Amby database user flows
 
-Статус: архитектурное предложение
-Версия документа: 1
-Дата: 2026-09-04
+Status: architecture proposal
+Document version: 1
+Date: 2026-09-04
 
-Этот документ конкретизирует [системный план](./database-system.md) через
-пользовательские действия и проверяемые результаты. Технические форматы и IPC
-не должны противоречить этим сценариям.
+This document makes the [system plan](database-system.md) concrete through
+user actions and verifiable results. Technical formats and IPC must not
+contradict these flows.
 
-## 1. Общие правила
+## 1. General rules
 
-- Строка базы всегда является реальной Markdown-заметкой.
-- Owning database определяется ближайшим родительским `ambd.json`.
-- Schema хранится в `ambd.json`; views и templates — в собственных `.ambd`
-  shards, перечисленных manifest.
-- Значения общей схемы хранятся в `.ambd/records/<note-id>.json`.
-- SQLite обслуживает быстрые запросы и полностью перестраивается из durable
-  файлов.
-- Любая операция сначала сохраняет durable data, затем обновляет индекс.
-- Ошибка индекса после durable commit показывается как `rebuildRequired`, а не
-  как ложное «данные не сохранены».
-- Автоматическая миграция, удаление неизвестных данных и last-write-wins
-  запрещены.
+- A database row is always a real Markdown note.
+- The owning database is determined by the nearest parent `ambd.json`.
+- The schema is stored in `ambd.json`; views and templates live in their own `.ambd`
+  shards listed in the manifest.
+- Values of the shared schema are stored in `.ambd/records/<note-id>.json`.
+- SQLite serves fast queries and is fully rebuilt from the durable
+  files.
+- Every operation first saves durable data, then updates the index.
+- An index error after a durable commit is shown as `rebuildRequired`, not as
+  a false "data not saved".
+- Automatic migration, deletion of unknown data, and last-write-wins
+  are forbidden.
 
-## 2. Создание самостоятельной базы
+## 2. Creating a standalone database
 
-### Основной поток
+### Main flow
 
-1. Пользователь выбирает `Новая база данных`.
-2. Указывает имя и каталог назначения.
-3. Выбирает `Пустая` либо `Копировать структуру существующей`.
-4. При копировании выбирает исходную базу; копируются schema, views и row
-   templates, но не строки, значения и assets.
-5. При желании выбирает IconValue и cover.
-6. Amby проверяет коллизии имени и возможность записи.
-7. Backend атомарно создает каталог и `ambd.json` версии 1.
-8. База появляется в Files и Databases panels и открывается в Table view.
+1. The user chooses `Новая база данных` (New database).
+2. They specify a name and a destination directory.
+3. They choose `Пустая` (Empty) or `Копировать структуру существующей` (Copy the structure of an existing one).
+4. When copying, they choose the source database; the schema, views, and row
+   templates are copied, but not rows, values, or assets.
+5. Optionally they choose an IconValue and a cover.
+6. Amby checks for name collisions and whether writing is possible.
+7. The backend atomically creates the directory and `ambd.json` version 1.
+8. The database appears in the Files and Databases panels and opens in Table view.
 
-### Результат на диске
+### Result on disk
 
 ```text
-Персонажи/
+Персонажи/ (Characters/)
 ├── ambd.json
 └── .ambd/
     ├── records/
@@ -48,359 +48,359 @@
     └── trash/
 ```
 
-Пустые служебные каталоги можно создавать лениво при первой записи.
+Empty service directories may be created lazily on the first write.
 
-### Ошибки
+### Errors
 
-- Если путь появился после preflight, операция не заменяет его и предлагает
-  другое имя.
-- Если `ambd.json` создать не удалось, пустой временный контейнер очищается.
-- Если cleanup не удался, показывается точный оставшийся путь; он не считается
-  успешно созданной базой.
+- If the path appeared after preflight, the operation does not replace it and offers
+  another name.
+- If `ambd.json` could not be created, the empty temporary container is cleaned up.
+- If cleanup failed, the exact remaining path is shown; it is not considered a
+  successfully created database.
 
-## 3. Подключение базы к заметке
+## 3. Attaching a database to a note
 
-1. Пользователь открывает заметку и выбирает `Подключить базу данных`.
-2. Если заметка одиночная, preview показывает превращение в bundle.
-3. Если у заметки уже есть дочерние заметки, preview перечисляет будущие строки
-   и конфликты Title/ID.
-4. Пользователь подтверждает операцию.
-5. Backend использует существующую безопасную bundle promotion и создает
-   `ambd.json` без замены появившегося файла.
-6. У заметки появляется слой `База данных`; слой `Текст` остается доступным.
-7. Существующие дочерние заметки становятся строками без дополнительного move.
+1. The user opens a note and chooses `Подключить базу данных` (Attach a database).
+2. If the note is a single file, the preview shows its conversion into a bundle.
+3. If the note already has child notes, the preview lists the future rows
+   and Title/ID conflicts.
+4. The user confirms the operation.
+5. The backend uses the existing safe bundle promotion and creates
+   `ambd.json` without replacing a file that has appeared.
+6. The note gets a `База данных` (Database) layer; the `Текст` (Text) layer remains available.
+7. Existing child notes become rows without an additional move.
 
-При ошибке создания `ambd.json` bundle promotion откатывается. Если rollback
-не завершился, Amby показывает recovery action и не скрывает измененные пути.
+If creating `ambd.json` fails, the bundle promotion is rolled back. If the rollback
+did not complete, Amby shows a recovery action and does not hide the changed paths.
 
-## 4. Создание строки
+## 4. Creating a row
 
-### Из Table/List/Gallery
+### From Table/List/Gallery
 
-1. Пользователь нажимает `New`.
-2. Выбирает row template либо использует default.
-3. Вводит уникальный Title.
-4. Amby объединяет defaults template и однозначные значения текущего filter;
-   контекст view имеет приоритет.
-5. Backend создает реальный `.md`, назначает `amby-id`, записывает начальные
-   database values и обновляет индекс.
-6. Строка открывается в Side peek.
+1. The user clicks `New`.
+2. They choose a row template or use the default.
+3. They enter a unique Title.
+4. Amby merges the template defaults with the unambiguous values of the current filter;
+   the view context takes priority.
+5. The backend creates a real `.md`, assigns `amby-id`, writes the initial
+   database values, and updates the index.
+6. The row opens in Side peek.
 
-### Из Board
+### From Board
 
-Создание внутри колонки дополнительно присваивает соответствующий Status или
-Select. Это значение имеет приоритет над template.
+Creating inside a column additionally assigns the corresponding Status or
+Select. This value takes priority over the template.
 
 ### Title
 
-- Title уникален во всей owning database, включая sub-items.
-- Проверка использует ту же Unicode/case normalization, что и индекс.
-- Title переименовывает `.md` и bundle через безопасный refactor.
-- При конфликте запись не начинается; UI предлагает свободное имя.
+- The Title is unique across the whole owning database, including sub-items.
+- The check uses the same Unicode/case normalization as the index.
+- The Title renames the `.md` and the bundle through a safe refactor.
+- On a conflict, the write does not start; the UI suggests a free name.
 
-### Частичный сбой
+### Partial failure
 
-Создание заметки, initial values и изменение индекса возвращаются как один
-`MutationOutcome`. Если note создана, а shard нет, операция либо откатывает
-только что созданный no-replace файл, либо оставляет recovery journal. Она не
-показывает готовую строку без явной диагностики.
+Creating the note, the initial values, and the index change are returned as a single
+`MutationOutcome`. If the note was created but the shard was not, the operation either rolls back
+only the just-created no-replace file, or leaves a recovery journal. It does not
+show a ready row without explicit diagnostics.
 
-## 5. Открытие строки
+## 5. Opening a row
 
-### Side peek по умолчанию
+### Side peek by default
 
-- Один клик открывает Side peek и оставляет view видимым.
-- На широком экране Markdown-описание находится слева, свойства справа.
-- На узком экране свойства сворачиваются над текстом.
-- `Escape` закрывает peek.
-- `Ctrl/Cmd + click` открывает обычную вкладку.
-- Кнопка `Открыть полностью` превращает текущий просмотр во вкладку.
+- A single click opens Side peek and keeps the view visible.
+- On a wide screen the Markdown description is on the left, the properties on the right.
+- On a narrow screen the properties collapse above the text.
+- `Escape` closes the peek.
+- `Ctrl/Cmd + click` opens a regular tab.
+- The `Открыть полностью` (Open in full) button turns the current preview into a tab.
 
-Peek и вкладка используют один document store, autosave queue и property state.
-Открытие одной заметки двумя способами не создает независимые dirty buffers.
+The peek and the tab use one document store, autosave queue, and property state.
+Opening one note in two ways does not create independent dirty buffers.
 
-View хранит режим `sidePeek`, `centerPeek` или `fullPage`; первая поставка может
-включить только полностью рабочий Side peek.
+The view stores the mode `sidePeek`, `centerPeek`, or `fullPage`; the first delivery may
+include only a fully working Side peek.
 
-## 6. Свойства страницы
+## 6. Page properties
 
-В peek и Info panel отображаются две секции:
+The peek and the Info panel show two sections:
 
 ```text
-Свойства базы «Персонажи»
-Личные свойства заметки
+Свойства базы «Персонажи» (Properties of the database "Characters")
+Личные свойства заметки (The note's personal properties)
 ```
 
-- `+` в первой секции меняет общую schema после проверки lock/revision.
-- `+` во второй секции создает свойство только этой заметки.
-- Database property видна у всех строк, даже если значение пустое.
-- Личное свойство не становится колонкой и не участвует в database query.
-- Явная команда может преобразовать совместимое личное свойство в общее после
-  preview всех затрагиваемых значений.
+- `+` in the first section changes the shared schema after a lock/revision check.
+- `+` in the second section creates a property of this note only.
+- A database property is visible on all rows, even if the value is empty.
+- A personal property does not become a column and does not take part in a database query.
+- An explicit command can convert a compatible personal property into a shared one after a
+  preview of all affected values.
 
-Для database property на странице доступны `Всегда показывать`, `Скрывать
-пустое` и `Всегда скрывать`. Настройка не меняет видимость колонки views.
+For a database property, the page offers `Всегда показывать` (Always show), `Скрывать
+пустое` (Hide empty), and `Всегда скрывать` (Always hide). The setting does not change the visibility of the column in views.
 
-## 7. Редактирование ячеек
+## 7. Editing cells
 
-- Text использует debounce и обязательный flush при blur, закрытии и unmount.
-- Checkbox, Date, Select, Status, Media и Relation записываются сразу.
-- Пока durable commit не подтвержден, ячейка показывает pending state.
-- Ошибка оставляет введенное значение в recovery draft и предлагает retry.
-- Старая revision возвращает конфликт вместо перезаписи нового значения.
-- Один record shard записывается через очередь по `noteId`.
+- Text uses debounce and a mandatory flush on blur, close, and unmount.
+- Checkbox, Date, Select, Status, Media, and Relation are written immediately.
+- Until the durable commit is confirmed, the cell shows a pending state.
+- An error keeps the entered value in a recovery draft and offers retry.
+- A stale revision returns a conflict instead of overwriting the new value.
+- A single record shard is written through a queue keyed by `noteId`.
 
-Table поддерживает стрелки, Enter, Tab, Shift+Tab, Escape и copy/paste. Вставка
-диапазона сначала показывает типовые ошибки и выполняется как одна batch
+Table supports arrows, Enter, Tab, Shift+Tab, Escape, and copy/paste. Pasting a
+range first shows type errors and is executed as a single batch
 operation.
 
-## 8. Создание и изменение schema
+## 8. Creating and changing the schema
 
-### Создание свойства
+### Creating a property
 
-Первая версия поддерживает Title, Text, Number, Checkbox, Date, Select,
-Multi-select, Status, URL, Files & media и Relation. Title системный и не
-удаляется.
+The first version supports Title, Text, Number, Checkbox, Date, Select,
+Multi-select, Status, URL, Files & media, and Relation. Title is a system property and
+cannot be deleted.
 
 ### Rename
 
-Меняется отображаемое имя, но `propertyId`, значения, filters и YAML binding
-сохраняются.
+The display name changes, but `propertyId`, values, filters, and the YAML binding
+are preserved.
 
-### Смена типа
+### Changing the type
 
-1. Amby строит read-only preview конвертации.
-2. Показывает число успешных, пустых и несовместимых значений.
-3. После подтверждения создает snapshot/journal.
-4. Несовместимые значения сохраняются как diagnostic payload.
+1. Amby builds a read-only conversion preview.
+2. It shows the number of successful, empty, and incompatible values.
+3. After confirmation it creates a snapshot/journal.
+4. Incompatible values are preserved as a diagnostic payload.
 
-### Удаление
+### Deletion
 
-Property definition и значения перемещаются в `.ambd/trash` и могут быть
-полностью восстановлены. Окончательное удаление — отдельная cleanup-команда.
+The property definition and values are moved to `.ambd/trash` and can be
+fully restored. Permanent deletion is a separate cleanup command.
 
 ## 9. YAML sync
 
-Пользователь может явно привязать database property к YAML key.
+The user can explicitly bind a database property to a YAML key.
 
-- Поддерживаются Text, Number, Checkbox, Date, Select, Multi-select и URL.
-- Relation, Files & media и вычисляемые свойства остаются Amby-only.
-- Rename свойства не меняет YAML key автоматически.
-- Включение, переименование key и отключение показывают preview.
-- Изменение YAML внешним редактором попадает в базу после watcher refresh.
-- Одновременное изменение YAML и shard создает field-level conflict.
-- Пользователь выбирает значение Amby, YAML либо вводит итоговое вручную.
-- До разрешения конфликта остальные поля заметки продолжают работать.
+- Text, Number, Checkbox, Date, Select, Multi-select, and URL are supported.
+- Relation, Files & media, and computed properties remain Amby-only.
+- Renaming a property does not change the YAML key automatically.
+- Enabling, renaming the key, and disabling all show a preview.
+- A YAML change made by an external editor reaches the database after a watcher refresh.
+- A simultaneous change to the YAML and the shard creates a field-level conflict.
+- The user chooses the Amby value, the YAML value, or enters the final one manually.
+- Until the conflict is resolved, the note's other fields keep working.
 
 ## 10. Relations
 
-### Односторонняя связь
+### One-way relation
 
-1. Пользователь создает Relation и выбирает любую target database, включая
-   текущую.
-2. Выбирает cardinality: одна запись или несколько.
-3. В ячейке ищет строки target database и сохраняет `noteId`.
-4. Клик по значению открывает целевую страницу в Side peek.
+1. The user creates a Relation and chooses any target database, including the
+   current one.
+2. They choose cardinality: one record or several.
+3. In the cell they search rows of the target database and the `noteId` is saved.
+4. Clicking the value opens the target page in Side peek.
 
-### Двусторонняя связь
+### Two-way relation
 
-1. Пользователь включает `Создать обратное свойство` и называет обе стороны.
-2. Preflight проверяет revisions и lock обеих баз.
-3. Journal атомарно координирует два `ambd.json`.
-4. Хранится один канонический edge; обратное значение вычисляется индексом.
+1. The user enables `Создать обратное свойство` (Create reverse property) and names both sides.
+2. Preflight checks the revisions and the lock of both databases.
+3. A journal atomically coordinates the two `ambd.json` files.
+4. One canonical edge is stored; the reverse value is computed by the index.
 
-Если цель удалена, недоступна или покинула target database, Relation не
-исчезает. Она получает состояние `unresolved` или `outsideDatabase` и остается
-открываемой, когда файл доступен.
+If the target is deleted, unavailable, or has left the target database, the Relation does not
+disappear. It gets the state `unresolved` or `outsideDatabase` and stays
+openable when the file is available.
 
-## 11. Sub-items и папки
+## 11. Sub-items and folders
 
-### Создание дочерней строки
+### Creating a child row
 
-1. Пользователь выбирает `Добавить sub-item` либо перетаскивает строку на строку.
-2. Одиночный parent `.md` при необходимости становится bundle.
-3. Файл child физически перемещается внутрь bundle.
-4. `Parent` и `Sub-items` пересчитываются из дерева.
+1. The user chooses `Добавить sub-item` (Add sub-item) or drags a row onto a row.
+2. A single parent `.md` becomes a bundle if necessary.
+3. The child file is physically moved into the bundle.
+4. `Parent` and `Sub-items` are recomputed from the tree.
 
-Обычные папки могут группировать файлы, но не являются строками. Если строка
-имеет собственный `ambd.json`, ее основная `.md` остается строкой внешней базы,
-а дочерние заметки принадлежат внутренней базе.
+Regular folders can group files but are not rows. If a row
+has its own `ambd.json`, its main `.md` remains a row of the outer database,
+while the child notes belong to the inner database.
 
-### Отображение
+### Display
 
-- `Nested` сохраняет иерархию и сортирует siblings каждого уровня.
-- `Flat` показывает и сортирует все строки вместе.
-- Если filter совпал только с child, он показывается с breadcrumb родителя.
-- Обычные значения child не наследуются от parent.
+- `Nested` preserves the hierarchy and sorts the siblings of each level.
+- `Flat` shows and sorts all rows together.
+- If a filter matched only a child, it is shown with the parent's breadcrumb.
+- Ordinary child values are not inherited from the parent.
 
-### Удаление parent
+### Deleting a parent
 
-Пользователь выбирает удалить весь bundle с sub-items либо удалить parent и
-поднять детей на его уровень. Preview показывает число страниц; операция
-журналируется и восстанавливается целиком.
+The user chooses to delete the whole bundle with its sub-items, or to delete the parent and
+lift the children to its level. The preview shows the number of pages; the operation is
+journaled and restored as a whole.
 
-## 12. Добавление существующих заметок
+## 12. Adding existing notes
 
-1. `Добавить существующие страницы` открывает поиск по vault.
-2. Amby исключает текущие строки и показывает owning database каждого
-   результата.
-3. Preview перечисляет filesystem moves и link refactors.
-4. После подтверждения используется обычный move/refactor pipeline.
-5. Перемещенная заметка сохраняет `amby-id`, body, личные свойства и assets.
-6. Старые database values остаются в исходном контейнере для возможного
-   возврата.
+1. `Добавить существующие страницы` (Add existing pages) opens a vault search.
+2. Amby excludes the current rows and shows the owning database of each
+   result.
+3. The preview lists filesystem moves and link refactors.
+4. After confirmation the regular move/refactor pipeline is used.
+5. The moved note keeps its `amby-id`, body, personal properties, and assets.
+6. The old database values remain in the source container for a possible
+   return.
 
-Drag из Files panel вызывает тот же сценарий. Одна заметка не может иметь две
-owning databases; для второго контекста используются Relation или linked view.
+Dragging from the Files panel triggers the same flow. A note cannot have two
+owning databases; for a second context, use a Relation or a linked view.
 
-Перенос из другой базы требует явного mapping совместимых свойств. Ничего не
-сопоставляется автоматически только по отображаемому имени.
+A move from another database requires an explicit mapping of compatible properties. Nothing
+is matched automatically by display name alone.
 
-## 13. Представления
+## 13. Views
 
-### Общие правила
+### General rules
 
-- Одна база имеет несколько saved views.
-- Данные общие; filters, sorts, group, layout и property visibility независимы.
-- Настройки автоматически сохраняются в `.ambd/views/<view-id>.json`.
-- Быстрый поиск временный.
-- Без активной сортировки доступен ручной порядок по `noteId`.
-- Title всегда первая frozen-колонка; можно закрепить дополнительные.
+- One database has several saved views.
+- The data is shared; filters, sorts, group, layout, and property visibility are independent.
+- Settings are saved automatically to `.ambd/views/<view-id>.json`.
+- Quick search is temporary.
+- Without an active sort, a manual order by `noteId` is available.
+- Title is always the first frozen column; additional ones can be pinned.
 
 ### Table
 
-Полное редактирование typed cells, resize/reorder/hide/freeze колонок,
-multi-sort, AND/OR filters, group/subgroup и footer aggregates.
+Full editing of typed cells, resize/reorder/hide/freeze of columns,
+multi-sort, AND/OR filters, group/subgroup, and footer aggregates.
 
 ### Board
 
-Группировка первой версии только по Status или одиночному Select. Drag между
-колонками атомарно меняет значение. Multi-select и Relation не дублируют одну
-строку в нескольких колонках.
+In the first version, grouping is only by Status or a single Select. Dragging between
+columns atomically changes the value. Multi-select and Relation do not duplicate one
+row across several columns.
 
 ### List
 
-Компактный список с выбранными дополнительными свойствами и теми же
-filter/sort/sub-item режимами.
+A compact list with chosen additional properties and the same
+filter/sort/sub-item modes.
 
 ### Gallery
 
-Источник preview: выбранное Files & media → первая картинка заметки → IconValue
-→ пустой preview. Набор свойств на карточке настраивается в view.
+Preview source: the chosen Files & media → the note's first image → IconValue
+→ an empty preview. The set of properties on the card is configured in the view.
 
 ## 14. Linked views
 
-1. В заметке `/` или «+» → «Представление базы данных»: выбирается база, затем сохранённый вид или
-   раскладка (таблица, доска, список, галерея).
-2. Создается переносимый `amby-db` block-«ярлык»: вкладка со ссылкой на `databaseId`, собственным
-   именем/иконкой и копией настроек выбранного вида.
-3. Вкладка редактируется как в самой базе: фильтр, сортировка, поиск, раскладка, свойства, значения.
-   Изменения остаются в блоке и не меняют вид в базе; значения общие.
-4. Нажатие на активную вкладку открывает настройки (имя, иконка, раскладка, источник, дублировать,
-   удалить); «+» добавляет вкладку, в том числе другой базы.
-5. `Открыть базу` открывает source.
+1. In a note, `/` or "+" → "Представление базы данных" (Database view): choose a database, then a saved view or
+   a layout (table, board, list, gallery).
+2. A portable `amby-db` block "shortcut" is created: a tab with a reference to `databaseId`, its own
+   name/icon, and a copy of the chosen view's settings.
+3. The tab is edited as in the database itself: filter, sort, search, layout, properties, values.
+   Changes stay in the block and do not change the view in the database; the values are shared.
+4. Clicking the active tab opens the settings (name, icon, layout, source, duplicate,
+   delete); "+" adds a tab, including one for another database.
+5. `Открыть базу` (Open database) opens the source.
 
-Missing database оставляет вкладку на месте с диагностикой и кнопкой выбрать
-новый source. Неизвестная версия блока сохраняется byte-exact и read-only.
+A missing database leaves the tab in place with a diagnostic and a button to choose
+a new source. An unknown block version is preserved byte-exact and read-only.
 
-## 15. Databases panel и глобальный Search
+## 15. Databases panel and global Search
 
-Панель автоматически находит standalone databases и database layers, показывает
-saved views, favorites и команды создания/подключения. База или view открывается
-во вкладке; view можно перетащить в Markdown как linked block.
+The panel automatically finds standalone databases and database layers, and shows
+saved views, favorites, and create/attach commands. A database or view opens
+in a tab; a view can be dragged into Markdown as a linked block.
 
-Глобальный Search ищет property values и фильтрует по Database, Property, Status
-и Relation через общий query engine. При выключенном модуле эти фильтры скрыты,
-а обычный Markdown search продолжает работать.
+Global Search searches property values and filters by Database, Property, Status,
+and Relation through the shared query engine. When the module is off, these filters are hidden,
+while regular Markdown search keeps working.
 
 ## 16. Lock database
 
-Locked database разрешает менять значения и body страниц, но запрещает:
+A locked database allows changing values and the body of pages, but forbids:
 
 - schema mutations;
-- изменение persistent view settings;
-- filesystem membership и sub-items moves;
-- удаление/подключение database layer.
+- changes to persistent view settings;
+- filesystem membership and sub-item moves;
+- deleting/attaching the database layer.
 
-Временный поиск и filters разрешены. Внешние filesystem changes невозможно
-заблокировать: watcher отражает их и показывает предупреждение.
+Temporary search and filters are allowed. External filesystem changes cannot be
+blocked: the watcher reflects them and shows a warning.
 
-## 17. Массовые действия и CSV
+## 17. Bulk actions and CSV
 
-Multi-select поддерживает изменение свойства/Relation, move и delete-to-Trash.
-Вся операция проходит preflight и один recovery journal.
+Multi-select supports changing a property/Relation, move, and delete-to-Trash.
+The whole operation goes through preflight and a single recovery journal.
 
-CSV import показывает mapping, типы и будущие Markdown-файлы. По умолчанию он
-создает новые строки и никогда не обновляет существующую только по совпадению
-Title. CSV export выгружает текущий view либо всю базу; Relation и Media
-представлены переносимыми ссылками.
+CSV import shows the mapping, the types, and the future Markdown files. By default it
+creates new rows and never updates an existing one just on a
+Title match. CSV export dumps the current view or the whole database; Relation and Media
+are represented by portable links.
 
-Первая версия CSV не обновляет существующие строки. Будущий update mode требует
-явную колонку `amby-id` и preview revisions.
+In the first version, CSV does not update existing rows. A future update mode requires
+an explicit `amby-id` column and a revisions preview.
 
-## 18. History и Undo
+## 18. History and Undo
 
-- Schema mutation создает snapshot `ambd.json`; view/template mutation —
-  snapshot соответствующего shard.
-- Text-cell edits объединяются в запись сессии, а не пишутся на каждый символ.
-- Batch, multi-cell paste и CSV import являются одной восстанавливаемой
-  операцией.
-- Undo использует тот же безопасный backend path с revision checks.
-- Незавершенный journal предлагается resume/rollback при следующем открытии.
+- A schema mutation creates a snapshot of `ambd.json`; a view/template mutation creates a
+  snapshot of the corresponding shard.
+- Text-cell edits are merged into a session entry rather than written on every character.
+- A batch, a multi-cell paste, and a CSV import are each a single recoverable
+  operation.
+- Undo uses the same safe backend path with revision checks.
+- An unfinished journal is offered for resume/rollback on the next open.
 
-## 19. Удаление и восстановление базы
+## 19. Deleting and restoring a database
 
-### Убрать базу, сохранить страницы
+### Remove the database, keep the pages
 
-`ambd.json` и `.ambd/` перемещаются в vault-local Trash. Контейнер становится
-обычной папкой, все `.md` остаются доступны.
+`ambd.json` and `.ambd/` are moved to the vault-local Trash. The container becomes a
+regular folder, and all `.md` files remain available.
 
-### Удалить вместе со страницами
+### Delete together with the pages
 
-Preview показывает database, вложенные базы, число заметок и размер assets.
-Контейнер целиком перемещается в Trash.
+The preview shows the database, nested databases, the number of notes, and the size of assets.
+The whole container is moved to Trash.
 
-Обе операции имеют restore. Purge выполняется отдельно и не допускает частично
-оставшихся schema/records.
+Both operations have restore. Purge is performed separately and does not allow partially
+remaining schema/records.
 
-## 20. Выключение модуля
+## 20. Turning the module off
 
-1. Amby flush-ит pending writes или показывает ошибку.
-2. Останавливает database subscriptions и derived calculations.
-3. Скрывает все точки создания, views, panels и database-layer controls.
-4. Не изменяет `ambd.json`, `.ambd/`, embedded blocks или Markdown rows.
-5. Standalone database отображается как обычная папка; attached main note — как
-   обычная заметка с дочерними файлами.
-6. Повторное включение валидирует durable files и перестраивает SQLite projection.
+1. Amby flushes pending writes or shows an error.
+2. It stops database subscriptions and derived calculations.
+3. It hides all creation points, views, panels, and database-layer controls.
+4. It does not change `ambd.json`, `.ambd/`, embedded blocks, or Markdown rows.
+5. A standalone database is displayed as a regular folder; an attached main note as a
+   regular note with child files.
+6. Turning it back on validates the durable files and rebuilds the SQLite projection.
 
-## 21. Внешние изменения и переносимость
+## 21. External changes and portability
 
-- Новый `.md` внутри контейнера становится строкой после watcher refresh.
-- Внешний duplicate Title или `amby-id` не исправляется автоматически; все
-  конфликтующие файлы остаются видимыми.
-- Поврежденный `ambd.json`/record shard не перезаписывается и переводит только
-  затронутую часть в read-only.
-- Копирование полного контейнера в другой vault переносит rows, schema, views,
-  templates, values и внутренние relations.
-- Отсутствующие внешние Relation остаются unresolved.
-- Ручная копия контейнера внутри того же vault создает диагностируемые duplicate
-  IDs. Полное клонирование с перегенерацией IDs — отдельная будущая команда.
+- A new `.md` inside a container becomes a row after a watcher refresh.
+- An external duplicate Title or `amby-id` is not fixed automatically; all
+  conflicting files remain visible.
+- A corrupted `ambd.json`/record shard is not overwritten and switches only the
+  affected part to read-only.
+- Copying a full container to another vault carries over rows, schema, views,
+  templates, values, and internal relations.
+- Missing external Relations stay unresolved.
+- A manual copy of a container inside the same vault creates diagnosable duplicate
+  IDs. Full cloning with ID regeneration is a separate future command.
 
-## 22. Закрытые продуктовые решения
+## 22. Closed product decisions
 
-### Перенос строки между базами
+### Moving a row between databases
 
-Используется явный mapping совместимых полей. Пользователь подтверждает каждую
-пару `source property → target property`; одного совпадения имени недостаточно.
-Старые значения сохраняются в исходном контейнере для возможного возврата.
+An explicit mapping of compatible fields is used. The user confirms each
+pair `source property → target property`; a name match alone is not enough.
+The old values are kept in the source container for a possible return.
 
 ### CSV update
 
-Первая версия только создает новые строки. Update mode добавляется позже и
-работает по явной колонке `amby-id` с preview revisions. Title никогда не
-используется как неявный идентификатор.
+The first version only creates new rows. Update mode is added later and
+works by an explicit `amby-id` column with a revisions preview. Title is never
+used as an implicit identifier.
 
-## 23. Критерий готовности UX-спецификации
+## 23. UX specification readiness criterion
 
-Карта согласована. Можно без дополнительных продуктовых допущений проектировать
-JSON Schema, SQLite schema, IPC и component state machines.
+The map is agreed. JSON Schema, the SQLite schema, IPC, and component state machines
+can be designed without additional product assumptions.

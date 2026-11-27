@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { confirmAction, createFolder, deleteItem, type NotebookCatalog } from "@/lib/storage"
+import { createFolder, deleteItem, type NotebookCatalog } from "@/lib/storage"
 import {
   absolutePathOf,
   moveCollision,
@@ -12,6 +12,7 @@ import {
   type NoteItem,
   type NotebookNode,
 } from "./notebook-model"
+import { ShownError, reportOperationError } from "@/lib/operation-errors"
 
 type MoveOutcome = "moved" | "skipped" | "failed"
 
@@ -83,20 +84,20 @@ export function useNotebookActions({
   const createNotebook = async (parent: readonly string[], name: string) => {
     setError(null)
     const fresh = (await reload()) ?? catalog
-    if (!fresh || !vault) throw new Error(t("creative.notebooks.errors.unavailable"))
+    if (!fresh || !vault) throw new ShownError(t("creative.notebooks.errors.unavailable"))
     const trimmed = name.trim()
     const problem = notebookNameProblem(trimmed, siblingNames(fresh.notebooks, parent))
-    if (problem) throw new Error(nameProblemText(problem))
+    if (problem) throw new ShownError(nameProblemText(problem))
     const parentPath = absolutePathOf(fresh, parent)
-    if (!parentPath) throw new Error(t("creative.notebooks.errors.unknownFolder"))
+    if (!parentPath) throw new ShownError(t("creative.notebooks.errors.unknownFolder"))
     let failure: string | null = null
     try {
       await createFolder(parentPath, trimmed)
     } catch (caught) {
-      failure = caught instanceof Error ? caught.message : String(caught)
+      failure = reportOperationError(caught)
     }
     if (failure !== null) {
-      throw new Error(t("creative.notebooks.errors.createFailed", { message: failure }))
+      throw new ShownError(t("creative.notebooks.errors.createFailed", { message: failure }))
     }
     await settle()
   }
@@ -109,10 +110,10 @@ export function useNotebookActions({
     const parent = node.segments.slice(0, -1)
     const current = fresh?.notebooks.find((entry) => sameSegments(entry.segments, node.segments))
     if (!fresh || !current || !onRename) {
-      throw new Error(t("creative.notebooks.errors.unavailable"))
+      throw new ShownError(t("creative.notebooks.errors.unavailable"))
     }
     const problem = notebookNameProblem(trimmed, siblingNames(fresh.notebooks, parent), node.name)
-    if (problem) throw new Error(nameProblemText(problem))
+    if (problem) throw new ShownError(nameProblemText(problem))
     await onRename(current.path, trimmed)
     // The tree's rename reports nothing back, so what the folder is called now is read.
     const after = await reload()
@@ -121,7 +122,7 @@ export function useNotebookActions({
     )
     await onCreativeChanged?.()
     onChanged()
-    if (!renamed) throw new Error(t("creative.notebooks.errors.renameFailed"))
+    if (!renamed) throw new ShownError(t("creative.notebooks.errors.renameFailed"))
   }
 
   const moveNote = async (noteId: string, target: readonly string[] | null) => {
@@ -186,14 +187,7 @@ export function useNotebookActions({
       setError(t("creative.notebooks.errors.unavailable"))
       return
     }
-    const confirmed = await confirmAction(
-      t("creative.notebooks.deleteConfirm", {
-        name: node.name,
-        count: plan.moves.length,
-        where,
-      }),
-    )
-    if (!confirmed) return
+    // Not asked: the notes only go up one level, and the empty folder goes to the trash (docs/notices.md, section 9).
 
     // 1. The notes go up, with their links and open tabs, by the tree's own move.
     if (plan.moves.length > 0) {
@@ -228,12 +222,12 @@ export function useNotebookActions({
       // catalog, so a static import would make a cycle.
       const { useSettingsStore } = await import("../../use-settings-store")
       const chosen = useSettingsStore.getState().prefs.files.deleteMode
-      await deleteItem(vault, current.path, chosen === "permanent" ? "vault" : chosen)
+      await deleteItem(vault, current.path, chosen === "permanent" ? "archive" : chosen)
     } catch (caught) {
       setError(
         t("creative.notebooks.errors.trashFailed", {
           name: node.name,
-          message: caught instanceof Error ? caught.message : String(caught),
+          message: reportOperationError(caught),
         }),
       )
     }

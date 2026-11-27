@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { fileManagerPlace } from "../show-in-file-manager"
 import {
   ArrowDownUp,
   Check,
@@ -10,6 +11,8 @@ import {
   Database,
   FilePlus,
   FileText,
+  Files,
+  FolderOpen,
   FolderPlus,
   History,
   LayoutGrid,
@@ -30,10 +33,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { errorType, logger } from "@/lib/logger"
+import { NoticeLine } from "../notices/notice-line"
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import {
@@ -44,7 +56,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
+import { useTreeFileDrop } from "../tree/use-tree-file-drop"
+import { useCreativeNavStore } from "../creative/creative-nav-store"
 import { SidebarTree } from "../sidebar-tree"
+import {
+  TREE_ORDER_STORAGE_PREFIX,
+  TREE_SORT_STORAGE_KEY,
+  writeManualTreeOrder,
+  writeTreeSortSelection,
+} from "./tree-view-storage"
 import {
   applyManualTreeOrder,
   collectManualTreeOrder,
@@ -61,10 +81,15 @@ import {
   isTreeTypeKind,
   type TreeTypeKind,
 } from "../tree-type-filter"
+import { useSettingsStore } from "../use-settings-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
+import { useNoteModulesStore } from "../note-modules/note-modules-store"
 import type { PanelRenderProps } from "../panel-registry"
+import { collectFavoriteItems } from "./favorites-items"
+import { FavoritesSection } from "./favorites-section"
 import { PanelHeader, PanelSearch } from "./panel-header"
+import { PanelSectionHeading } from "./panel-section"
 
 const TREE_SORT_OPTIONS: Array<{
   key: TreeSortKey
@@ -81,7 +106,6 @@ const TREE_SORT_OPTIONS: Array<{
   { key: "manual", direction: "asc", labelKey: "filesPanel.sortManual", icon: ListOrdered },
 ]
 
-const TREE_SORT_STORAGE_KEY = "amby:tree-sort"
 const TREE_TYPE_FILTER_STORAGE_KEY = "amby:tree-type-filter"
 
 function readTreeTypeFilter(): TreeTypeKind[] {
@@ -99,7 +123,6 @@ const TYPE_FILTER_LABELS: Record<TreeTypeKind, { key: string; icon: typeof FileT
   canvas: { key: "filesPanel.filterCanvases", icon: LayoutGrid },
   sketch: { key: "filesPanel.filterSketches", icon: PenLine },
 }
-const TREE_ORDER_STORAGE_PREFIX = "amby:tree-order:"
 
 function readTreeSortSelection(): { key: TreeSortKey; direction: TreeSortDirection } {
   if (typeof window === "undefined") return { key: "name", direction: "asc" }
@@ -170,8 +193,11 @@ export function FilesPanel(props: PanelRenderProps) {
     onAttachCanvas,
     onAttachSketch,
     onOpenInNewTab,
+    onOpenSplitRight,
+    onOpenSplitDown,
     onOpenInNewWindow,
     onCloneFile,
+    onConvertFolderToNote,
     onOpenInExplorer,
     onMoveItem,
     onSetIcon,
@@ -179,42 +205,53 @@ export function FilesPanel(props: PanelRenderProps) {
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    supernotesEnabled,
     canCreateDatabaseLayer,
     databaseRuntimeEnabled,
     linkedLayersByDoc,
     workspaceSwitcher,
     canvasEnabled = true,
     sketchEnabled = true,
+    favoritesEnabled = false,
   } = props
   // A module may present the tree differently here; the other panels keep the vault's own.
   const treeItems = fileTreeItems ?? vaultTreeItems
+  const reveal = useCreativeNavStore((state) =>
+    state.revealedWorkshop?.vault === vault ? state.revealedWorkshop : null,
+  )
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
+  const templatesEnabled = useNoteModulesStore((state) => state.templatesEnabled)
+  const showTemplateDialog = useNoteModulesStore((state) => state.show)
+  const openDaily = useNoteModulesStore((state) => state.openDaily)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
+  const [databaseParentId, setDatabaseParentId] = React.useState<string | null>(null)
   const [databaseName, setDatabaseName] = React.useState("")
   const [databaseNameError, setDatabaseNameError] = React.useState(false)
+  const [databaseCreateFailed, setDatabaseCreateFailed] = React.useState(false)
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
-  const [findActiveKey, setFindActiveKey] = React.useState(0)
+  const autoReveal = useSettingsStore((s) => s.prefs.autoRevealFile)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
   const [sortSelection, setSortSelection] = React.useState(readTreeSortSelection)
   const [manualOrder, setManualOrder] = React.useState<ManualTreeOrder>(() =>
     readManualTreeOrder(vault),
   )
   const { key: sortKey, direction: sortDirection } = sortSelection
-  const [query, setQuery] = React.useState("")
+  const [search, setSearch] = React.useState("")
+  const query = reveal ? "" : search
+  const treeDropRef = React.useRef<HTMLDivElement>(null)
+  useTreeFileDrop({ containerRef: treeDropRef, vault, treeItems: vaultTreeItems })
   React.useEffect(() => {
-    localStorage.setItem(
-      TREE_SORT_STORAGE_KEY,
-      JSON.stringify({ key: sortKey, direction: sortDirection }),
-    )
+    writeTreeSortSelection(sortKey, sortDirection)
   }, [sortKey, sortDirection])
   React.useEffect(() => {
     setManualOrder(readManualTreeOrder(vault))
   }, [vault])
   React.useEffect(() => {
     if (!vault || sortKey !== "manual") return
-    localStorage.setItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`, JSON.stringify(manualOrder))
+    writeManualTreeOrder(vault, manualOrder)
   }, [manualOrder, sortKey, vault])
   const [typeFilter, setTypeFilter] = React.useState<TreeTypeKind[]>(readTreeTypeFilter)
   React.useEffect(() => {
@@ -225,17 +262,20 @@ export function FilesPanel(props: PanelRenderProps) {
     }
   }, [typeFilter])
   // Only the kinds of file whose module is on can be chosen, and only those narrow the tree.
-  const availableKinds = TREE_TYPE_KINDS.filter(
-    (kind) =>
-      kind === "file" ||
-      (kind === "database" && canCreateDatabase) ||
-      (kind === "canvas" && canvasEnabled) ||
-      (kind === "sketch" && sketchEnabled),
+  const availableKinds = React.useMemo(
+    () =>
+      TREE_TYPE_KINDS.filter(
+        (kind) =>
+          kind === "file" ||
+          (kind === "database" && canCreateDatabase) ||
+          (kind === "canvas" && canvasEnabled) ||
+          (kind === "sketch" && sketchEnabled),
+      ),
+    [canCreateDatabase, canvasEnabled, sketchEnabled],
   )
   const activeKinds = React.useMemo(
     () => new Set(typeFilter.filter((kind) => availableKinds.includes(kind))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typeFilter, canCreateDatabase, canvasEnabled, sketchEnabled],
+    [typeFilter, availableKinds],
   )
   const typeFilteredItems = React.useMemo(
     () => filterTreeByType(treeItems, activeKinds),
@@ -252,6 +292,15 @@ export function FilesPanel(props: PanelRenderProps) {
     () => filterTreeItems(sortedTreeItems, query),
     [query, sortedTreeItems],
   )
+  // Favorites come from the vault's whole tree, so a type filter never hides a bookmark.
+  const favoriteItems = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase()
+    const all = collectFavoriteItems(vaultTreeItems, favorites)
+    return normalized
+      ? all.filter((item) => item.name.toLocaleLowerCase().includes(normalized))
+      : all
+  }, [favorites, query, vaultTreeItems])
+  const showFavorites = favoritesEnabled && favoriteItems.length > 0
 
   function handleNewButtonClick() {
     if (!vault) {
@@ -261,13 +310,15 @@ export function FilesPanel(props: PanelRenderProps) {
     setNewItemModalOpen(true)
   }
 
-  function handleNewDatabaseClick() {
+  function handleNewDatabaseClick(parentId: string | null = null) {
     if (!vault) {
       onOpenVault()
       return
     }
+    setDatabaseParentId(parentId)
     setDatabaseName(t("defaults.untitled"))
     setDatabaseNameError(false)
+    setDatabaseCreateFailed(false)
     setDatabaseDialogOpen(true)
   }
 
@@ -278,7 +329,15 @@ export function FilesPanel(props: PanelRenderProps) {
       setDatabaseNameError(true)
       return
     }
-    await onNewDatabase?.(null, name)
+    setDatabaseCreateFailed(false)
+    try {
+      await onNewDatabase?.(databaseParentId, name)
+    } catch (error) {
+      // The dialog stays open with an inline error next to the action (notice rules).
+      logger.warn("database.create_failed", { errorType: errorType(error) })
+      setDatabaseCreateFailed(true)
+      return
+    }
     setDatabaseDialogOpen(false)
   }
 
@@ -286,8 +345,8 @@ export function FilesPanel(props: PanelRenderProps) {
     setTreeExpanded(treeItems, !allOpen)
   }
 
-  function handleFindActive() {
-    setFindActiveKey((k) => k + 1)
+  function handleToggleAutoReveal() {
+    void setPrefs({ autoRevealFile: !autoReveal })
   }
 
   const handleReorderItems = React.useCallback(
@@ -301,7 +360,7 @@ export function FilesPanel(props: PanelRenderProps) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-help-scope="files" className="flex h-full min-h-0 flex-col">
       <PanelHeader
         hideTitle
         title={t("panels.files")}
@@ -413,9 +472,13 @@ export function FilesPanel(props: PanelRenderProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-              title={t("filesPanel.findActive")}
-              onClick={handleFindActive}
+              className={`size-7 hover:bg-accent hover:text-white ${
+                autoReveal ? "bg-accent text-primary" : "text-muted-foreground"
+              }`}
+              title={t(autoReveal ? "filesPanel.autoRevealOn" : "filesPanel.autoRevealOff")}
+              aria-label={t("filesPanel.autoReveal")}
+              aria-pressed={autoReveal}
+              onClick={handleToggleAutoReveal}
             >
               <LocateFixed className="size-3.5" />
             </Button>
@@ -437,15 +500,29 @@ export function FilesPanel(props: PanelRenderProps) {
       />
       <PanelSearch
         value={query}
-        onChange={setQuery}
+        onChange={(value) => {
+          if (reveal) useCreativeNavStore.setState({ revealedWorkshop: null })
+          setSearch(value)
+        }}
         ariaLabel={t("filesPanel.search")}
         placeholder={t("filesPanel.search")}
       />
+      {showFavorites && (
+        <>
+          <FavoritesSection
+            items={favoriteItems}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onToggleFavorite={onToggleFavorite}
+          />
+          <PanelSectionHeading title={t("filesPanel.sectionFiles")} />
+        </>
+      )}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex flex-1 min-h-0 flex-col">
             {/* SidebarTree owns its own scroll container for virtualizer access */}
-            <div className="flex-1 min-h-0">
+            <div ref={treeDropRef} className="flex-1 min-h-0">
               {visibleTreeItems.length === 0 ? (
                 <p className="px-4 py-3 text-[12px] text-muted-foreground">
                   {query.trim() ? t("filesPanel.noResults") : t("filesPanel.empty")}
@@ -453,17 +530,26 @@ export function FilesPanel(props: PanelRenderProps) {
               ) : (
                 <SidebarTree
                   items={visibleTreeItems}
-                  selectedId={selectedId}
-                  onSelect={onSelect}
+                  selectedId={reveal?.folderId ?? selectedId}
+                  onSelect={(id) => {
+                    if (reveal) useCreativeNavStore.setState({ revealedWorkshop: null })
+                    onSelect(id)
+                  }}
                   onRename={onRename}
                   onDelete={onDelete}
                   onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
+                  onNewFolder={onNewFolder}
+                  onNewSketch={onNewSketch}
+                  onNewDatabase={onNewDatabase ? handleNewDatabaseClick : undefined}
                   onAttachCanvas={onAttachCanvas}
                   onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
+                  onOpenSplitRight={onOpenSplitRight}
+                  onOpenSplitDown={onOpenSplitDown}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}
+                  onConvertFolderToNote={onConvertFolderToNote}
                   onOpenInExplorer={onOpenInExplorer}
                   onMoveItem={onMoveItem}
                   onReorderItems={sortKey === "manual" ? handleReorderItems : undefined}
@@ -472,17 +558,19 @@ export function FilesPanel(props: PanelRenderProps) {
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
+                  supernotesEnabled={supernotesEnabled}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}
                   sketchEnabled={sketchEnabled}
-                  findActiveKey={findActiveKey}
+                  autoReveal={autoReveal || Boolean(reveal)}
                 />
               )}
             </div>
 
-            <div className="shrink-0 p-2">
+            <div className="shrink-0 p-3">
               <Button
+                data-help-target="create"
                 className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
                 whileTap={{ y: 1, scale: 0.99 }}
                 onClick={handleNewButtonClick}
@@ -490,11 +578,15 @@ export function FilesPanel(props: PanelRenderProps) {
                 <FilePlus className="size-4" />
                 {t("filesPanel.create")}
               </Button>
-              {workspaceSwitcher && <div className="mt-2">{workspaceSwitcher}</div>}
+              {workspaceSwitcher && (
+                <div className="mt-2" data-workspace-switcher="">
+                  {workspaceSwitcher}
+                </div>
+              )}
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
+        <ContextMenuContent className="w-72 border-border bg-popover text-foreground">
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
@@ -505,6 +597,18 @@ export function FilesPanel(props: PanelRenderProps) {
             <FileText className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newNote")}
           </ContextMenuItem>
+          {templatesEnabled && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (!vault) onOpenVault()
+                else window.setTimeout(() => showTemplateDialog(null), 80)
+              }}
+            >
+              <Files className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.newFromTemplate")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
@@ -542,11 +646,115 @@ export function FilesPanel(props: PanelRenderProps) {
           <ContextMenuItem
             disabled={!canCreateDatabase}
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
-            onSelect={handleNewDatabaseClick}
+            onSelect={() => handleNewDatabaseClick()}
           >
             <Database className="size-3.5" />
             {t("filesPanel.database")}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ArrowDownUp className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.sortOrder")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-80 border-border bg-popover text-foreground">
+              <ContextMenuRadioGroup
+                value={`${sortKey}:${sortDirection}`}
+                onValueChange={(value) => {
+                  const option = TREE_SORT_OPTIONS.find(
+                    ({ key, direction }) => `${key}:${direction}` === value,
+                  )
+                  if (option) setSortSelection({ key: option.key, direction: option.direction })
+                }}
+              >
+                {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
+                  <React.Fragment key={`${key}:${direction}`}>
+                    {index > 0 && index % 2 === 0 && <ContextMenuSeparator />}
+                    <ContextMenuRadioItem
+                      value={`${key}:${direction}`}
+                      className="items-start text-[13px] whitespace-normal break-words"
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      {t(labelKey)}
+                    </ContextMenuRadioItem>
+                  </React.Fragment>
+                ))}
+              </ContextMenuRadioGroup>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="gap-2 text-[13px]">
+              <ListFilter className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.filter")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-56 border-border bg-popover text-foreground">
+              {availableKinds.map((kind) => {
+                const { key, icon: Icon } = TYPE_FILTER_LABELS[kind]
+                return (
+                  <ContextMenuCheckboxItem
+                    key={kind}
+                    checked={activeKinds.has(kind)}
+                    indicatorPosition="right"
+                    className="text-[13px]"
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={(checked) => {
+                      setTypeFilter((current) =>
+                        checked
+                          ? [...current.filter((entry) => entry !== kind), kind]
+                          : current.filter((entry) => entry !== kind),
+                      )
+                    }}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    {t(key)}
+                  </ContextMenuCheckboxItem>
+                )
+              })}
+              {activeKinds.size > 0 && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem className="text-[13px]" onSelect={() => setTypeFilter([])}>
+                    {t("filesPanel.filterReset")}
+                  </ContextMenuItem>
+                </>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuCheckboxItem
+            checked={autoReveal}
+            indicatorPosition="right"
+            className="text-[13px]"
+            onCheckedChange={handleToggleAutoReveal}
+          >
+            <LocateFixed className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.autoReveal")}
+          </ContextMenuCheckboxItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, true)}
+          >
+            <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.expandAll")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!vault || treeItems.length === 0}
+            className="text-[13px]"
+            onSelect={() => setTreeExpanded(treeItems, false)}
+          >
+            <ChevronsDownUp className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.collapseAll")}
+          </ContextMenuItem>
+          {vault && onOpenInExplorer && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem className="text-[13px]" onSelect={() => onOpenInExplorer(vault)}>
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                {t("tree.showInExplorer", { place: fileManagerPlace() })}
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -558,6 +766,8 @@ export function FilesPanel(props: PanelRenderProps) {
         onCreateCanvas={() => onNewCanvas?.(null)}
         onCreateSketch={() => onNewSketch?.(null)}
         onCreateDatabase={handleNewDatabaseClick}
+        onCreateFromTemplate={templatesEnabled ? () => showTemplateDialog(null) : undefined}
+        onCreateDaily={openDaily ?? undefined}
         canCreateDatabase={canCreateDatabase}
         canvasEnabled={canvasEnabled}
         sketchEnabled={sketchEnabled}
@@ -577,16 +787,22 @@ export function FilesPanel(props: PanelRenderProps) {
               <Input
                 id="new-database-name"
                 autoFocus
+                // The default name is selected, so typing replaces it.
+                onFocus={(event) => event.currentTarget.select()}
                 value={databaseName}
                 onChange={(event) => {
                   setDatabaseName(event.target.value)
                   setDatabaseNameError(false)
+                  setDatabaseCreateFailed(false)
                 }}
                 placeholder={t("newItem.databaseNamePlaceholder")}
                 aria-invalid={databaseNameError}
               />
               {databaseNameError && (
                 <p className="text-xs text-destructive">{t("newItem.databaseNameRequired")}</p>
+              )}
+              {databaseCreateFailed && (
+                <NoticeLine role="alert" text={t("newItem.databaseCreateFailed")} />
               )}
             </div>
             <DialogFooter>

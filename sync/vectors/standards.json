@@ -1,0 +1,77 @@
+{
+  "_comment": "Векторы примитивов, взятые из стандартов (не из нашего кода). Каждая группа указывает источник. Сверены независимой реализацией на Python (hmac/hashlib, PyNaCl, blake3); Argon2id (с secret и ad) Python-биндинги не умеют, он взят из RFC как есть.",
+  "argon2id_rfc9106": {
+    "source": "RFC 9106, раздел 5.3 (тестовый вектор Argon2id)",
+    "password_byte": "01", "password_len": 32,
+    "salt_byte": "02", "salt_len": 16,
+    "secret_byte": "03", "secret_len": 8,
+    "ad_byte": "04", "ad_len": 12,
+    "memory_kib": 32, "iterations": 3, "parallelism": 4, "tag_len": 32,
+    "tag": "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659"
+  },
+  "hkdf_sha256_rfc5869": {
+    "source": "RFC 5869, приложение A.1–A.3 (SHA-256)",
+    "cases": [
+      {
+        "name": "A.1",
+        "ikm": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "salt": "000102030405060708090a0b0c",
+        "info": "f0f1f2f3f4f5f6f7f8f9",
+        "len": 42,
+        "okm": "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+      },
+      {
+        "name": "A.2",
+        "ikm": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f",
+        "salt": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+        "info": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+        "len": 82,
+        "okm": "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87"
+      },
+      {
+        "name": "A.3",
+        "ikm": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+        "salt": "",
+        "info": "",
+        "len": 42,
+        "okm": "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"
+      }
+    ]
+  },
+  "xchacha20poly1305_irtf": {
+    "source": "draft-irtf-cfrg-xchacha-03, приложение A.3.1 (AEAD_XCHACHA20_POLY1305)",
+    "key": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+    "nonce": "404142434445464748494a4b4c4d4e4f5051525354555657",
+    "aad": "50515253c0c1c2c3c4c5c6c7",
+    "plaintext": "4c616469657320616e642047656e746c656d656e206f662074686520636c617373206f66202739393a204966204920636f756c64206f6666657220796f75206f6e6c79206f6e652074697020666f7220746865206675747572652c2073756e73637265656e20776f756c642062652069742e",
+    "ciphertext": "bd6d179d3e83d43b9576579493c0e939572a1700252bfaccbed2902c21396cbb731c7f1b0b4aa6440bf3a82f4eda7e39ae64c6708c54c216cb96b72e1213b4522f8c9ba40db5d945b11b69b982c1bb9e3f3fac2bc369488f76b2383565d3fff921f9664c97637da9768812f615c68b13b52e",
+    "tag": "c0875924c1c7987947deafd8780acf49"
+  },
+  "sha256_fips180": {
+    "source": "FIPS 180-4, примеры SHA-256: сообщения «abc» и пустое",
+    "cases": [
+      { "input_hex": "616263", "hash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+      { "input_hex": "", "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+    ]
+  },
+  "blake3_official": {
+    "source": "BLAKE3-team/BLAKE3, test_vectors/test_vectors.json: байт i входа = i mod 251; значения первых 32 байт поля hash",
+    "cases": [
+      { "input_len": 0, "hash": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262" },
+      { "input_len": 1, "hash": "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213" },
+      { "input_len": 1023, "hash": "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11" },
+      { "input_len": 1024, "hash": "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7" },
+      { "input_len": 1025, "hash": "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444" },
+      { "input_len": 2048, "hash": "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a" },
+      { "input_len": 31744, "hash": "62b6960e1a44bcc1eb1a611a8d6235b6b4b78f32e7abc4fb4c6cdcce94895c47" }
+    ]
+  },
+  "padme": {
+    "source": "Алгоритм Padmé: Nikitin и др., «Reducing Metadata Leakage from Encrypted Files and Communication with PURBs», PETS 2019, алгоритм 1. Значения посчитаны вручную по формуле (см. приложение к плану, A.7); таблицы в статье нет.",
+    "cases": [
+      [0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [8, 8], [9, 10], [10, 10], [16, 16],
+      [17, 18], [100, 104], [255, 256], [256, 256], [257, 272], [1000, 1024],
+      [1025, 1088], [65535, 65536], [65536, 65536], [65537, 67584]
+    ]
+  }
+}

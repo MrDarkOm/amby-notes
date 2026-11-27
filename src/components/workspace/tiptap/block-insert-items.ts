@@ -1,4 +1,5 @@
 import type { Editor, Range } from "@tiptap/core"
+import { insertImageBlock } from "./image-placement"
 import {
   AtSign,
   Bookmark,
@@ -426,7 +427,10 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       if (!rel) return
       e.chain()
         .focus()
-        .insertContent({ type: "image", attrs: { src: rel } })
+        .command(({ tr, state }) => {
+          insertImageBlock(tr, tr.selection.from, state.schema.nodes.image.create({ src: rel }))
+          return true
+        })
         .run()
     },
   },
@@ -448,7 +452,10 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       if (!rel) return
       e.chain()
         .focus()
-        .insertContent({ type: "image", attrs: { src: rel } })
+        .command(({ tr, state }) => {
+          insertImageBlock(tr, tr.selection.from, state.schema.nodes.image.create({ src: rel }))
+          return true
+        })
         .run()
     },
   },

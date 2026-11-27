@@ -1,4 +1,5 @@
 import type { NoteProperties } from "@/lib/storage"
+import { errorType, logger } from "@/lib/logger"
 import { roundTripCheck } from "../tiptap/markdown"
 
 export type MarkdownCompatibilityReason =
@@ -9,7 +10,7 @@ export interface MarkdownCompatibility {
   reason?: MarkdownCompatibilityReason
 }
 
-function hasMixedLineEndings(source: string): boolean {
+export function hasMixedLineEndings(source: string): boolean {
   const hasCrLf = /\r\n/u.test(source)
   const hasLoneLf = /(^|[^\r])\n/u.test(source)
   const hasLoneCr = /\r(?!\n)/u.test(source)
@@ -49,7 +50,9 @@ function inspect(body: string, source?: string): MarkdownCompatibility {
   try {
     const result = roundTripCheck(body)
     return result.ok ? { ok: true } : { ok: false, reason: "round_trip_mismatch" }
-  } catch {
+  } catch (err) {
+    // The note stays in Source; the journal gets the code, never the text of the note.
+    logger.warn("editor.live_admission_failed", { errorType: errorType(err) })
     return { ok: false, reason: "inspection_failed" }
   }
 }

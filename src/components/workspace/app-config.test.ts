@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   loadSettings,
+  resolveAiConfig,
   saveSettingsPatch,
   loadWorkspaceConfig,
   saveWorkspaceConfigPatch,
@@ -8,6 +9,7 @@ import {
   saveSession,
   loadWorkspaces,
   saveWorkspaces,
+  AI_CONNECTIONS_FILE,
   SETTINGS_FILE,
   WORKSPACE_FILE,
   SESSION_FILE,
@@ -19,6 +21,7 @@ import {
   normalizeAppPreferences,
 } from "./app-config"
 import { readGlobalSettingsResult } from "@/lib/storage"
+import { projectAiConnections } from "./ai/connections"
 
 describe("app-config & settings storage resilience (WP-19)", () => {
   const store = new Map<string, string>()
@@ -73,6 +76,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(settings.panelScope).toBe("global")
     expect(settings.prefs.theme).toBe("dark")
     expect(settings.prefs.updates.autoUpdate).toBe(true)
+    expect(settings.prefs.updates.channel).toBe("stable")
     expect(settings.experimental.databasesV1).toBe(false)
 
     const workspaces = await loadWorkspaces()
@@ -86,6 +90,197 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     const session = await loadSession("/test/vault")
     expect(session.schemaVersion).toBe(SESSION_SCHEMA_VERSION)
     expect(session.tabs).toEqual([])
+  })
+
+  it("reads the font size in percent, from the earlier three sizes when it is missing", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontScale: "lg" } }))
+    expect((await loadSettings()).prefs).toMatchObject({ fontScale: "lg", fontSize: 113 })
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontScale: "sm" } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(88)
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontSize: 250 } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(130)
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ prefs: { fontSize: 117.4 } }))
+    expect((await loadSettings()).prefs.fontSize).toBe(117)
+  })
+
+  it("reads settings with a UTF-8 BOM without treating them as corrupt", async () => {
+    const raw = "\uFEFF" + JSON.stringify({ defaultTheme: "dark" })
+    store.set("amby:g:" + SETTINGS_FILE, raw)
+    await expect(loadSettings()).resolves.toMatchObject({ defaultTheme: "dark" })
+    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(raw)
+  })
+
+  it("round-trips versioned AI connections and unrelated unknown settings", async () => {
+    const ai = {
+      version: 1,
+      activeModelId: "old",
+      extra: "keep",
+      connections: [
+        {
+          id: "c",
+          provider: "openai",
+          method: "api",
+          label: "Account",
+          baseUrl: "",
+          credentialId: "key",
+          apiVersion: "",
+        },
+      ],
+      models: [
+        {
+          id: "old",
+          connectionId: "c",
+          model: "gpt",
+          label: "GPT",
+          enabled: true,
+          available: true,
+          origin: "legacy",
+        },
+      ],
+    }
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(ai))
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ ai: stockLegacy, foreign: { keep: true } }),
+    )
+    const settings = await loadSettings()
+    expect(settings.ai.models[0]).toMatchObject({ id: "old", credentialId: "key" })
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.ai).toEqual(stockLegacy)
+    expect(saved.foreign).toEqual({ keep: true })
+    await expect(saveSettingsPatch({ ai: { ...settings.ai, models: [] } })).rejects.toThrow(
+      "invalidAiMutation",
+    )
+    const changed = {
+      ...settings.ai.connectionSettings!,
+      models: settings.ai.connectionSettings!.models.map((model) => ({ ...model, enabled: false })),
+    }
+    await saveSettingsPatch(
+      { ai: projectAiConnections(changed) },
+      { expectedAi: settings.ai.connectionSettings },
+    )
+    await expect(saveSettingsPatch({ ai: settings.ai })).rejects.toThrow("settingsChanged")
+    // The change lives in the connections file; the section in settings.json is as it was.
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].enabled).toBe(false)
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai).toEqual(stockLegacy)
+  })
+
+  it("keeps unknown settings keys, including nested ones, when another setting is saved", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({
+        foreign: { keep: true },
+        prefs: {
+          theme: "dark",
+          futureTopLevel: { a: 1 },
+          editor: { autosaveMs: 800, futureEditorKey: "keep" },
+          shortcuts: { futureShortcut: "Mod+K" },
+        },
+      }),
+    )
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    await saveSettingsPatch({ prefs: { ...(await loadSettings()).prefs, density: "compact" } })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.foreign).toEqual({ keep: true })
+    expect(saved.prefs.futureTopLevel).toEqual({ a: 1 })
+    expect(saved.prefs.editor.futureEditorKey).toBe("keep")
+    expect(saved.prefs.editor.autosaveMs).toBe(800)
+    expect(saved.prefs.shortcuts.futureShortcut).toBe("Mod+K")
+    expect(saved.prefs.density).toBe("compact")
+  })
+
+  const connectionsOf = (id: string, enabled = true) => ({
+    version: 1,
+    activeModelId: id,
+    connections: [
+      {
+        id: `c-${id}`,
+        provider: "openai",
+        method: "api",
+        label: id,
+        baseUrl: "",
+        credentialId: null,
+        apiVersion: "",
+      },
+    ],
+    models: [
+      {
+        id,
+        connectionId: `c-${id}`,
+        model: "gpt",
+        label: id,
+        enabled,
+        available: true,
+        origin: "catalog",
+      },
+    ],
+  })
+  const stockLegacy = {
+    models: [
+      {
+        id: "default-ollama",
+        label: "Ollama",
+        provider: "ollama",
+        model: "llama3.2",
+        baseUrl: "",
+        credentialId: null,
+        apiVersion: "",
+      },
+    ],
+    activeModelId: "default-ollama",
+  }
+
+  it("reads the connections from their own file, ahead of whatever settings.json holds", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: stockLegacy }))
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    const settings = await loadSettings()
+    expect(settings.ai.models.map((model) => model.id)).toEqual(["mine"])
+  })
+
+  it("reads the file even when settings.json does not exist", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("alone")))
+    expect((await loadSettings()).ai.models[0]?.id).toBe("alone")
+  })
+
+  it("saves connections to their file and leaves the settings.json section as an older build keeps it", async () => {
+    const legacy = JSON.stringify({ unknown: 1, ai: stockLegacy })
+    store.set("amby:g:" + SETTINGS_FILE, legacy)
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    const settings = await loadSettings()
+    const changed = {
+      ...settings.ai.connectionSettings!,
+      models: settings.ai.connectionSettings!.models.map((model) => ({ ...model, enabled: false })),
+    }
+    await saveSettingsPatch(
+      { ai: projectAiConnections(changed) },
+      { expectedAi: settings.ai.connectionSettings },
+    )
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].enabled).toBe(false)
+    expect(store.get("amby:g:" + SETTINGS_FILE)).toBe(legacy)
+  })
+
+  it("keeps the section of settings.json as it is when only other settings are saved", async () => {
+    store.set("amby:g:" + SETTINGS_FILE, JSON.stringify({ ai: stockLegacy }))
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    const saved = JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!)
+    expect(saved.defaultTheme).toBe("dark")
+    expect(saved.ai).toEqual(stockLegacy)
+    expect(JSON.parse(store.get("amby:g:" + AI_CONNECTIONS_FILE)!).models[0].id).toBe("mine")
+  })
+
+  it("never writes the connections into settings.json", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify(connectionsOf("mine")))
+    await saveSettingsPatch({ defaultTheme: "dark" })
+    expect(JSON.parse(store.get("amby:g:" + SETTINGS_FILE)!).ai?.version).toBeUndefined()
+  })
+
+  it("refuses a connections file of a future version and a damaged one", async () => {
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, JSON.stringify({ version: 99, models: [] }))
+    await expect(loadSettings()).rejects.toThrow("unsupportedAiVersion")
+    store.set("amby:g:" + AI_CONNECTIONS_FILE, "{")
+    await expect(loadSettings()).rejects.toThrow("corruptAiConnections")
   })
 
   it("handles corrupt JSON by creating a recoverable copy before restoring defaults", async () => {
@@ -185,6 +380,31 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect((await loadSettings()).prefs.updates.autoUpdate).toBe(false)
   })
 
+  it("defaults missing and invalid update channels to stable without changing auto-update", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ prefs: { updates: { autoUpdate: false, channel: "nightly" } } }),
+    )
+
+    expect((await loadSettings()).prefs.updates).toEqual({
+      autoUpdate: false,
+      channel: "stable",
+    })
+    expect(normalizeAppPreferences({ updates: { autoUpdate: true } }).updates).toEqual({
+      autoUpdate: true,
+      channel: "stable",
+    })
+  })
+
+  it("preserves a valid beta update channel", () => {
+    expect(
+      normalizeAppPreferences({ updates: { autoUpdate: false, channel: "beta" } }).updates,
+    ).toEqual({
+      autoUpdate: false,
+      channel: "beta",
+    })
+  })
+
   it("normalizes persisted window and panel dimensions", () => {
     const prefs = normalizeAppPreferences({
       window: {
@@ -205,14 +425,23 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     })
   })
 
+  it("follows the open file in the tree only when switched on", () => {
+    expect(normalizeAppPreferences({}).autoRevealFile).toBe(false)
+    expect(normalizeAppPreferences({ autoRevealFile: true }).autoRevealFile).toBe(true)
+  })
+
   it("defaults tree guide lines on and preserves the explicit preference", () => {
     expect(normalizeAppPreferences({}).treeGuides).toBe(true)
   })
 
   it("defaults the delete mode to the system trash and rejects unknown values", () => {
     expect(normalizeAppPreferences({}).files.deleteMode).toBe("system")
+    // К4 (docs/sync-plan.md): the old «Корзина хранилища» is read as «Переносить в архив».
     expect(normalizeAppPreferences({ files: { deleteMode: "vault" } }).files.deleteMode).toBe(
-      "vault",
+      "archive",
+    )
+    expect(normalizeAppPreferences({ files: { deleteMode: "archive" } }).files.deleteMode).toBe(
+      "archive",
     )
     expect(normalizeAppPreferences({ files: { deleteMode: "permanent" } }).files.deleteMode).toBe(
       "permanent",
@@ -285,48 +514,6 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, errorListener)
   })
 
-  it("migrates legacy plaintext apiKey to secure credential store and rewrites settings.json without secret", async () => {
-    // Write legacy settings with a plaintext API key in AI model
-    store.set(
-      "amby:g:" + SETTINGS_FILE,
-      JSON.stringify({
-        schemaVersion: 1,
-        panelScope: "global",
-        ai: {
-          models: [
-            {
-              id: "openai-model-1",
-              label: "OpenAI GPT-4",
-              provider: "openai",
-              model: "gpt-4o",
-              baseUrl: "",
-              apiKey: "sk-proj-super-secret-key-12345678",
-              apiVersion: "",
-            },
-          ],
-          activeModelId: "openai-model-1",
-        },
-      }),
-    )
-
-    const loaded = await loadSettings()
-    const model = loaded.ai.models[0]
-    expect(model.id).toBe("openai-model-1")
-    expect(model.credentialId).toBeDefined()
-    expect(typeof model.credentialId).toBe("string")
-    expect((model as { apiKey?: string }).apiKey).toBeUndefined()
-
-    // Check credential store
-    const storedSecret = store.get("amby:cred:" + model.credentialId!)
-    expect(storedSecret).toBe("sk-proj-super-secret-key-12345678")
-
-    // Check rewritten settings.json in storage: MUST NOT contain apiKey
-    const savedRaw = store.get("amby:g:" + SETTINGS_FILE)!
-    expect(savedRaw).not.toContain("sk-proj-super-secret-key-12345678")
-    expect(savedRaw).not.toContain('"apiKey"')
-    expect(savedRaw).toContain(model.credentialId)
-  })
-
   it("normalizes and round-trips debug preferences", async () => {
     const defaultPrefs = normalizeAppPreferences({})
     expect(defaultPrefs.debug).toEqual({
@@ -375,5 +562,45 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       normalizeAppPreferences({ docks: { rightEnabled: "no" as unknown as boolean } }).docks
         .rightEnabled,
     ).toBe(true)
+  })
+})
+
+describe("answer length limit", () => {
+  const base = {
+    id: "m",
+    label: "M",
+    model: "x",
+    baseUrl: "",
+    credentialId: null,
+    apiVersion: "",
+  }
+  it("gives a local model room to think before it answers, and keeps a cloud one at the short limit", () => {
+    expect(resolveAiConfig({ ...base, provider: "lmstudio" }).maxTokens).toBe(4096)
+    expect(resolveAiConfig({ ...base, provider: "openai" }).maxTokens).toBe(1024)
+  })
+})
+
+describe("TREE-02: files.folderClickToggles", () => {
+  it("defaults to false and keeps only a real boolean", () => {
+    expect(normalizeAppPreferences({}).files.folderClickToggles).toBe(false)
+    expect(
+      normalizeAppPreferences({ files: { folderClickToggles: true } }).files.folderClickToggles,
+    ).toBe(true)
+    expect(
+      normalizeAppPreferences({ files: { folderClickToggles: "yes" } } as never).files
+        .folderClickToggles,
+    ).toBe(false)
+  })
+})
+
+describe("editor.notePages", () => {
+  it("defaults to pages only in flagged notes and rejects unknown modes", () => {
+    expect(normalizeAppPreferences({}).editor.notePages).toBe("flagged")
+    for (const mode of ["off", "always", "flagged"] as const) {
+      expect(normalizeAppPreferences({ editor: { notePages: mode } }).editor.notePages).toBe(mode)
+    }
+    expect(normalizeAppPreferences({ editor: { notePages: "h2" } }).editor.notePages).toBe(
+      "flagged",
+    )
   })
 })

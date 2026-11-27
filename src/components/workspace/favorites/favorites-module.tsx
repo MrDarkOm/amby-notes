@@ -1,4 +1,4 @@
-import { Bookmark } from "lucide-react"
+import { Star } from "lucide-react"
 import { FavoritesPanel } from "../panels/favorites-panel"
 import type { ModuleDefinition } from "@/lib/modules/host"
 
@@ -20,7 +20,7 @@ export const FAVORITES_MODULE_DEFINITION: ModuleDefinition = {
     api.panels.register({
       id: "favorites",
       labelKey: "panels.favorites",
-      icon: Bookmark,
+      icon: Star,
       kind: "view",
       render: (props) => <FavoritesPanel {...props} />,
     })

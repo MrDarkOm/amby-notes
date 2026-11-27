@@ -54,15 +54,21 @@ const parserTokens: { [token: string]: ParseSpec } = {
     node: "image",
     getAttrs: (tok) => {
       const rawAlt = tok.children?.[0]?.content || ""
-      const pipeMatch = /^(.*?)(?:\|(\d+)(?:x(\d+))?)?$/s.exec(rawAlt)
-      if (pipeMatch && (pipeMatch[2] !== undefined || rawAlt.startsWith("|"))) {
+      // `alt`, then an optional `|left|center|right`, then an optional `|300` or `|300x200`
+      // (Obsidian's size). A word that is not one of the three stays part of the alt text.
+      const pipeMatch = /^(.*?)(?:\|(left|center|right))?(?:\|(\d+)(?:x(\d+))?)?$/s.exec(rawAlt)
+      if (
+        pipeMatch &&
+        (pipeMatch[2] !== undefined || pipeMatch[3] !== undefined || rawAlt.startsWith("|"))
+      ) {
         const alt = pipeMatch[1] ?? ""
-        const width = pipeMatch[2] ? Number(pipeMatch[2]) : null
-        const height = pipeMatch[3] ? Number(pipeMatch[3]) : null
+        const width = pipeMatch[3] ? Number(pipeMatch[3]) : null
+        const height = pipeMatch[4] ? Number(pipeMatch[4]) : null
         return {
           src: tok.attrGet("src"),
           title: tok.attrGet("title") || null,
           alt: alt || null,
+          align: pipeMatch[2] ?? null,
           width,
           height,
           hasPipe: true,

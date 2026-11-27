@@ -2,6 +2,8 @@
 // text and nothing else. Both libraries are large and most notes need neither, so they
 // are loaded the first time something has to be drawn.
 
+import { errorType, logger } from "@/lib/logger"
+
 type Katex = typeof import("katex").default
 
 let katexLoading: Promise<Katex> | null = null
@@ -45,7 +47,8 @@ let diagramCount = 0
 const isDark = () =>
   typeof document !== "undefined" && document.documentElement.classList.contains("dark")
 
-export type DiagramResult = { svg: string } | { error: string }
+/** `error` is "" for an empty source, "syntax" for a source that does not parse, "failed" for the rest. */
+export type DiagramResult = { svg: string } | { error: "" | "syntax" | "failed" }
 
 /** The SVG of a Mermaid diagram, or why it could not be drawn. Never throws. */
 export async function renderMermaid(source: string): Promise<DiagramResult> {
@@ -72,6 +75,8 @@ export async function renderMermaid(source: string): Promise<DiagramResult> {
       document.getElementById(`d${id}`)?.remove()
     }
   } catch (reason) {
-    return { error: reason instanceof Error ? reason.message : String(reason) }
+    // The library's sentence is for the debug log only; the page shows the text for "failed".
+    logger.debug("editor.diagram_failed", { errorType: errorType(reason) })
+    return { error: "failed" }
   }
 }

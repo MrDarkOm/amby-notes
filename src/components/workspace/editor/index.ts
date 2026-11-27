@@ -2,7 +2,7 @@ export { DocumentEditor, type Document, type DocumentEditorProps } from "./docum
 export { DocumentHeader, type DocumentHeaderProps } from "./document-header"
 export { handleDragStart } from "./document-header-utils"
 export { DocumentTitle, type DocumentTitleProps } from "./document-title"
-export { DocumentBreadcrumbs, type DocumentBreadcrumbsProps } from "./document-breadcrumbs"
+export { documentCrumbs } from "./document-breadcrumbs"
 export {
   type BreadcrumbSegment,
   buildBreadcrumb,
@@ -12,7 +12,6 @@ export {
   stripMdExt,
 } from "./document-breadcrumbs-utils"
 export {
-  DocumentActionsDropdown,
   LayerButton,
   LayerConfirmDialog,
   FilePickerModal,

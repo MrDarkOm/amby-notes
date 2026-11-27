@@ -20,6 +20,12 @@ export function presetLevelNames(schema: PresetTextSchema, t: TFunction): string
   return PRESET_LEVELS[schema].map((key) => t(`creative.schema.levels.${key}`))
 }
 
+export function canAddArcLevel(levels: readonly string[]): boolean {
+  return (
+    levels.length < MAX_TEXT_LEVELS && !levels.some((name) => /^(arc|арка)$/iu.test(name.trim()))
+  )
+}
+
 export type LevelsProblem = "empty" | "duplicate" | "tooMany"
 
 /** What the backend would refuse in a list of level names, found before asking it. */

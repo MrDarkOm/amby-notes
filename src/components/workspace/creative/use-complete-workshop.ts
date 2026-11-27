@@ -2,9 +2,9 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { completeWorkshop, type CompletedWorkshop, type WorkshopSummary } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
-import { projectErrorText } from "./project-error"
 import { projectLabels } from "./project-labels"
 import { useProjectStore } from "./project-store"
+import { projectErrorText } from "@/lib/operation-errors"
 
 export interface CompleteWorkshopState {
   pending: boolean

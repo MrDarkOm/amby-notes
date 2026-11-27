@@ -3,16 +3,19 @@ import { useTranslation } from "react-i18next"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { AmbySelect } from "@/components/ui/amby-select"
 import { MotionSpinner } from "@/lib/motion"
 import {
   checkForAppUpdate,
-  getCurrentAppVersion,
   isAppUpdaterAvailable,
+  UpdateFlushError,
   type AvailableAppUpdate,
   type UpdateInstallProgress,
 } from "@/lib/app-updater"
+import { ManualDownloadLink } from "../manual-download-link"
 import { useSettingsStore } from "../use-settings-store"
 import { Row } from "./settings-common"
+import type { UpdateChannelPref } from "../app-config"
 
 type UpdateUiState =
   | { phase: "idle" }
@@ -22,67 +25,186 @@ type UpdateUiState =
   | { phase: "downloading"; percent: number | null }
   | { phase: "installing" | "restarting" }
   | { phase: "error" }
+  | { phase: "installError"; version: string }
+  // Open edits could not be saved, so nothing was installed; the update stays for a retry (SAVE-04).
+  | { phase: "flushError"; version: string }
 
 export function UpdateSettings() {
   const { t } = useTranslation()
   const prefs = useSettingsStore((state) => state.prefs)
   const setPrefs = useSettingsStore((state) => state.setPrefs)
   const supported = isAppUpdaterAvailable()
-  const [version, setVersion] = React.useState("…")
   const [update, setUpdate] = React.useState<AvailableAppUpdate | null>(null)
   const [state, setState] = React.useState<UpdateUiState>({ phase: "idle" })
+  const [channel, setChannel] = React.useState<UpdateChannelPref>(prefs.updates.channel)
+  const channelRef = React.useRef(channel)
+  const prefsChannelRef = React.useRef(prefs.updates.channel)
+  const checkGenerationRef = React.useRef(0)
+  const mountedRef = React.useRef(true)
+  const foundChannelRef = React.useRef<UpdateChannelPref | null>(null)
+  const installingUpdateRef = React.useRef<AvailableAppUpdate | null>(null)
+
+  // Keep refs current during render so a completed request cannot publish an
+  // obsolete result between an external settings update and its effect.
+  prefsChannelRef.current = prefs.updates.channel
 
   React.useEffect(() => {
-    void getCurrentAppVersion().then(setVersion)
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      checkGenerationRef.current += 1
+    }
   }, [])
 
   React.useEffect(() => {
     return () => {
-      void update?.close().catch(() => {})
+      if (update && installingUpdateRef.current !== update) {
+        foundChannelRef.current = null
+        // Releasing the update handle: a failure changes nothing for the person.
+        void update.close().catch(() => {})
+      }
     }
   }, [update])
 
+  React.useEffect(() => {
+    if (channel === prefs.updates.channel) return
+    channelRef.current = prefs.updates.channel
+    setChannel(prefs.updates.channel)
+    if (update && installingUpdateRef.current === update) return
+    checkGenerationRef.current += 1
+    foundChannelRef.current = null
+    setUpdate(null)
+    setState({ phase: "idle" })
+  }, [channel, prefs.updates.channel, update])
+
   const checkNow = async () => {
+    const requestedChannel = channelRef.current
+    const generation = ++checkGenerationRef.current
     setState({ phase: "checking" })
     try {
-      const next = await checkForAppUpdate()
+      const next = await checkForAppUpdate(requestedChannel)
+      if (
+        !mountedRef.current ||
+        generation !== checkGenerationRef.current ||
+        requestedChannel !== channelRef.current ||
+        requestedChannel !== prefsChannelRef.current
+      ) {
+        // Releasing the update handle: a failure changes nothing for the person.
+        await next?.close().catch(() => {})
+        return
+      }
+      foundChannelRef.current = next ? requestedChannel : null
       setUpdate(next)
       setState(next ? { phase: "available", version: next.version } : { phase: "current" })
     } catch {
+      if (
+        !mountedRef.current ||
+        generation !== checkGenerationRef.current ||
+        requestedChannel !== channelRef.current ||
+        requestedChannel !== prefsChannelRef.current
+      )
+        return
       setUpdate(null)
       setState({ phase: "error" })
     }
   }
 
+  const changeChannel = (nextChannel: UpdateChannelPref) => {
+    if (nextChannel === channelRef.current) return
+    channelRef.current = nextChannel
+    setChannel(nextChannel)
+    const installingUpdate = installingUpdateRef.current
+    if (!installingUpdate) {
+      checkGenerationRef.current += 1
+      foundChannelRef.current = null
+      setUpdate(null)
+      setState({ phase: "idle" })
+    }
+    void setPrefs({ updates: { ...prefs.updates, channel: nextChannel } })
+  }
+
   const install = async () => {
     if (!update) return
+    const updateChannel = foundChannelRef.current
+    if (
+      !updateChannel ||
+      updateChannel !== channelRef.current ||
+      updateChannel !== prefsChannelRef.current
+    ) {
+      foundChannelRef.current = null
+      setUpdate(null)
+      setState({ phase: "idle" })
+      return
+    }
+    installingUpdateRef.current = update
+    setState({ phase: "installing" })
     const onProgress = (progress: UpdateInstallProgress) => setState(progress)
     try {
       await update.install(onProgress)
-    } catch {
-      setState({ phase: "error" })
+      installingUpdateRef.current = null
+      if (!mountedRef.current) {
+        // Releasing the update handle: a failure changes nothing for the person.
+        await update.close().catch(() => {})
+        return
+      }
+      if (updateChannel !== channelRef.current || updateChannel !== prefsChannelRef.current) {
+        foundChannelRef.current = null
+        setUpdate(null)
+        setState({ phase: "restarting" })
+        return
+      }
+      setState({ phase: "restarting" })
+    } catch (error) {
+      installingUpdateRef.current = null
+      if (!mountedRef.current) {
+        // Releasing the update handle: a failure changes nothing for the person.
+        await update.close().catch(() => {})
+        return
+      }
+      if (updateChannel !== channelRef.current || updateChannel !== prefsChannelRef.current) {
+        foundChannelRef.current = null
+        setUpdate(null)
+      }
+      if (error instanceof UpdateFlushError) {
+        // Nothing was replaced: the same button installs again once the edits can be saved.
+        setState({ phase: "flushError", version: update.version })
+        return
+      }
+      // The version stays downloadable by hand from its release (the updater says why in the log).
+      setState({ phase: "installError", version: update.version })
     }
   }
 
-  const status = !supported
-    ? t("settings.updates.installedOnly")
-    : state.phase === "checking"
-      ? t("settings.updates.checking")
-      : state.phase === "current"
-        ? t("settings.updates.current")
-        : state.phase === "available"
-          ? t("settings.updates.available", { version: state.version })
-          : state.phase === "downloading"
-            ? state.percent === null
-              ? t("settings.updates.downloading")
-              : t("settings.updates.downloadingProgress", { progress: state.percent })
-            : state.phase === "installing"
-              ? t("settings.updates.installing")
-              : state.phase === "restarting"
-                ? t("settings.updates.restarting")
-                : state.phase === "error"
-                  ? t("settings.updates.error")
-                  : t("settings.updates.checkHint")
+  const status: React.ReactNode = !supported ? (
+    t("settings.updates.installedOnly")
+  ) : state.phase === "checking" ? (
+    t("settings.updates.checking")
+  ) : state.phase === "current" ? (
+    t("settings.updates.current")
+  ) : state.phase === "available" ? (
+    t("settings.updates.available", { version: state.version })
+  ) : state.phase === "downloading" ? (
+    state.percent === null ? (
+      t("settings.updates.downloading")
+    ) : (
+      t("settings.updates.downloadingProgress", { progress: state.percent })
+    )
+  ) : state.phase === "installing" ? (
+    t("settings.updates.installing")
+  ) : state.phase === "restarting" ? (
+    t("settings.updates.restarting")
+  ) : state.phase === "error" ? (
+    t("settings.updates.error")
+  ) : state.phase === "flushError" ? (
+    t("settings.updates.flushError", { version: state.version })
+  ) : state.phase === "installError" ? (
+    <>
+      {t("settings.updates.installError", { version: state.version })}{" "}
+      <ManualDownloadLink version={state.version} />
+    </>
+  ) : (
+    t("settings.updates.checkHint")
+  )
   const busy = ["checking", "downloading", "installing", "restarting"].includes(state.phase)
 
   return (
@@ -90,11 +212,27 @@ export function UpdateSettings() {
       <Row label={t("settings.updates.autoUpdate")} hint={t("settings.updates.autoUpdateHint")}>
         <Switch
           checked={prefs.updates.autoUpdate}
-          onCheckedChange={(autoUpdate) => setPrefs({ updates: { autoUpdate } })}
+          onCheckedChange={(autoUpdate) => setPrefs({ updates: { ...prefs.updates, autoUpdate } })}
         />
       </Row>
-      <Row label={t("settings.updates.currentVersion")}>
-        <span className="text-[13px] tabular-nums text-muted-foreground">{version}</span>
+      <Row
+        label={t("settings.updates.channel")}
+        hint={
+          channel === "stable"
+            ? t("settings.updates.stableChannelHint")
+            : t("settings.updates.betaChannelHint")
+        }
+      >
+        <AmbySelect
+          aria-label={t("settings.updates.channel")}
+          value={channel}
+          className="w-44"
+          onValueChange={(value) => changeChannel(value as UpdateChannelPref)}
+          options={[
+            { value: "stable", label: t("settings.updates.channelStable") },
+            { value: "beta", label: t("settings.updates.channelBeta") },
+          ]}
+        />
       </Row>
       <Row label={t("settings.updates.check")} hint={status}>
         <Button

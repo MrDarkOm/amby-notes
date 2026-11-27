@@ -149,7 +149,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: false, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       // The universe the first two stories are in; the panel opens on the standalone stories.
       universeFilter: "u1",
       dataNonce: 0,
@@ -216,6 +216,14 @@ describe("CreativePanel: belonging to stories and universes", () => {
     expect(screen.queryByRole("button", { name: /Текст/ })).toBeNull()
   })
 
+  it("opens the whole workshop with rows outside the selected story", async () => {
+    render(<CreativePanel {...props()} />)
+    await screen.findByRole("button", { name: /Анна/ })
+    fireEvent.click((await screen.findAllByRole("button", { name: /Ещё .* не в этой истории/ }))[0])
+    expect(await screen.findByRole("button", { name: /Ева/ })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Ещё .* не в этой истории/ })).toBeNull()
+  })
+
   it("shows a universe through its stories", async () => {
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Анна/ })
@@ -247,7 +255,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
 
   it("creates a page in the shown story linked to it, and in a universe or the whole workshop with no link", async () => {
     const make = async (title: string) => {
-      fireEvent.click(await screen.findByRole("button", { name: "Добавить: Персонажи" }))
+      fireEvent.click(await screen.findByRole("button", { name: "Персонаж" }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: title } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -290,13 +298,12 @@ describe("CreativePanel: belonging to stories and universes", () => {
     // them. (A scope with no story shows no empty part to link.)
     act(() => useCreativeNavStore.setState({ universeFilter: null }))
     render(<CreativePanel {...props()} />)
-    await screen.findByRole("button", { name: /Зоя|Анна|Озеро|Борис/ }).catch(() => null)
     // Without the property a page is in a story only through its text.
-    const links = await screen.findAllByRole("button", { name: "Связать с историями" })
+    const links = await screen.findAllByRole("button", { name: "Показывать в историях" })
     expect(links).toHaveLength(2)
 
     // A page made here carries no link: there is nowhere to write one.
-    fireEvent.click(await screen.findByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Персонаж" }))
     const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
     fireEvent.change(field, { target: { value: "Лев" } })
     fireEvent.keyDown(field, { key: "Enter" })
@@ -329,7 +336,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "Связать истории со вселенными" })).toBeNull(),
     )
-    expect(screen.queryByRole("button", { name: "Связать с историями" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Показывать в историях" })).toBeNull()
   })
 
   it("says why a link failed on the world, in the user's words", async () => {
@@ -342,7 +349,7 @@ describe("CreativePanel: belonging to stories and universes", () => {
       }),
     )
     render(<CreativePanel {...props()} />)
-    const links = await screen.findAllByRole("button", { name: "Связать с историями" })
+    const links = await screen.findAllByRole("button", { name: "Показывать в историях" })
     fireEvent.click(links[0])
     expect((await screen.findByRole("alert")).textContent).toContain("Не удалось связать")
   })

@@ -15,6 +15,7 @@ import {
   updateInTree,
   applyIconOverrides,
   nextAvailableNoteName,
+  treeItemLayers,
 } from "./workspace-tree-utils"
 import type { TreeItem } from "./sidebar-tree"
 
@@ -35,6 +36,42 @@ const folder = (id: string, children: TreeItem[] = []): TreeItem => ({
   type: "folder",
   icon: "folder",
   children,
+})
+
+describe("treeItemLayers", () => {
+  it("detects bundled layers independently of the row's selected primary layer", () => {
+    const item: TreeItem = {
+      id: "project",
+      name: "Project",
+      path: "/Project/Project.excalidraw",
+      type: "file",
+      bundleMembers: [
+        { id: "db", name: "Project", path: "/Project/Project.json", type: "database" },
+      ],
+    }
+    const stale = { note: true, canvas: false, sketch: true, database: true }
+    expect(treeItemLayers(item, stale)).toEqual({
+      note: false,
+      canvas: false,
+      sketch: true,
+      database: true,
+    })
+    expect(treeItemLayers({ ...item, path: "/Project/Project.md", type: "sketch" })).toMatchObject({
+      note: true,
+      database: true,
+    })
+  })
+
+  it("detects a new database before opening it, with a text layer available to add", () => {
+    const row: TreeItem = { id: "db", name: "Db", path: "/Db", type: "database", bundleMembers: [] }
+    const stale = { note: true, canvas: false, sketch: false, database: true }
+    expect(treeItemLayers(row, stale)).toEqual({
+      note: false,
+      canvas: false,
+      sketch: false,
+      database: true,
+    })
+  })
 })
 
 // ── wsPath* ───────────────────────────────────────────────────────────────────

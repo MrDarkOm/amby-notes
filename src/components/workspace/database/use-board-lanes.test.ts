@@ -5,6 +5,7 @@ import * as storage from "@/lib/storage"
 import type { DatabaseRow } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
 import { useBoardLanes } from "./use-board-lanes"
+import { databaseFailure } from "@/lib/test-utils/errors"
 
 const options = [
   { optionId: "todo", name: "To do", color: "#94a3b8" },
@@ -101,6 +102,27 @@ describe("useBoardLanes", () => {
     expect(result.current.lanes[2].label).toBeNull()
   })
 
+  it("treats lane keys such as __proto__ and constructor as plain keys", async () => {
+    mockBackend([
+      { key: "__proto__", count: 2 },
+      { key: "hasOwnProperty", count: 1 },
+    ])
+    const { result } = render({
+      options: [...options, { optionId: "constructor", name: "Odd", color: "#94a3b8" }],
+    })
+    await waitFor(() => expect(result.current.status).toBe("ready"))
+    expect(
+      result.current.lanes.map((lane) => [lane.key, lane.count, lane.rows.length, lane.status]),
+    ).toEqual([
+      ["todo", 0, 0, "ready"],
+      ["done", 0, 0, "ready"],
+      ["constructor", 0, 0, "ready"],
+      ["__proto__", 2, 1, "ready"],
+      ["hasOwnProperty", 1, 1, "ready"],
+      ["__empty__", 0, 0, "ready"],
+    ])
+  })
+
   it("pages one lane without touching the others", async () => {
     const query = mockBackend([{ key: "todo", count: 3 }])
     const { result } = render()
@@ -151,10 +173,13 @@ describe("useBoardLanes", () => {
   })
 
   it("reports a failed aggregate as an error and stays idle while disabled", async () => {
-    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(new Error("projection unavailable"))
+    vi.spyOn(storage, "aggregateDatabase").mockRejectedValue(
+      databaseFailure("failed", "projection unavailable", "projectionReadFailed"),
+    )
     const failing = render()
     await waitFor(() => expect(failing.result.current.status).toBe("error"))
-    expect(failing.result.current.error).toBe("projection unavailable")
+    expect(failing.result.current.error).toContain("projectionReadFailed")
+    expect(failing.result.current.error).not.toContain("projection unavailable")
     const idle = render({ enabled: false })
     expect(idle.result.current.status).toBe("idle")
   })

@@ -1,18 +1,19 @@
 import {
   Archive,
+  Bell,
   FolderTree,
   HelpCircle,
   Info,
   LayoutTemplate,
   Paperclip,
-  RefreshCw,
   Search,
   Settings,
 } from "lucide-react"
 
+import { SyncRefreshIcon } from "@/themes/sync-icon"
+
 import {
   FilesPanel,
-  InfoPanel,
   AttachmentsPanel,
   type ActionDef,
   type ActivityButton,
@@ -23,6 +24,8 @@ import {
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
 import { moduleHost } from "@/lib/modules/host"
+import { InfoPanelWithBacklinks } from "./panels/info-panel-with-backlinks"
+import { useNoticesStackStore } from "./notices/use-notices-stack-store"
 
 /**
  * Core built-in panels that do not belong to optional modules.
@@ -49,7 +52,7 @@ export const PANEL_DEFS: PanelDef[] = [
     labelKey: "panels.info",
     icon: Info,
     kind: "view",
-    render: (props) => <InfoPanel {...props} />,
+    render: (props) => <InfoPanelWithBacklinks {...props} />,
   },
   {
     id: "attachments",
@@ -75,7 +78,7 @@ export const ACTION_DEFS: ActionDef[] = [
   {
     id: "refresh",
     labelKey: "actions.refresh",
-    icon: RefreshCw,
+    icon: SyncRefreshIcon,
     kind: "action",
     persistent: true,
     invoke: (context) => context.refreshVault(),
@@ -94,6 +97,15 @@ export const ACTION_DEFS: ActionDef[] = [
     kind: "action",
     persistent: true,
     invoke: (context) => context.openHelp?.(),
+  },
+  {
+    // The notification centre (docs/notices.md, section 5): the bell opens and closes its stack of cards.
+    id: "notices",
+    labelKey: "actions.notifications",
+    icon: Bell,
+    kind: "action",
+    persistent: true,
+    invoke: () => useNoticesStackStore.getState().toggle(),
   },
   {
     id: "settings",
@@ -124,6 +136,7 @@ export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
   { defId: "refresh", side: "left", order: 1 },
   { defId: "presets", side: "left", order: 3 },
   { defId: "help", side: "left", order: 4 },
+  { defId: "notices", side: "left", order: 4.5 },
   { defId: "settings", side: "left", order: 5 },
 ]
 
@@ -136,6 +149,7 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "creative", side: "left", order: 5 },
   { defId: "search", side: "left", order: 0 },
   { defId: "network", side: "left", order: 2 },
+  { defId: "daily", side: "left", order: 2.5 },
   { defId: "info", side: "right", order: 0 },
   { defId: "attachments", side: "right", order: 1 },
   { defId: "history", side: "right", order: 2 },
@@ -159,6 +173,7 @@ export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityB
 /** Returns the first view-button on a side, or null if none. */
 export function firstViewOnSide(buttons: ActivityButton[], side: Side): PanelId | null {
   for (const button of buttonsForSide(buttons, side)) {
+    if (button.hidden) continue
     const definition = findButtonDef(button.defId)
     if (definition?.kind === "view") return definition.id
   }

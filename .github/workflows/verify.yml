@@ -9,39 +9,117 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the older run pointless. The
+# promotion branches keep every run: each commit on main and beta needs its own result.
 concurrency:
   group: verify-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta' }}
 
 jobs:
-  frontend:
-    name: Frontend quality gate
+  # Decides whether the change touches anything but documentation. Documentation (docs/,
+  # updates/, the code maps and agent entry points; not other *.md, which can be test
+  # fixtures) cannot break Rust or the editor, so the heavy jobs below are skipped for it; the documentation job always runs. Any doubt (a manual run,
+  # a new branch, a rewritten history, a failed diff) counts as code.
+  changes:
+    name: What changed
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          code=true
+          base=""
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$PUSH_BEFORE" ;;
+          esac
+          if [[ -n "$base" && "$base" != 0000000000000000000000000000000000000000 ]] \
+            && git cat-file -e "$base^{commit}" 2>/dev/null \
+            && files="$(git diff --name-only "$base" HEAD)"; then
+            echo "Changed files:"
+            echo "$files"
+            if [[ -z "$files" ]] || [[ -z "$(grep -vE '^(docs/|updates/)|(^|/)(MAP|README|AGENTS|CLAUDE|GEMINI)\.md$' <<<"$files" || true)" ]]; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Code changed: $code"
+
+  # Always runs, also for documentation-only changes: the maps and entry points are checked,
+  # the version is the same in every manifest, the update-channel script is tested, and every
+  # file (documentation included) must be formatted.
+  docs:
+    name: Documentation and formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run docs:check
+      - run: npm run version:check
+      - run: npm run test:update-channels
+      - run: npm run format:check
+
+  frontend:
+    name: Frontend quality gate
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test
-      - run: npm run format:check
       - run: npm run knip
+
+  # The unit tests are the longest frontend step, so they run beside the static checks.
+  unit:
+    name: Frontend tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run test
 
   # The editor in a real browser engine: WebKit, the engine of the desktop webview. Runs on
   # macOS because the suite types with macOS keys (Cmd+arrows) the way the owner does.
   browser:
     name: Editor in WebKit
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Read the Playwright version
@@ -63,9 +141,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  rust:
-    name: Rust check and test (${{ matrix.os }})
+  # Every system Amby ships for: the backend has code of its own for Windows, macOS and Linux
+  # (paths, trash, credentials, durable writes). The processor (x64/arm64) makes no difference
+  # to the code, so the arm64 builds are checked by the release, not here. Lints and tests are
+  # separate jobs: they compile different things, so they run side by side instead of in turn.
+  rust-lint:
+    name: Rust format and Clippy (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -74,10 +159,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -85,28 +173,82 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
       - run: npm ci
       - run: npm run rust:fmt
+      - run: cargo check --locked -p amby-core -p amby-cli --all-targets
       - run: npm run rust:clippy
-      - run: npm run rust:test
-      - name: Verify generated IPC bindings are current
-        run: npm run bindings:check
+      - name: Verify the core and CLI have no Tauri dependency
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          tree=$(cargo tree --locked -p amby-core -p amby-cli --target all --prefix none)
+          if grep -E '^tauri([_-][^ ]*)? v' <<<"$tree"; then
+            echo "The core and CLI must build independently of Tauri"
+            exit 1
+          fi
 
-  windows-bundle:
-    name: Windows bundle
-    runs-on: windows-latest
-    needs: [frontend, rust, browser]
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
+  rust-test:
+    name: Rust test and bindings (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-      - name: Set up Rust stable
-        run: rustup toolchain install stable --profile minimal
-      - run: npm ci
-      - run: npm run tauri build
-      - uses: actions/upload-artifact@v4
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: swatinem/rust-cache@v2
         with:
-          name: amby-windows-bundle
-          path: src-tauri/target/release/bundle/
-          if-no-files-found: error
+          workspaces: . -> target
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+      - run: npm ci
+      - run: npm run rust:test
+      # `rust:test` regenerates src/lib/bindings.ts in this clean checkout: any difference means the
+      # committed bindings are stale (bindings:check alone compares the file with itself here).
+      - name: Committed IPC bindings match the Rust types
+        run: git diff --exit-code -- src/lib/bindings.ts
+      - name: Verify generated IPC bindings are current
+        run: npm run bindings:check
+
+  # The only tests that cross the real DesktopAdapter -> IPC -> Rust path (tests/native/*).
+  # They need a WebView window, so this is an experiment: it runs only for pushes to dev and
+  # manual runs (never for pull requests), and a failure does not fail the workflow. If the
+  # runner cannot start a WebView, the job is red-but-ignored; see tests/MAP.md.
+  native-contract:
+    name: Native contract (macOS, experimental)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/dev'))
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Set up Rust (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - run: npm ci
+      - run: npm run test:storage:live
+      - name: Keep the native contract log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-contract-log
+          path: .release-evidence/native-contract.log
+          if-no-files-found: ignore
+          retention-days: 7
