@@ -1,4 +1,4 @@
-# Amby 0.1.9 — November 26, 2026
+# Amby 0.1.9 — November 27, 2026
 
 Amby 0.1.9 brings Note pages, a major Creative workshop overhaul, AI panel editing with proposal cards and Undo, optional Bundles (formerly Supernotes), Templates and Daily notes, and the bundled `amby` CLI and local MCP server.
 
@@ -87,6 +87,7 @@ Amby 0.1.9 brings Note pages, a major Creative workshop overhaul, AI panel editi
 - Renaming and moving notes updates links in visible notes and the archive. Archive and trash operations validate their targets, including when a note shares the vault folder's name.
 - Existing identifiers from other apps are preserved. An unreadable Markdown file can be isolated while the rest of the vault opens.
 - Local attachments render on Windows, and IME confirmation stays within text entry. Closing and reopening a window and quitting from the macOS Dock now follow the regular save flow.
+- "A property was not saved" now appears once, in the note's notice and in the bell, instead of also under the Properties panel. Close it from either place; the next successful property change clears it too.
 - Module installation checks signatures and package versions. The previous signing key is revoked, so packages signed with it need to be re-signed with the replacement key.
 
 ## For developers
