@@ -67,7 +67,8 @@ export interface CentreInput {
   tabbedDocIds: string[]
   externalConflicts: Record<string, unknown>
   saveFailed: Record<string, true>
-  propertyFailed: Record<string, true>
+  /** Kept after the tab of the note is gone, so the record stays until it is closed or a change succeeds. */
+  propertyFailed: Record<string, { path: string }>
   draftOffers: Record<string, unknown>
   /** Paths in the vault of open notes deleted on another computer. */
   remoteDeleted: string[]
@@ -207,6 +208,13 @@ export function deriveCentre(input: CentreInput): Centre {
     if (input.saveFailed[doc.id]) copy(doc, "save-failed", "danger")
     if (input.propertyFailed[doc.id]) copy(doc, "property-failed", "danger")
     if (input.draftOffers[doc.id]) copy(doc, "draft", "decision")
+  }
+  // A failed property of a note without a tab (another note took its place) is the same notice under the same
+  // id: the centre keeps it until it is closed or the next change succeeds, whichever note is open now.
+  for (const [fileId, failure] of Object.entries(input.propertyFailed)) {
+    const doc = input.openDocs[fileId]
+    if (tabbed.has(fileId) && doc) continue
+    copy({ id: fileId, path: failure.path }, "property-failed", "danger")
   }
   for (const [fileId, failure] of Object.entries(input.closedSaveFailures)) {
     // An open note has its own card for this; the record of the closed one would say it twice.

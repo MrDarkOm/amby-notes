@@ -312,7 +312,7 @@ describe("the order of the cards in the panel", () => {
     conflicted()
     useNoteNoticesStore.getState().offerDraft(ABSOLUTE, { accept: vi.fn(), reject: vi.fn() })
     saveFailed()
-    useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true)
+    useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, { path: ABSOLUTE })
     mount()
     expect(order()).toEqual([
       "note-notice-save-failed",

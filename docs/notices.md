@@ -129,7 +129,10 @@ The rules on top of it:
   `warning`, `info`, and `success` wait for a click on the strip.
 - The icon color is by the most severe level of the cards (`danger`, `decision`, `warning`, `info`, `success` in
   descending order).
-- A card goes away when its source goes away. An information item can be dismissed with a button.
+- A card goes away when its source goes away. An information item can be dismissed with a button, and so can an event that left
+  nothing to write: a property change that failed (the panel was read again, so nothing waits) has «Закрыть» in the card and in
+  its copy in the centre, stays in the centre after its note is closed, and also ends with the next successful change of a
+  property. Its text is not repeated under the Properties panel.
 - The action button shows what is going on ("Восстанавливаю…" (Restoring…)); an action error is in the same card.
 
 ## 8. Under the element

@@ -319,6 +319,16 @@ function NoteNoticesOf({
           testId="note-notice-property-failed"
           level="danger"
           title={t("noteNotices.properties.saveFailed")}
+          actions={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => useNoteNoticesStore.getState().setPropertyFailed(document.id, null)}
+            >
+              {t("notices.centre.close")}
+            </Button>
+          }
         />
       ),
     })

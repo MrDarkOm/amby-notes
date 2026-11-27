@@ -1,7 +1,7 @@
 import * as React from "react"
 import type { TFunction } from "i18next"
 import { errorType, logger } from "@/lib/logger"
-import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
+import { markSaidByNoteCard, useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { usePropertyMigrationStore } from "../note-notices/use-property-migration-store"
 import {
   changePropertyType,
@@ -232,7 +232,7 @@ export function usePropertyActions({
           )
             throw new Error("Note has unresolved external edits")
           const result = await write()
-          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, false)
+          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, null)
           await reload(mutation.version)
           return result
         } catch (error) {
@@ -243,9 +243,14 @@ export function usePropertyActions({
           })
           // The property the person edited is gone under its old name: another computer changed it.
           const changedElsewhere = isNotFoundError(error)
-          useNoteNoticesStore.getState().setPropertyFailed(currentDoc.id, !changedElsewhere)
+          // A plain failure is said once, by the card of the note and its copy in the centre
+          // (docs/notices.md, section 4); only "changed on another computer" stays under the panel.
+          useNoteNoticesStore
+            .getState()
+            .setPropertyFailed(currentDoc.id, changedElsewhere ? null : { path: currentDoc.path })
+          if (!changedElsewhere) markSaidByNoteCard(error)
           if (isCurrent()) {
-            setFailure({ generation, noteId, changedElsewhere })
+            if (changedElsewhere) setFailure({ generation, noteId, changedElsewhere })
             // The edit failed and `failure` is already set; the original error is thrown right
             // below. A failed re-read only leaves the old view.
             await reload(mutation.version).catch(() => {})

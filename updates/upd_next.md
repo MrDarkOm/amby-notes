@@ -59,6 +59,7 @@
 - For developers: removed the rename and move link previews (`preview_rename_refactor`, `preview_move_refactor` and the move plan cache) that only served the dropped questions; the development tree check now creates its log folder, so its mismatch report is no longer lost.
 - Notifications: a journal entry about a change sync made by itself (merged edits, a version chosen in a comparison) has a "Restore" button that puts back the version sync replaced, from the note's history.
 - Sync server (security review, appendix Ч): database work no longer stalls other requests; a device keeps at most four event streams (the oldest ends); a request body that stops arriving for `AMBY_SYNC_BODY_TIMEOUT_SECS` (60 s) gets `408 request_timeout`; parallel uploads of the same body use their own temporary files.
+- Notifications: "A property was not saved" is said once, in the note's card and its copy in the bell, no longer also in the Properties panel. The bell keeps it and counts it when another note is open, and both places have a "Close" button; the next successful property change also clears it.
 - Folder view: database and sketch cards are labelled as such instead of "Note".
 - AI panel and MCP: `query_database` names the database it read (as `read_database` does), so the step line says which one.
 - For developers: the Claude Code launcher tests name their scratch folders with a ULID instead of the process ID, so a reused process ID no longer finds files an earlier run left and fails a batch of tests at once.

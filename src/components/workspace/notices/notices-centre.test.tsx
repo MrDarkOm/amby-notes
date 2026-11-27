@@ -606,6 +606,41 @@ describe("the copies of the cards of the open notes", () => {
     expect(count()).toBeNull()
   })
 
+  it("keeps a failed property of a note that is no longer open, and counts it", async () => {
+    await mountHost()
+    act(() => {
+      useDocStore.setState({ openDocs: { n: doc("n") } })
+      useNoteNoticesStore.getState().setPropertyFailed("n", { path: "/vault/Заметки/n.md" })
+    })
+    // Another note took the place of this one: the record stays in the bell, with its number.
+    act(() => {
+      useTabsStore.getState().setTabs(() => [])
+      useDocStore.setState({ openDocs: { other: doc("other") } })
+    })
+    await waitFor(() => expect(count()?.textContent).toBe("1"))
+    const centre = await openCentre()
+    const entry = within(centre).getByTestId("notices-entry")
+    expect(entry.getAttribute("data-entry-id")).toBe(noteNoticeId("n", "property-failed"))
+    expect(entry.textContent).toMatch(/«n»/)
+  })
+
+  it("lets a failed property be closed from the bell, and it is gone from the note too", async () => {
+    await mountHost()
+    act(() => {
+      useDocStore.setState({ openDocs: { n: doc("n") } })
+      useNoteNoticesStore.getState().setPropertyFailed("n", { path: "/vault/Заметки/n.md" })
+    })
+    render(<NoteNotices document={{ id: "n", path: "/vault/Заметки/n.md" }} warningKey={null} />)
+    expect(await screen.findByTestId("note-notice-property-failed")).toBeTruthy()
+    const centre = await openCentre()
+    const entry = within(centre).getByTestId("notices-entry")
+    fireEvent.click(within(entry).getByRole("button", { name: "Закрыть" }))
+    await waitFor(() => expect(screen.queryByTestId("note-notice-property-failed")).toBeNull())
+    expect(within(centre).queryByTestId("notices-entry")).toBeNull()
+    expect(count()).toBeNull()
+    expect(useNoteNoticesStore.getState().propertyFailed.n).toBeUndefined()
+  })
+
   it("names the note and does not show a path", async () => {
     await mountHost()
     act(() => {

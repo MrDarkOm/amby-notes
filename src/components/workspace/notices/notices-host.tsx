@@ -18,9 +18,9 @@ export function NoticesHost() {
   useDatabaseLayoutUpgrade()
   const vault = useVaultStore((state) => state.vault)
 
-  // The journal belongs to the vault that is open. Records of a failed autosave belong to its session.
+  // The journal belongs to the vault that is open. Records of a failed autosave or property belong to its session.
   React.useEffect(() => {
-    useNoteNoticesStore.setState({ closedSaveFailed: {} })
+    useNoteNoticesStore.setState({ closedSaveFailed: {}, propertyFailed: {} })
     if (vault) void useNoticeJournalStore.getState().open(vault)
   }, [vault])
 
