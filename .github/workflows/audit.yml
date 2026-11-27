@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Cache cargo-audit
         id: cargo-audit
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-${{ runner.os }}-v1
