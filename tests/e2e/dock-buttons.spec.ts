@@ -30,6 +30,10 @@ test("each dock zone switches off only its own buttons, never settings", async (
   await openZoneMenu(page, "view")
   await expect(page.getByText(ru.activityBar.zoneSections)).toBeVisible()
   await expect(page.getByText(ru.activityBar.zoneActions)).toBeVisible()
+  await expect(
+    page.locator('[data-dock-zone-buttons="view"] .lucide-panels-top-left'),
+  ).toBeVisible()
+  await expect(page.locator('[data-dock-zone-buttons="action"] .lucide-zap')).toBeVisible()
   await expect(toggle(page, "tags")).toBeVisible()
   await expect(toggle(page, "settings")).toHaveCount(0)
   await expect(toggle(page, "search")).toHaveCount(0)

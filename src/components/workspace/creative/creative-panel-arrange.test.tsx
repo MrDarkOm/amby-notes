@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type { DatabaseRow, DatabaseSummary, ProjectCatalog } from "@/lib/storage"
@@ -136,6 +136,10 @@ function world(readOnly = false): ProjectCatalog {
             status: null,
             anchors: "tanc",
             arcs: null,
+            characters: null,
+            pov: null,
+            places: null,
+            storyTime: null,
           },
           levels: [
             { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
@@ -219,7 +223,7 @@ describe("CreativePanel: moving pages and anchors without the mouse", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: true, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       universeFilter: null,
       dataNonce: 0,
       search: "",
@@ -232,6 +236,22 @@ describe("CreativePanel: moving pages and anchors without the mouse", () => {
   afterEach(cleanup)
 
   describe("pages of the text", () => {
+    it("keeps the last-level plus disabled and explains a refused drag target", async () => {
+      await ready()
+      const scene = pageRow("s1")
+      const disabled = within(scene).getByRole("button", { name: "Глубже уровней нет" })
+      expect((disabled as HTMLButtonElement).disabled).toBe(true)
+      expect(disabled.closest("[title]")?.getAttribute("title")).toBe("Глубже уровней нет")
+
+      const dataTransfer = { types: ["text/plain"], setData: vi.fn(), dropEffect: "move" }
+      fireEvent.dragStart(pageRow("c2"), { dataTransfer })
+      expect(fireEvent.dragOver(scene, { dataTransfer })).toBe(true)
+      expect(screen.getByText("Родительская страница должна быть на уровень выше.")).toBeTruthy()
+      fireEvent.dragEnd(pageRow("c2"), { dataTransfer })
+      expect(screen.queryByText("Родительская страница должна быть на уровень выше.")).toBeNull()
+      expect(moveTextPage).not.toHaveBeenCalled()
+    })
+
     it("moves a page up through `move_text_page`, under the same parent and before its neighbour", async () => {
       await ready()
       await openMenu(pageRow("c2"))

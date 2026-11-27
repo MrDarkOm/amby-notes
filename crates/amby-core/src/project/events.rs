@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use super::model::{ProjectChangedPayload, STORY_FILE_NAME, WORKSHOP_FILE_NAME};
+use super::workshop_import::IMPORT_FILE_NAME;
 
 /// A path can change which workshops exist when it is a structure file, or a
 /// folder that was created, removed or renamed (a whole workshop or story may have moved
@@ -27,7 +28,10 @@ pub fn classify_path(
         return None;
     }
     let name = *components.last()?;
-    let kind = if name == WORKSHOP_FILE_NAME || name == STORY_FILE_NAME {
+    let kind = if matches!(
+        name,
+        WORKSHOP_FILE_NAME | STORY_FILE_NAME | IMPORT_FILE_NAME
+    ) {
         "file"
     } else if matches!(kind, "create" | "remove" | "rename") && !name.contains('.') {
         "folder"

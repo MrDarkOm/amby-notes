@@ -67,9 +67,20 @@ describe("important warnings of the properties", () => {
     cleanup()
     mount()
     expect(stack()).toBeNull()
-    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true))
+    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, { path: ABSOLUTE }))
     expect(stack()).not.toBeNull()
     expect(screen.getByTestId("note-notice-property-failed")).toBeTruthy()
+  })
+})
+
+describe("a property that could not be saved", () => {
+  it("can be closed in the card, which ends the notice", async () => {
+    mount()
+    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, { path: ABSOLUTE }))
+    const card = screen.getByTestId("note-notice-property-failed")
+    fireEvent.click(within(card).getByRole("button", { name: "Закрыть" }))
+    expect(screen.queryByTestId("note-notice-property-failed")).toBeNull()
+    expect(useNoteNoticesStore.getState().propertyFailed[ABSOLUTE]).toBeUndefined()
   })
 })
 

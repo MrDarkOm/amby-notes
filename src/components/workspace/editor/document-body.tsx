@@ -31,7 +31,7 @@ const LazyCanvasEditor = React.lazy(() =>
 const LazySketchEditor = React.lazy(() =>
   import("../sketch-editor").then((m) => ({ default: m.SketchEditor })),
 )
-import type { EditorHandle } from "../tiptap/constants"
+import type { AppendHeadingsResult, EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
 import { KNOWN_ICONS } from "../tree/tree-types"
 import { TreeIcon } from "../tree/tree-icons"
@@ -39,9 +39,11 @@ import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
 import type { RenameOutcome } from "../file-actions/rename-outcome"
 import { DocumentTitle } from "./document-title"
+import { NotePagesSlotContext } from "./note-pages-context"
 import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
 import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
+import { useSettingsStore } from "../use-settings-store"
 import { useHeldDraftGate } from "../held-drafts-store"
 import { canvasLayerPath, sketchLayerPath } from "../workspace-tree-utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
@@ -72,6 +74,8 @@ export interface DocumentBodyProps {
   onEditingTitleChange: (editing: boolean) => void
   onRenameTitle?: (newName: string) => Promise<RenameOutcome | void> | void
   nestedNotes: TreeItem[]
+  /** The note's `amby-pages` property: whether it asked for pages (see `notePagesRule`). */
+  notePagesFlag?: boolean | null
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   onOpenItem?: (id: string) => void
@@ -92,6 +96,7 @@ export interface DocumentBodyProps {
   databaseBody?: React.ReactNode
   /** Wraps the note's editor (the creative dossier). It keeps the editor in one place of the tree. */
   editorFrame?: React.ComponentType<EditorFrameProps>
+  hasUnterminatedFrontmatter?: boolean
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
   editorRef: React.RefObject<EditorHandle>
@@ -108,11 +113,15 @@ export interface DocumentBodyProps {
 /** What a frame around the note's editor is given. */
 export interface EditorFrameProps {
   noteId: string
+  vaultPath?: string
+  locked?: boolean
   content: string
   /** Scrolls the page to its n-th heading. */
   scrollToHeading: (index: number) => void
   /** False where headings are not on screen to jump to (the source editor). */
   canJump: boolean
+  /** Available on an editable text layer and applied to its current editor buffer. */
+  appendMissingHeadings?: (titles: readonly string[]) => AppendHeadingsResult
   onOpenNote?: (noteId: string) => void
   children: React.ReactNode
 }
@@ -139,6 +148,7 @@ export function DocumentBody({
   onEditingTitleChange,
   onRenameTitle,
   nestedNotes,
+  notePagesFlag = null,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
   onOpenItem,
@@ -158,6 +168,7 @@ export function DocumentBody({
   onEnableModule,
   databaseBody,
   editorFrame,
+  hasUnterminatedFrontmatter,
   editorSelection,
   onEditorSelectionChange,
   editorRef,
@@ -169,6 +180,8 @@ export function DocumentBody({
   notices,
   treeItems,
 }: DocumentBodyProps) {
+  const notePagesMode = useSettingsStore((state) => state.prefs.editor.notePages)
+  const [notePagesSlot, setNotePagesSlot] = React.useState<HTMLDivElement | null>(null)
   const { t } = useTranslation()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const contentRef = React.useRef<HTMLDivElement>(null)
@@ -247,11 +260,15 @@ export function DocumentBody({
   const nestedNotesBar =
     nestedNotes.length > 0 && nestedNotesPlacement !== "hidden" ? (
       <div
+        role="group"
+        aria-label={t("docEditor.nestedNotes")}
         className={
-          nestedNotesPlacement === "bottom" ? "mt-8 border-t border-border pt-4" : "mb-2 -mt-1"
+          nestedNotesPlacement === "bottom"
+            ? "mt-8 border-t border-border pt-4"
+            : "amby-nested-notes-top"
         }
       >
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {nestedNotes.map((note) => {
             const icon =
               note.icon && !KNOWN_ICONS.has(note.icon)
@@ -268,11 +285,11 @@ export function DocumentBody({
                 <ContextMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-accent/45 px-3 py-2 text-sm text-foreground shadow-sm hover:border-primary/40 hover:bg-accent"
+                    className="amby-nested-note-button inline-flex max-w-full items-center gap-1.5"
                     onClick={() => onOpenItem?.(note.id)}
                   >
-                    <span className="flex size-5 items-center justify-center" aria-hidden="true">
-                      <TreeIcon icon={icon} className="size-5 text-muted-foreground" />
+                    <span className="flex shrink-0" aria-hidden="true">
+                      <TreeIcon icon={icon} className="size-3.5 text-muted-foreground" />
                     </span>
                     <span className="truncate">{stripMdExt(note.name)}</span>
                   </button>
@@ -329,6 +346,7 @@ export function DocumentBody({
     ) : (
       <TiptapEditor
         key={docId}
+        notePages={{ mode: notePagesMode, flag: notePagesFlag }}
         value={content}
         onChange={onContentChange}
         onContentDirty={onContentDirty}
@@ -352,9 +370,16 @@ export function DocumentBody({
   const framedEditor = Frame ? (
     <Frame
       noteId={docId}
+      vaultPath={vault}
+      locked={isLocked}
       content={content}
       canJump={viewMode !== "source"}
       scrollToHeading={scrollToHeading}
+      appendMissingHeadings={
+        !isLocked && !hasUnterminatedFrontmatter && activeLayer === "editor" && viewMode !== "read"
+          ? (titles) => editorRef.current?.appendMissingHeadings(titles) ?? "blocked"
+          : undefined
+      }
       onOpenNote={onOpenItem}
     >
       {editor}
@@ -364,7 +389,11 @@ export function DocumentBody({
   )
 
   return (
-    <div data-note-area="" className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+    <div
+      data-note-area=""
+      data-note-id={docId}
+      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+    >
       {/* Editor Layer */}
       <div
         aria-hidden={activeLayer !== "editor"}
@@ -422,6 +451,7 @@ export function DocumentBody({
                   editorRef.current?.focus?.("start")
                 })
               }}
+              trailing={<div ref={setNotePagesSlot} className="flex shrink-0 empty:hidden" />}
             />
 
             {nestedNotesPlacement === "top" && nestedNotesBar ? (
@@ -430,7 +460,9 @@ export function DocumentBody({
               <div className="mb-2" />
             )}
 
-            {framedEditor}
+            <NotePagesSlotContext.Provider value={notePagesSlot}>
+              {framedEditor}
+            </NotePagesSlotContext.Provider>
             {nestedNotesPlacement === "bottom" && nestedNotesBar}
           </div>
         </div>

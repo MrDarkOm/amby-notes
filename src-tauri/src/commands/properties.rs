@@ -517,6 +517,20 @@ pub fn set_note_property_value(
     ))
 }
 
+/// Writes the app-owned `amby-pages` flag, or removes it for `null` (note pages view).
+#[tauri::command]
+#[specta::specta]
+pub fn set_note_pages_flag(
+    app: tauri::AppHandle,
+    db: State<'_, VaultContext>,
+    note_id: String,
+    flag: Option<bool>,
+) -> Result<(), String> {
+    with_notified_property_mutation!(db, app, |conn| property_groups::set_pages_flag(
+        conn, &conn.root, &note_id, flag
+    ))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn set_note_property_list(

@@ -123,7 +123,7 @@ describe("the level of every card of a note", () => {
 
   it("a property that could not be saved is a danger", () => {
     mount()
-    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true))
+    act(() => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, { path: ABSOLUTE }))
     expect(card("note-notice-property-failed").getAttribute("data-level")).toBe("danger")
   })
 
@@ -280,7 +280,7 @@ describe("what opens the stack by itself follows the level (docs/notices.md, 2.1
     ],
     [
       "a property that was not saved",
-      () => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, true),
+      () => useNoteNoticesStore.getState().setPropertyFailed(ABSOLUTE, { path: ABSOLUTE }),
       {},
       "note-notice-property-failed",
       "danger",

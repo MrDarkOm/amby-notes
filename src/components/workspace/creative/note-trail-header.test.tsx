@@ -34,8 +34,12 @@ const text: ProjectTextSummary = {
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
-  levels: [],
+  levels: [{ id: "scene", name: "Сцена", color: null, icon: null, state: "ok" }],
   formats: [],
   statusOptions: [],
 }
@@ -74,7 +78,10 @@ const ROWS: Record<string, DatabaseRow[]> = {
   db_univ: [row("u1", "Палуверс")],
   db_hills: [
     row("ch1", "Глава 1"),
-    row("sc1", "Сцена", { par: { type: "relation", targetNoteIds: ["ch1"] } }),
+    row("sc1", "Развязка", {
+      lvl: { type: "select", optionId: "scene" },
+      par: { type: "relation", targetNoteIds: ["ch1"] },
+    }),
   ],
 }
 const CONTEXTS: Record<string, { databaseId: string; row: DatabaseRow }> = {
@@ -164,9 +171,9 @@ describe("the header of a note of the workshop", () => {
     // No flash: the folder path stands until the answer is known.
     expect(trail()).toEqual(["Folder", "sc1"])
     // A long path folds its middle, like the folders do, until the pointer rests on it.
-    await waitFor(() => expect(trail()).toEqual(["Мастерская", "Глава 1", "Сцена"]))
+    await waitFor(() => expect(trail()).toEqual(["Мастерская", "Глава 1", "Развязка · Сцена"]))
     fireEvent.mouseEnter(screen.getByText("…"))
-    expect(trail()).toEqual(["Мастерская", "Палуверс", "Холмы", "Глава 1", "Сцена"])
+    expect(trail()).toEqual(["Мастерская", "Палуверс", "Холмы", "Глава 1", "Развязка · Сцена"])
     fireEvent.click(screen.getByRole("button", { name: "Палуверс" }))
     expect(onOpenPage).toHaveBeenLastCalledWith("universe:u1", undefined)
     fireEvent.click(screen.getByRole("button", { name: "Холмы" }))

@@ -64,6 +64,7 @@ import { loadGlobalModulesRegistry } from "@/lib/modules/global-registry"
 import { useModuleInstallFlow } from "./use-module-install-flow"
 import { NoticeLine } from "../notices/notice-line"
 import { isEnterKey } from "@/lib/keyboard"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 
 const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   tags: Tags,
@@ -76,6 +77,7 @@ const MODULE_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   ai: Bot,
   excalidraw: PenTool,
   canvas: Layout,
+  supernotes: CompositeNoteIcon,
   creative: Feather,
   templates: Files,
   daily: Calendar,
@@ -966,6 +968,11 @@ export function ModulesTab({
                 <FavoritesSettings />
               ) : selected.id === "creative" ? (
                 <CreativeSettings />
+              ) : selected.id === "supernotes" ? (
+                <ModuleMessage
+                  title={t(selected.labelKey)}
+                  description={t(selected.descriptionKey)}
+                />
               ) : selected.id === "templates" ? (
                 <TemplatesModuleSettings />
               ) : selected.id === "daily" ? (

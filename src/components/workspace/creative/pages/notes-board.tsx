@@ -70,7 +70,7 @@ export function NotesBoard({
         {onCreate && (
           <div className="ml-auto">
             <QuickCreate
-              label={t("creative.notesBoard.add")}
+              label={t("creative.createItem.notes")}
               placeholder={t("creative.notesBoard.placeholder")}
               failed={(message) => t("creative.workshop.createFailed", { message })}
               onCreate={(title) => onCreate(title, notebookForNewNote(tab))}

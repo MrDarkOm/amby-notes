@@ -305,11 +305,16 @@ export type ContentWidth = "normal" | "wide" | "full"
 
 export const ACCENTS: AccentId[] = ["violet", "sky", "teal", "emerald", "amber", "rose"]
 
+/** Which notes show their first-level headings as page tabs: none, every note, or only notes
+ *  whose frontmatter sets `amby-pages: true`. */
+export type NotePagesPref = "off" | "always" | "flagged"
+
 export interface EditorPrefs {
   defaultViewMode: ViewModePref
   contentWidth: ContentWidth
   autosaveMs: number
   showAreaControls?: boolean
+  notePages: NotePagesPref
 }
 
 /** К4: `archive` is «Переносить в архив»; the former value `vault` is read as `archive`. */
@@ -414,6 +419,7 @@ export const DEFAULT_PREFS: AppPreferences = {
     contentWidth: "normal",
     autosaveMs: 500,
     showAreaControls: true,
+    notePages: "flagged",
   },
   startup: { reopenLastVault: true, restoreSession: true },
   files: { deleteMode: "system", folderClickToggles: false },
@@ -500,6 +506,11 @@ export function normalizeAppPreferences(
       contentWidth: oneOf<ContentWidth>(ed.contentWidth, ["normal", "wide", "full"], "normal"),
       autosaveMs,
       showAreaControls: typeof ed.showAreaControls === "boolean" ? ed.showAreaControls : true,
+      notePages: oneOf<NotePagesPref>(
+        ed.notePages,
+        ["off", "always", "flagged"],
+        DEFAULT_PREFS.editor.notePages,
+      ),
     },
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,

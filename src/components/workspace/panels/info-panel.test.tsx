@@ -5,12 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import "@/lib/i18n"
 import * as storage from "@/lib/storage"
+import { catalog, storySummary, workshopSummary } from "../creative/project-fixtures.test-support"
+import { useProjectStore } from "../creative/project-store"
 import type { DocumentProperties } from "../panel-registry"
 import { InfoPanel } from "./info-panel"
 import { PropertyEditor } from "./property-editor"
 
 afterEach(() => {
   cleanup()
+  useProjectStore.getState().reset()
 })
 
 const mockDocumentWithFrontmatter: DocumentProperties = {
@@ -89,6 +92,35 @@ describe("InfoPanel frontmatter properties", () => {
       container.querySelector('[data-sortable-property-id="custom-id"] img')?.getAttribute("src"),
     ).toContain("emoji_u1f33f.svg")
     expect(container.textContent).not.toContain("◆")
+  })
+
+  it("hides every app-owned amby- field of the header", () => {
+    const doc: DocumentProperties = {
+      ...mockDocumentWithFrontmatter,
+      frontmatter: {
+        ...mockDocumentWithFrontmatter.frontmatter,
+        properties: [
+          ...mockDocumentWithFrontmatter.frontmatter.properties,
+          { key: "amby-pages", value: "true", valueKind: "checkbox" },
+          { key: "amby-title", value: "Story", valueKind: "text" },
+          { key: "Amby-Story-Id", value: "01JC0000000000000000000001", valueKind: "text" },
+        ],
+      },
+    }
+    render(
+      <InfoPanel
+        treeItems={[]}
+        selectedId="01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        vault="/test-vault"
+        onSelect={() => {}}
+        onOpenVault={() => {}}
+        properties={doc}
+      />,
+    )
+    expect(screen.queryByText("amby-pages")).toBeNull()
+    expect(screen.queryByText("amby-title")).toBeNull()
+    expect(screen.queryByText("Amby-Story-Id")).toBeNull()
+    expect(screen.getByText("status")).not.toBeNull()
   })
 
   it("renders frontmatter properties excluding amby-id and id", () => {
@@ -430,6 +462,100 @@ describe("InfoPanel frontmatter properties", () => {
 
     const statusLabels = screen.getAllByText("status")
     expect(statusLabels.length).toBe(1)
+  })
+
+  it("hides the creative format from the note properties without exposing its raw frontmatter", async () => {
+    useProjectStore.getState().setCatalog(
+      catalog([
+        workshopSummary("w1", {
+          stories: [
+            storySummary("story", {
+              text: {
+                databaseId: "db-1",
+                properties: {
+                  level: null,
+                  parent: null,
+                  order: null,
+                  format: "prop-format",
+                  status: "prop-status",
+                  anchors: null,
+                  arcs: null,
+                  characters: null,
+                  pov: null,
+                  places: null,
+                  storyTime: null,
+                },
+                levels: [],
+                formats: [],
+                statusOptions: [],
+              },
+            }),
+          ],
+        }),
+      ]),
+    )
+    vi.spyOn(storage, "getDatabaseNoteContext").mockResolvedValue({
+      databaseId: "db-1",
+      databaseTitle: "Test DB",
+      databaseIcon: null,
+      locked: false,
+      vaultGeneration: 1,
+      manifestRevision: "rev-1",
+      row: {
+        noteId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        title: "Test Note",
+        relativePath: "Test Note.md",
+        parentNoteId: null,
+        depth: 0,
+        categoryPath: [],
+        valuesJson: JSON.stringify({ "prop-status": "in-progress", "prop-format": "screenplay" }),
+        rowRevision: "row-1",
+      },
+      properties: [
+        {
+          propertyId: "prop-format",
+          name: "format",
+          propertyType: "text",
+          configJson: "{}",
+          options: [],
+        },
+        {
+          propertyId: "prop-status",
+          name: "status",
+          propertyType: "text",
+          configJson: "{}",
+          options: [],
+        },
+      ],
+    })
+
+    const { container } = render(
+      <InfoPanel
+        treeItems={[]}
+        selectedId="01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        vault="/test-vault"
+        onSelect={() => {}}
+        onOpenVault={() => {}}
+        properties={{
+          ...mockDocumentWithFrontmatter,
+          frontmatter: {
+            ...mockDocumentWithFrontmatter.frontmatter,
+            properties: [
+              ...mockDocumentWithFrontmatter.frontmatter.properties,
+              { key: "format", value: "screenplay", valueKind: "text" },
+            ],
+          },
+        }}
+      />,
+    )
+
+    await waitFor(() => {
+      const counter = container.querySelector(".tabular-nums")
+      expect(counter?.textContent).toBe("4")
+    })
+
+    expect(screen.queryByText("format")).toBeNull()
+    expect(screen.queryByDisplayValue("screenplay")).toBeNull()
   })
 
   it("renders database scope question in PropertyEditor and saves with addToDatabase flag", async () => {

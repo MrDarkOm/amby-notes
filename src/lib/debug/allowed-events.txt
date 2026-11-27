@@ -104,6 +104,7 @@ document.restore_deleted_failed
 duplicate_database_row
 editor.diagram_failed
 editor.live_admission_failed
+editor.note_page_link_copy_failed
 editor.toggle_lock
 editor.view_mode
 external_conflict.keep_local_failed
@@ -290,6 +291,7 @@ storage.undo_mutation
 storage.update_database_property_config
 storage.update_database_property_options
 storage.update_database_relation_value
+storage.update_dossier_template
 storage.update_text_levels
 storage.update_workshop
 storage.upsert_custom_property

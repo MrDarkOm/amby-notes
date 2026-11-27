@@ -56,6 +56,10 @@ const text: ProjectTextSummary = {
     status: "st",
     anchors: "tanc",
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [{ id: "chapter", icon: null, name: "Глава", color: null, state: "ok" }],
   formats: [],
@@ -200,12 +204,12 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
   it("binds an anchor from its menu, by keyboard", async () => {
     mount()
     const region = await strip()
-    fireEvent.keyDown(
-      within(region).getByRole("button", { name: "Привязать «Мечта» к странице…" }),
-      {
-        key: "Enter",
-      },
-    )
+    const bind = within(region).getByRole("button", { name: "Привязать «Мечта» к странице…" })
+    expect(bind.getAttribute("title")).toBe("Привязать «Мечта» к странице…")
+    expect(within(region).queryByText(/Якоря без главы/)).toBeNull()
+    fireEvent.keyDown(bind, {
+      key: "Enter",
+    })
     fireEvent.click(await screen.findByRole("menuitem", { name: "Глава первая" }))
     await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
     expect(updateDatabaseRelationValue).toHaveBeenCalledWith(
@@ -234,7 +238,7 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
     ROWS.db_anch = []
     mount()
     const region = await strip()
-    fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
+    fireEvent.click(within(region).getByRole("button", { name: "Якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
@@ -254,7 +258,7 @@ describe('the anchors of a story on its desk: marks on the pages and the strip "
     createWorkshopEntity.mockRejectedValue(projectFailure("createPageFailed", "нет места"))
     mount()
     const region = await strip()
-    fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
+    fireEvent.click(within(region).getByRole("button", { name: "Якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)

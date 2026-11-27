@@ -592,3 +592,15 @@ describe("TREE-02: files.folderClickToggles", () => {
     ).toBe(false)
   })
 })
+
+describe("editor.notePages", () => {
+  it("defaults to pages only in flagged notes and rejects unknown modes", () => {
+    expect(normalizeAppPreferences({}).editor.notePages).toBe("flagged")
+    for (const mode of ["off", "always", "flagged"] as const) {
+      expect(normalizeAppPreferences({ editor: { notePages: mode } }).editor.notePages).toBe(mode)
+    }
+    expect(normalizeAppPreferences({ editor: { notePages: "h2" } }).editor.notePages).toBe(
+      "flagged",
+    )
+  })
+})

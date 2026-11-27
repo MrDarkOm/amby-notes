@@ -452,15 +452,13 @@ describe("resolvePanelFilter", () => {
   const inU1 = new Set(["hills", "river"])
   const standalone = new Set(["lone"])
 
-  it("shows the first story of the scope while none was chosen, or the scope when it has none", () => {
-    expect(resolvePanelFilter(stories, null, null, standalone)).toEqual({
-      kind: "story",
-      storyId: "lone",
-    })
+  it("shows the whole chosen scope when no story is named", () => {
+    expect(resolvePanelFilter(stories, null, null, standalone)).toEqual({ kind: "standalone" })
     expect(resolvePanelFilter(stories, null, "u1", inU1)).toEqual({
-      kind: "story",
-      storyId: "hills",
+      kind: "universe",
+      universeId: "u1",
     })
+    expect(resolvePanelFilter(stories, null, "all-workshop")).toEqual({ kind: "workshop" })
     expect(resolvePanelFilter(stories, null, "u2", new Set())).toEqual({
       kind: "universe",
       universeId: "u2",

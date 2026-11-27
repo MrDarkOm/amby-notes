@@ -7,6 +7,12 @@ import { Link2Off } from "lucide-react"
 import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
+import { HeadingHintsContext } from "../editor/heading-hints-context"
+import { headingHintsKey, headingHintsPlugin } from "./heading-hints"
+import { EntityNamesContext } from "../editor/entity-names-context"
+import { entityNamesKey, entityNamesPlugin } from "./entity-names"
+import { NotePageControls, type NotePagesSource } from "./note-page-controls"
+import { appendMissingHeadings, revealNotePageAt } from "./note-pages"
 import { buildExtensions } from "./extensions"
 import { markdownToDoc } from "./markdown"
 import { useEditorSerialization, useEditorSerializationLifecycle } from "./use-editor-serialization"
@@ -47,6 +53,7 @@ import { dismissInlineSuggest } from "./inline-suggest"
 import { FindBar } from "./FindBar"
 import { TableControls } from "./TableControls"
 import { OPEN_FIND_EVENT } from "./find-in-note"
+import { REVEAL_ANCHOR_EVENT } from "../anchor-navigation"
 import {
   SLASH_TRIGGER_EVENT,
   dismissSlashMenu,
@@ -60,6 +67,8 @@ interface TiptapEditorProps {
   editorRef?: React.RefObject<EditorHandle>
   placeholder?: string
   editable?: boolean
+  /** Full notes may offer the paged view; embedded editors keep their usual layout. */
+  notePages?: NotePagesSource
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
   resolveWikiLinkTarget?: (target: string) => string | null
@@ -150,6 +159,7 @@ export function TiptapEditor({
   editorRef,
   placeholder = i18n.t("editor.placeholder"),
   editable = true,
+  notePages,
   onTagClick,
   onWikiLinkClick,
   resolveWikiLinkTarget,
@@ -303,6 +313,7 @@ export function TiptapEditor({
     [closeMenu, computeSelectionAnchor],
   )
 
+  const headingHints = React.useContext(HeadingHintsContext)
   const editor = useEditor({
     // The base rules are in themes/prosemirror-base.css: the same on every system.
     injectCSS: false,
@@ -359,6 +370,24 @@ export function TiptapEditor({
       }, 180)
     },
   })
+
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !headingHints) return
+    editor.registerPlugin(headingHintsPlugin(headingHints))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(headingHintsKey)
+    }
+  }, [editor, headingHints])
+
+  const entityNames = React.useContext(EntityNamesContext)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !entityNames) return
+    editor.registerPlugin(entityNamesPlugin(entityNames))
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(entityNamesKey)
+      entityNames.onHover(null, null)
+    }
+  }, [editor, entityNames])
 
   React.useEffect(() => {
     const onContextMenu = (event: Event) => {
@@ -479,6 +508,18 @@ export function TiptapEditor({
   // is what the bar starts with.
   const [find, setFind] = React.useState<{ request: number; query: string } | null>(null)
   const wrapperRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const dom = editor.view.dom
+    const revealAnchor = (event: Event) => {
+      const target = event.target
+      if (target instanceof HTMLElement && target !== dom) {
+        revealNotePageAt(editor, editor.view.posAtDOM(target, 0))
+      }
+    }
+    dom.addEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+    return () => dom.removeEventListener(REVEAL_ANCHOR_EVENT, revealAnchor)
+  }, [editor])
   const openFind = React.useCallback(() => {
     if (!editor || editor.isDestroyed) return
     const { from, to } = editor.state.selection
@@ -536,6 +577,7 @@ export function TiptapEditor({
     restoredSelectionRef.current = true
     const mapped = markdownSelectionToDocSelection(editor.state.doc, value, selection)
     if (!mapped) return
+    revealNotePageAt(editor, mapped.from)
     editor.commands.setTextSelection(mapped)
   }, [editor, selection, value])
 
@@ -617,7 +659,8 @@ export function TiptapEditor({
   // Expose undo/redo to the parent's floating widget.
   React.useEffect(() => {
     if (!editorRef || !editor) return
-    ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
+    const handle: EditorHandle = {
+      appendMissingHeadings: (titles) => appendMissingHeadings(editor, titles),
       undo: () => {
         serialization.markUserIntent()
         editor.chain().focus().undo().run()
@@ -644,6 +687,10 @@ export function TiptapEditor({
         }
         editor.chain().focus("start").run()
       },
+    }
+    editorRef.current = handle
+    return () => {
+      if (editorRef.current === handle) editorRef.current = null as never
     }
   }, [editor, editorRef, serialization, focusAtPoint])
 
@@ -923,7 +970,19 @@ export function TiptapEditor({
       {editor && editable && !isReadOnly && (
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}
-      <EditorContent editor={editor} />
+      {notePages ? (
+        <NotePageControls
+          editor={editor}
+          source={notePages}
+          noteId={noteId}
+          notePath={notePath}
+          vaultPath={vaultPath}
+        >
+          <EditorContent editor={editor} />
+        </NotePageControls>
+      ) : (
+        <EditorContent editor={editor} />
+      )}
       {editor && lightbox && (
         <ImageLightbox
           editor={editor}

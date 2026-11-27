@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
 import * as storage from "@/lib/storage"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { usePropertyActions } from "./use-property-actions"
@@ -167,6 +168,7 @@ describe("property edits", () => {
     })
     expect(storage.upsertCustomProperty).not.toHaveBeenCalled()
     expect(useDocStore.getState().openDocs.note.noteProperties).toEqual(empty)
+    // Refused before any write: no card is raised, so the panel says it.
     expect(hook.result.current.propertyError).toContain("Не удалось сохранить")
     act(() => useVaultStore.setState({ switching: false }))
   })
@@ -210,7 +212,9 @@ describe("property edits", () => {
       ).rejects.toThrow("disk unavailable")
     })
     expect(useDocStore.getState().openDocs.note.noteProperties?.customProperties).toEqual([])
-    expect(hook.result.current.propertyError).toContain("Не удалось сохранить")
+    // Said once, by the card of the note (docs/notices.md, section 4), not under the panel.
+    expect(hook.result.current.propertyError).toBeNull()
+    expect(useNoteNoticesStore.getState().propertyFailed.note).toBeTruthy()
   })
 
   it("writes the code of the failure to the log when a property cannot be saved", async () => {

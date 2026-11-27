@@ -1,14 +1,25 @@
 import { describe, expect, it } from "vitest"
 import i18n from "@/lib/i18n"
 import sentKeys from "./interface-label-keys.json"
-import { linkLabels, projectLabels, projectRequestKind } from "./project-labels"
+import { linkLabels, projectLabels, projectRequestKind, sectionDisplayName } from "./project-labels"
 
 describe("project labels", () => {
+  it("localizes built-in storyline names and preserves customized names", () => {
+    const section = { role: "arcs", name: "Арки", databaseName: "Arcs" }
+    expect(sectionDisplayName(section, "Storylines")).toBe("Storylines")
+    expect(sectionDisplayName({ ...section, databaseName: "Threads of Fate" }, "Storylines")).toBe(
+      "Threads of Fate",
+    )
+    expect(sectionDisplayName({ ...section, role: "custom" }, "Storylines")).toBe("Арки")
+    expect(section.name).toBe("Арки")
+  })
+
   it("names the base sections and groups in the language that is active", () => {
     const ru = projectLabels(i18n.getFixedT("ru"))
     const en = projectLabels(i18n.getFixedT("en"))
     expect(ru).toMatchObject({
       "section:stories": "Истории",
+      "section:arcs": "Сюжетные линии",
       "section:notes": "Заметки",
       "section:characters": "Персонажи",
       "section:locations": "Локации",
@@ -18,7 +29,7 @@ describe("project labels", () => {
       "property:format": "Формат",
       "property:status": "Статус",
       "level:book": "Книга",
-      "level:arc": "Том",
+      "level:arc": "Арка",
       "level:chapter": "Глава",
       "level:page": "Страница",
       "format:manuscript": "Рукопись",
@@ -75,7 +86,7 @@ describe("project labels", () => {
   it("only uses keys the backend accepts", () => {
     for (const key of Object.keys(projectLabels(i18n.getFixedT("en")))) {
       expect(key).toMatch(
-        /^(section:(stories|notes|characters|locations|universes|arcs|anchors)|property:(stories|universe|anchors|arcs|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image|status|synopsis|description|participants|characters)|importance:(main|side|episode)|kind:(city|district|place|nature)|arcKind:(character|plot|mini)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
+        /^(section:(stories|notes|characters|locations|universes|arcs|anchors)|property:(stories|universe|anchors|arcs|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(role|importance|kind|portrait|image|status|synopsis|description|participants|characters)|importance:(main|side|episode)|kind:(city|district|place|nature)|arcKind:(character|plot|mini)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
       )
     }
   })

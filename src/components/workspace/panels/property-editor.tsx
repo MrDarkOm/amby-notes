@@ -1,6 +1,7 @@
 "use client"
 
 import { AmbySelect } from "@/components/ui/amby-select"
+import { isSaidByNoteCard } from "../note-notices/use-note-notices-store"
 import { NoticeLine } from "../notices/notice-line"
 import * as React from "react"
 import { Trash2 } from "lucide-react"
@@ -122,8 +123,10 @@ export function PropertyEditor({
         addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase),
       })
       if (attempt === saveAttempt.current) onOpenChange(false)
-    } catch {
-      if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
+    } catch (error) {
+      // The card of the note already says it: the dialog stays open for a retry without a second line.
+      if (attempt === saveAttempt.current && !isSaidByNoteCard(error))
+        setError(t("infoPanel.saveFailed"))
     } finally {
       if (attempt === saveAttempt.current) setSaving(false)
     }
@@ -315,8 +318,9 @@ export function PropertyEditor({
                 try {
                   await onDelete(draft.id)
                   if (attempt === saveAttempt.current) onOpenChange(false)
-                } catch {
-                  if (attempt === saveAttempt.current) setError(t("infoPanel.saveFailed"))
+                } catch (error) {
+                  if (attempt === saveAttempt.current && !isSaidByNoteCard(error))
+                    setError(t("infoPanel.saveFailed"))
                 } finally {
                   if (attempt === saveAttempt.current) setSaving(false)
                 }

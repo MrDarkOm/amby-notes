@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Database } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { sectionCreateLabel } from "../section-create-label"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { resolveGalleryPreview } from "../../database/layouts/gallery-preview"
@@ -38,6 +39,8 @@ export interface PlotRow {
 interface WorldSectionProps {
   categories: WorkshopTab[]
   itemsByCategory: Record<string, EntityItem[]>
+  footnoteOf?: (key: string) => React.ReactNode
+  storyLinkOf?: (databaseId: string, noteId: string) => React.ReactNode
   /** Pages in no story and named by no text, per category: a group of their own at the end. */
   withoutStoryByCategory?: Record<string, EntityItem[]>
   /** The story names for a page's row (up to two and "+N"); `null` shows none. */
@@ -79,6 +82,8 @@ interface WorldSectionProps {
 export function WorldSection({
   categories,
   itemsByCategory,
+  footnoteOf,
+  storyLinkOf,
   withoutStoryByCategory = {},
   storyLabelsOf = null,
   plotRowOf = null,
@@ -118,9 +123,9 @@ export function WorldSection({
   }, [itemsByCategory])
 
   return (
-    <section aria-label={t("creative.workshop.world.title", "Мир")} className="mt-3">
+    <section aria-label={t("creative.workshop.world.title")} className="mt-3">
       <div className="flex items-center justify-between gap-2 pb-1 pl-3.5 pr-2">
-        <h3 className="text-[11px] text-muted-foreground">{t("creative.groups.world", "Мир")}</h3>
+        <h3 className="text-[11px] text-muted-foreground">{t("creative.groups.world")}</h3>
       </div>
       {onLinkUniverses && (
         <LinkAction
@@ -133,7 +138,7 @@ export function WorldSection({
       {linkError && <NoticeLine role="alert" text={linkError} className="px-2 py-1" />}
       {categories.length === 0 && (
         <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
-          {t("creative.workshop.world.noCategories", "Нет разделов мира")}
+          {t("creative.workshop.world.noCategories")}
         </p>
       )}
       {categories.map((tab) => {
@@ -182,6 +187,7 @@ export function WorldSection({
                   {storyLabelsOf && <RowStories labels={storyLabelsOf(item.noteId)} />}
                 </button>
               </ItemMenu>
+              {storyLinkOf?.(item.databaseId, item.noteId)}
               {plot?.error && <RowError message={plot.error} indent={treeIndent(1)} />}
             </React.Fragment>
           )
@@ -196,7 +202,7 @@ export function WorldSection({
             open={!collapsed[`category:${tab.key}`]}
             onToggle={() => onToggle(`category:${tab.key}`)}
             onAdd={writable ? () => onAddEntity(tab.key) : null}
-            addLabel={t("creative.workshop.world.addEntity", { name: tab.name })}
+            addLabel={sectionCreateLabel(t, tab.role, tab.name)}
             iconNode={
               icon ? (
                 <IconValue
@@ -277,6 +283,7 @@ export function WorldSection({
                   .map(renderItem)}
               </div>
             )}
+            {footnoteOf?.(tab.key)}
           </Accordion>
         )
       })}

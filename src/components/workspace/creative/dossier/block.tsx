@@ -1,10 +1,21 @@
 import * as React from "react"
 
 /** A titled block of the aside beside a page's text (the dossier's and the plot's). */
-export function Block({ title, children }: { title: string; children: React.ReactNode }) {
+export function Block({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: string
+  children: React.ReactNode
+}) {
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <h3
+        title={hint}
+        className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+      >
         {title}
       </h3>
       {children}

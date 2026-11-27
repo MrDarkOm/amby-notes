@@ -203,6 +203,7 @@ pub fn complete_workshop(
                 story_id: None,
                 expected_revision: workshop.doc.revision.clone(),
                 labels: link_labels.clone(),
+                parts: None,
             },
         );
         match result {
@@ -239,6 +240,7 @@ pub fn complete_workshop(
                 story_id: Some(story_id.clone()),
                 expected_revision: revision,
                 labels: link_labels.clone(),
+                parts: None,
             },
         );
         match result {

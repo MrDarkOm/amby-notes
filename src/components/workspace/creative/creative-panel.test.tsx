@@ -107,6 +107,10 @@ const TEXT = {
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [
     { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
@@ -288,7 +292,7 @@ describe("CreativePanel", () => {
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: false, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       dataNonce: 0,
       search: "",
       pageRequest: null,
@@ -338,7 +342,7 @@ describe("CreativePanel", () => {
       expect(initWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:stories": "Истории",
         "section:universes": "Вселенные",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
         "section:anchors": "Якоря",
         "section:notes": "Заметки",
       })
@@ -566,7 +570,7 @@ describe("CreativePanel", () => {
       act(() => useCreativeNavStore.setState({ collapsed: { "page:b1": true } }))
       render(<CreativePanel {...props({ selectedId: "c1" })} />)
       // The book was folded; the open page is inside it, so it unfolds.
-      const chapter = (await screen.findByText("Глава первая")).closest("button") as HTMLElement
+      const chapter = await screen.findByRole("button", { name: /^Глава первая/ })
       expect(chapter.getAttribute("aria-current")).toBe("true")
       expect(await within(chapter).findByText(/^1\D?240$/)).toBeTruthy()
       expect(
@@ -587,6 +591,9 @@ describe("CreativePanel", () => {
       expect(onSelect).toHaveBeenCalledWith("c1")
       view.rerender(<CreativePanel {...props({ onSelect, selectedId: "c1" })} />)
       await waitFor(() => expect(screen.queryByRole("button", { name: /Продолжить:/ })).toBeNull())
+      expect(screen.getByTitle(/Продолжить: Глава первая/).classList.contains("invisible")).toBe(
+        true,
+      )
     })
 
     it("heads the story with its name and one quiet line of its numbers, shown once read", async () => {
@@ -624,7 +631,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props()} />)
       await screen.findByText("Книга первая")
       expect(screen.getByText("История", { selector: "h3" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
     })
 
     it("offers to add the first page where the text is empty, as a row you can press", async () => {
@@ -708,7 +715,7 @@ describe("CreativePanel", () => {
       expect(screen.queryByRole("button", { name: "Создать раздел «Якоря»" })).toBeNull()
       expect(screen.getByText(/Раздела «Якоря» ещё нет/u)).toBeTruthy()
 
-      fireEvent.click(within(notice).getByRole("button", { name: "Создать недостающие разделы" }))
+      fireEvent.click(within(notice).getByRole("button", { name: "Обновить мастерскую" }))
       await waitFor(() => expect(completeWorkshop).toHaveBeenCalledTimes(1))
       expect(completeWorkshop.mock.calls[0][0]).toMatchObject({
         expectedGeneration: 1,
@@ -716,7 +723,7 @@ describe("CreativePanel", () => {
       })
       expect(completeWorkshop.mock.calls[0][0].labels).toMatchObject({
         "section:anchors": "Якоря",
-        "section:arcs": "Арки",
+        "section:arcs": "Сюжетные линии",
       })
     })
 
@@ -832,8 +839,8 @@ describe("CreativePanel", () => {
     it("sits under the story's parts, with a folding list for each category", async () => {
       render(<CreativePanel {...props()} />)
       // The world is a region with a quiet caption of its own; it does not fold.
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
-      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
+      expect(screen.getByText("Справочник", { selector: "h3" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: /(Свернуть|Развернуть): Мир/ })).toBeNull()
       expect(screen.getByRole("button", { name: /Свернуть: Персонажи/ })).toBeTruthy()
       expect(screen.getByRole("button", { name: /Свернуть: Организации/ })).toBeTruthy()
@@ -939,7 +946,7 @@ describe("CreativePanel", () => {
     it("has no switch without a shared world", async () => {
       selectScope("verse")
       render(<CreativePanel {...props()} />)
-      expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
+      expect(screen.getByRole("region", { name: "Справочник" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: "Вселенная" })).toBeNull()
     })
 
@@ -961,7 +968,7 @@ describe("CreativePanel", () => {
       const onSelect = vi.fn()
       render(<CreativePanel {...props({ onSelect })} />)
       await title(/Борис/)
-      fireEvent.click(screen.getByRole("button", { name: "Добавить: Персонажи" }))
+      fireEvent.click(screen.getByRole("button", { name: "Персонаж" }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Марта" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -982,7 +989,7 @@ describe("CreativePanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       fireEvent.click(
         within(screen.getByRole("dialog")).getByRole("button", {
-          name: /Новая страница: Персонажи/,
+          name: /^Персонаж(?:$| )/,
         }),
       )
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
@@ -996,23 +1003,46 @@ describe("CreativePanel", () => {
       })
     })
 
-    it("offers the frequent things first in the chooser and the rare ones after a heading", async () => {
+    it("groups creation by purpose with one universe and the current story level", async () => {
+      const fixture = world()
+      fixture.workshops[0].sections.push(
+        section("universes", { role: "universes", name: "Вселенные" }),
+      )
+      act(() => useProjectStore.getState().setCatalog(fixture))
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       const dialog = within(screen.getByRole("dialog"))
-      const names = dialog.getAllByRole("button").map((button) => button.textContent ?? "")
-      const at = (pattern: RegExp) => names.findIndex((name) => pattern.test(name))
-      expect(at(/^Новая страница(?!:)/)).toBeGreaterThanOrEqual(0)
-      expect(at(/^Новая страница: Персонажи/)).toBeGreaterThanOrEqual(0)
-      expect(dialog.getByText("Нужно реже")).toBeTruthy()
-      // A story, a section and a universe come after the frequent ones.
-      const rareIndices = [at(/(?:Новая )?История/), at(/^Раздел/), at(/^Вселенная/)].filter(
-        (i) => i >= 0,
-      )
-      const rareStart = Math.min(...rareIndices)
-      expect(Math.max(at(/^Новая страница(?!:)/), at(/^Новая страница: Персонажи/))).toBeLessThan(
-        rareStart,
+      const story = within(dialog.getByRole("region", { name: "В истории" }))
+      expect(story.getByRole("button", { name: "Новая: Книга" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Якорь" })).toBeTruthy()
+      expect(story.getByRole("button", { name: "Заметка" })).toBeTruthy()
+      const reference = within(dialog.getByRole("region", { name: "В справочнике" }))
+      expect(reference.getByRole("button", { name: "Персонаж" })).toBeTruthy()
+      expect(reference.getByRole("button", { name: "Добавить в «Организации»" })).toBeTruthy()
+      expect(dialog.getByRole("region", { name: "Структура" })).toBeTruthy()
+      expect(dialog.getAllByRole("button", { name: /Вселенная|Вселенные/ })).toHaveLength(1)
+    })
+
+    it.each([
+      ["Якорь", "Название якоря", "anchors"],
+      ["Заметка", "Название заметки", "notes"],
+    ])("creates a story-linked %s from the chooser", async (choice, placeholder, sectionId) => {
+      render(<CreativePanel {...props()} />)
+      await title(/Борис/)
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }))
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: choice }))
+      const field = await screen.findByRole("textbox", { name: new RegExp(placeholder) })
+      fireEvent.change(field, { target: { value: "Первый" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() =>
+        expect(createWorkshopEntity).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sectionId,
+            storyId: "hills",
+            title: "Первый",
+          }),
+        ),
       )
     })
 
@@ -1075,7 +1105,7 @@ describe("CreativePanel", () => {
     selectScope("verse")
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Борис/ })
-    const region = screen.getByRole("region", { name: "Мир" })
+    const region = screen.getByRole("region", { name: "Справочник" })
     expect(within(region).queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
@@ -1159,8 +1189,8 @@ describe("CreativePanel", () => {
     it("starts a named row from the menu of the empty space", async () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Борис/ })
-      fireEvent.contextMenu(screen.getByRole("region", { name: "Мир" }))
-      fireEvent.click(await screen.findByRole("menuitem", { name: /Новая страница: Персонажи/ }))
+      fireEvent.contextMenu(screen.getByRole("region", { name: "Справочник" }))
+      fireEvent.click(await screen.findByRole("menuitem", { name: /^Персонаж(?:$| )/ }))
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Лев" } })
       fireEvent.keyDown(field, { key: "Enter" })
@@ -1176,7 +1206,7 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onDelete: vi.fn() })} />)
       fireEvent.contextMenu(await screen.findByRole("button", { name: /Борис/ }))
       await screen.findByRole("menuitem", { name: "Удалить" })
-      expect(screen.queryByRole("menuitem", { name: /Новая страница: / })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: /^Персонаж(?:$| )/ })).toBeNull()
     })
 
     it("changes a text page's status from its context menu when status is configured", async () => {

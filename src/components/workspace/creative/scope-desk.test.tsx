@@ -150,13 +150,12 @@ describe("the page of a universe", () => {
     fireEvent.click(within(stories).getByRole("button", { name: /MoleHills/ }))
     expect(onOpenProject).toHaveBeenCalledWith("hills")
 
-    // The world of a universe is what two or more of its stories hold: Anna names one story and
-    // is named in the text of the other. Zoya is only in one, so she is on that story's page.
+    // Anna belongs to both stories. Zoya is also visible, without a shared marker.
     const characters = await screen.findByRole("region", { name: "Персонажи" })
     await within(characters).findByText("Анна")
-    expect(within(characters).queryByText("Зоя")).toBeNull()
+    expect(within(characters).getByText("Зоя")).toBeTruthy()
     expect(within(characters).queryByText("Глеб")).toBeNull()
-    expect(characters.textContent).toContain("Ещё 1 — только в одной истории")
+    expect(within(characters).getByRole("button", { name: /Анна.*Общий/i })).toBeTruthy()
     fireEvent.click(within(characters).getByText("Анна"))
     expect(onOpenNote).toHaveBeenCalledWith("anna")
   })
@@ -430,7 +429,7 @@ describe("the page of the standalone stories", () => {
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(within(nav).getByRole("button", { name: "Персонажи" }))
     const list = await screen.findByRole("region", { name: "Персонажи" })
-    fireEvent.click(await within(list).findByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(await within(list).findByRole("button", { name: "Персонаж" }))
     const field = within(list).getByLabelText("Название — Персонажи")
     fireEvent.change(field, { target: { value: "Новый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
@@ -642,11 +641,11 @@ describe("the stories of a universe: order, cards and timeline", () => {
       expect.stringContaining("MoleHills"),
       expect.stringContaining("Близнец"),
     ])
-    expect(within(region).getByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(within(region).getByText(/Что за чем идёт внутри вселенной/)).toBeTruthy()
     expect(readWorkshopPrefs("/vault").scopes?.universe?.view).toBe("timeline")
     cleanup()
     mountPage("universe:u1", { vaultPath: "/vault" })
-    expect(await screen.findByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(await screen.findByText(/Что за чем идёт внутри вселенной/)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Таймлайн" }).getAttribute("aria-pressed")).toBe(
       "true",
     )
@@ -723,13 +722,13 @@ describe("the stories of a universe: order, cards and timeline", () => {
     expect(dialog.props?.kinds).toEqual(["story"])
   })
 
-  it("applies the same two-stories rule on the section tab of the page", async () => {
+  it("includes single-story rows and marks shared rows on the section tab", async () => {
     mountPage("universe:u1")
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(within(nav).getByRole("button", { name: "Персонажи" }))
     const list = await screen.findByRole("region", { name: "Персонажи" })
     await within(list).findByText("Анна")
-    expect(within(list).queryByText("Зоя")).toBeNull()
-    expect(list.textContent).toContain("Ещё 1 — только в одной истории")
+    expect(within(list).getByText("Зоя")).toBeTruthy()
+    expect(within(list).getByRole("button", { name: /Анна.*Общий/i })).toBeTruthy()
   })
 })

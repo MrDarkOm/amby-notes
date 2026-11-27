@@ -8,23 +8,26 @@ use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::lock_util::LockExt;
 use crate::project::complete;
 use crate::project::create::{self, Env};
+use crate::project::dossier_template;
 use crate::project::index;
 use crate::project::links;
 use crate::project::model::{
     AddStoryLinksRequest, AddTextStatusRequest, AddedStoryLinks, AddedTextStatus,
     CompleteWorkshopRequest, CompletedWorkshop, CreateStoryRequest, CreateTextPageRequest,
     CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage,
-    CreatedWorkshop, CreatedWorkshopEntity, CreatedWorkshopSectionResult, EnsurePlotLinksRequest,
-    EnsuredPlotLinks, InitWorkshopRequest, MoveTextPageRequest, MovedTextPage, NotebookCatalog,
-    ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
-    ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
-    UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
+    CreatedWorkshop, CreatedWorkshopEntity, CreatedWorkshopSectionResult, DossierTemplate,
+    EnsurePlotLinksRequest, EnsuredPlotLinks, InitWorkshopRequest, MoveTextPageRequest,
+    MovedTextPage, NotebookCatalog, ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest,
+    RemovedWorkshopSection, ReorderWorkshopSectionsRequest, ReorderedWorkshopSections,
+    UpdateDossierTemplateRequest, UpdateTextLevelsRequest, UpdateWorkshopRequest,
+    UpdatedDossierTemplate, UpdatedTextLevels, UpdatedWorkshop,
 };
 use crate::project::notebooks;
 use crate::project::references::{self, NoteReference};
 use crate::project::settings;
 use crate::project::text;
 use crate::project::text_stats::{self, TextPageStat};
+use crate::project::workshop_import::{self, WorkshopImportRequest, WorkshopImportResult};
 use crate::vault_context::VaultContext;
 use crate::watcher::WatcherState;
 
@@ -593,6 +596,44 @@ pub fn ensure_plot_links(
     Ok(ensured)
 }
 
+/// The page template of a section with its dossier layout, read from its manifest. Read-only.
+#[tauri::command]
+#[specta::specta]
+pub fn get_dossier_template(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    database_id: String,
+) -> Result<DossierTemplate, ProjectError> {
+    let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    dossier_template::get_dossier_template(&active.root, &database_id)
+}
+
+/// Writes the dossier layout (sections, hints, fields) of a section's template and its body.
+#[tauri::command]
+#[specta::specta]
+pub fn update_dossier_template(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateDossierTemplateRequest,
+) -> Result<UpdatedDossierTemplate, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher.self_writes,
+    };
+    let mut updated = dossier_template::update_dossier_template(&env, &request)?;
+    refresh_after_write(active, &runtime, generation, &mut updated.warnings);
+    Ok(updated)
+}
+
 /// A page of a world section, linked to a story in the same write when one is chosen.
 #[tauri::command]
 #[specta::specta]
@@ -651,4 +692,19 @@ pub fn create_workshop_entity(
         }
     }
     Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn workshop_import(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: WorkshopImportRequest,
+) -> Result<WorkshopImportResult, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock_or_recover();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock_or_recover();
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    workshop_import::run(&active.connection, &active.root, &request)
 }

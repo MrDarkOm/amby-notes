@@ -738,8 +738,16 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
         ));
     }
     expected.remove(&target);
+    // The last line has no newline of its own inside `yaml`: drop the one that ends the line
+    // before it, so the closing fence does not get an empty line above it.
+    let mut start = entry.line_start;
+    if entry.line_end == yaml.len() && !yaml[entry.line_start..].trim().is_empty() {
+        if let Some(before) = yaml[..start].strip_suffix('\n') {
+            start = before.strip_suffix('\r').unwrap_or(before).len();
+        }
+    }
     let mut next_yaml = String::with_capacity(yaml.len());
-    next_yaml.push_str(&yaml[..entry.line_start]);
+    next_yaml.push_str(&yaml[..start]);
     next_yaml.push_str(&yaml[entry.line_end..]);
     let next = format!(
         "{}{}{}{}",

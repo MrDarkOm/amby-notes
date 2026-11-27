@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
 import { Anchor } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -208,6 +209,7 @@ export function ScopeDesk({
           <StoryTimeline
             entries={ordered}
             onOpen={onOpenStory}
+            onOpenNote={onOpenNote}
             onMove={canReorder ? moveStory : null}
             onNewStory={onNewStory}
             error={moveError}
@@ -231,6 +233,7 @@ export function ScopeDesk({
           leading={switcher}
           emptyText={emptyText}
           onOpen={onOpenStory}
+          onOpenNote={onOpenNote}
           onToggleFavorite={toggleFavorite}
           onNewStory={onNewStory}
         />
@@ -295,7 +298,7 @@ export function ScopeDesk({
                       : "border-transparent text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {list.section.name}
+                  {sectionDisplayName(list.section, t("creative.sections.arcs"))}
                 </button>
               )
             })}

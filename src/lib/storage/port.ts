@@ -116,6 +116,8 @@ export interface StoragePort extends DatabasePort, ProjectPort, NoteModulesPort,
   getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata>
   getFileMetadata(path: string): Promise<FileMetadata>
   getNoteProperties(vaultPath: string, noteId: string): Promise<NoteProperties>
+  /** Writes the app-owned `amby-pages` flag, or removes it for `null`. */
+  setNotePagesFlag(vaultPath: string, noteId: string, flag: boolean | null): Promise<void>
   upsertCustomProperty(
     vaultPath: string,
     noteId: string,

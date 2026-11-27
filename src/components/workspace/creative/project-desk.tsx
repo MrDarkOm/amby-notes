@@ -1,3 +1,4 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
 import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -18,6 +19,10 @@ import { cn } from "@/lib/utils"
 import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { ChaptersWidget } from "./desk/chapters-widget"
+import { synopsisOf } from "./desk/board-model"
+import { useWordGoal } from "./desk/use-word-goal"
+import { WordGoal } from "./desk/word-goal"
+import { readScene } from "./workshop/scene-model"
 import { DeskControls } from "./desk/desk-controls"
 import { ContinueWidget } from "./desk/continue-widget"
 import { DeskWidget } from "./desk/desk-widget"
@@ -34,6 +39,8 @@ import {
   type DeskItem,
 } from "./desk/desk-layout-model"
 import { ProgressWidget, type CompileState } from "./desk/progress-widget"
+import { StoryDescription } from "./desk/story-description"
+import { useDeskGrid } from "./desk/use-desk-grid"
 import { useElementWidth } from "./desk/use-element-width"
 import { NotesBoard } from "./pages/notes-board"
 import { SectionGallery } from "./pages/section-gallery"
@@ -45,6 +52,7 @@ import { useAnchorOrder } from "./workshop/use-anchor-order"
 import { useDatabaseRows } from "./workshop/use-database-rows"
 import { useNotebooks } from "./workshop/use-notebooks"
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
+import { writeTextPageLevel } from "./workshop/write-text-page-level"
 import { usePlotBinding } from "./workshop/use-plot-binding"
 import {
   buildTextTree,
@@ -90,6 +98,7 @@ interface ProjectDeskProps {
   editing?: boolean
   /** Asks the page to keep a changed layout. */
   onLayoutChange?: (next: DeskItem[]) => void
+  onApplyLayoutToAll?: (next: DeskItem[]) => void
   /** Read mode: nothing is made, moved or bound from the desk. */
   locked?: boolean
   /**
@@ -138,6 +147,7 @@ export function ProjectDesk({
   layout,
   editing = false,
   onLayoutChange,
+  onApplyLayoutToAll,
   locked = false,
   compileRef,
 }: ProjectDeskProps) {
@@ -223,6 +233,10 @@ export function ProjectDesk({
     () => all.reduce((sum, node) => sum + (stats[node.noteId]?.wordCount ?? 0), 0),
     [all, stats],
   )
+  // The daily goal counts only once every page has its words: a half-read count would set the
+  // start of the day too low and credit the author with words already there.
+  const counted = all.length > 0 && all.every((node) => stats[node.noteId] !== undefined)
+  const wordGoal = useWordGoal(vaultPath, resolvedStory?.storyId ?? null, totalWords, counted)
   const groups = React.useMemo(() => {
     if (statusOptions.length === 0) return null
     const of = (group: string) =>
@@ -336,6 +350,41 @@ export function ProjectDesk({
       .finally(bumpData)
   }
 
+  const changePageLevel = (node: TextNode, levelId: string) => {
+    if (!text || vaultGeneration === null) return
+    setMoveError(null)
+    void writeTextPageLevel(text, vaultGeneration, node, levelId)
+      .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+      .finally(bumpData)
+  }
+
+  // The board of the chapters: a card's scene (point of view, story time) and first paragraph.
+  const charactersSection = sectionOf("characters")
+  const peopleRows = charactersSection ? data.rows[charactersSection.databaseId] : undefined
+  const loadSynopsis = React.useCallback(
+    async (noteId: string) =>
+      vaultPath ? synopsisOf((await readNote(vaultPath, noteId)).content) : "",
+    [vaultPath],
+  )
+  const board = React.useMemo(() => {
+    if (!text) return undefined
+    return {
+      loadSynopsis,
+      hintsOf: (noteId: string) => {
+        const row = rows?.find((candidate) => candidate.noteId === noteId)
+        if (!row) return []
+        const scene = readScene(row, text.properties)
+        const hints: string[] = []
+        const pov = scene.pov
+          ? peopleRows?.find((person) => person.noteId === scene.pov)?.title
+          : undefined
+        if (pov) hints.push(pov)
+        if (scene.storyTime) hints.push(scene.storyTime)
+        return hints
+      },
+    }
+  }, [loadSynopsis, peopleRows, rows, text])
+
   // Notes of this story, under their notebooks.
   const notesSection = sectionOf("notes")
   const noteRows = notesSection ? rowsOfSection.get(notesSection.id) : undefined
@@ -416,16 +465,36 @@ export function ProjectDesk({
   const items = React.useMemo(() => reconcileDeskLayout(layout, available), [available, layout])
   const [deskRef, width] = useElementWidth<HTMLDivElement>()
   const columns = deskColumns(width)
+  const gridRef = useDeskGrid(columns, items)
   const sectionOfWidget = (id: string) => worldSections.find((s) => worldWidgetId(s) === id)
 
-  if (!databaseId) return null
+  const description = vaultPath && resolvedStory?.cardNoteId && (
+    <StoryDescription
+      key={JSON.stringify([vaultPath, resolvedStory.cardNoteId, vaultGeneration])}
+      vaultPath={vaultPath}
+      noteId={resolvedStory.cardNoteId}
+      generation={vaultGeneration}
+      editable={canWrite}
+      refresh={dataNonce}
+    />
+  )
+  if (!databaseId) {
+    return (
+      <div className="mb-8 flex flex-col gap-4">
+        {description}
+        <p className="text-sm text-muted-foreground">{t("creative.workshop.noText")}</p>
+      </div>
+    )
+  }
 
   const loading = data.status === "loading" && rows === undefined
   const levelNameOf = (node: TextNode) => levels.find((level) => level.id === node.levelId)?.name
   const worldTitle = (section: WorkshopSectionSummary) =>
-    section.role && t(`creative.sections.${section.role}`, { defaultValue: "" })
-      ? t(`creative.sections.${section.role}`)
-      : section.databaseName?.trim() || section.name
+    section.role === "arcs"
+      ? sectionDisplayName(section, t("creative.sections.arcs"))
+      : section.role && t(`creative.sections.${section.role}`, { defaultValue: "" })
+        ? t(`creative.sections.${section.role}`)
+        : section.databaseName?.trim() || section.name
 
   const widgetTitle = (id: string): string => {
     switch (id) {
@@ -504,6 +573,17 @@ export function ProjectDesk({
               groups={groups}
               onCompile={vaultPath ? () => void assemble() : null}
               compile={compile}
+              goal={
+                wordGoal.setGoal ? (
+                  <WordGoal
+                    goal={wordGoal.goal}
+                    written={wordGoal.written}
+                    streak={wordGoal.streak}
+                    canEdit={!locked}
+                    onSetGoal={wordGoal.setGoal}
+                  />
+                ) : null
+              }
             />
           </DeskWidget>
         )
@@ -532,9 +612,11 @@ export function ProjectDesk({
               onOpenNote={onOpenNote}
               onCreatePage={createPage}
               onMovePage={movePage}
+              onChangeLevel={changePageLevel}
               onCreateAnchor={canCreateAnchor ? createAnchor : null}
               moveError={moveError}
               loading={data.status === "loading" || data.status === "idle"}
+              board={board}
             />
           </DeskWidget>
         )
@@ -572,6 +654,8 @@ export function ProjectDesk({
           >
             <SectionGallery
               compact
+              workshop={resolvedWorkshop ?? undefined}
+              locked={locked}
               section={section}
               rows={sectionRows}
               loading={data.status === "loading"}
@@ -587,12 +671,22 @@ export function ProjectDesk({
   const hidden = items.filter((item) => item.hidden)
   return (
     <div ref={deskRef} className="mb-8 flex w-full min-w-0 flex-col gap-4">
+      {description}
       {editing && (
-        <p className="rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
-          {t("creative.desk.editHint")}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
+          <p>{t("creative.desk.editHint")}</p>
+          {onApplyLayoutToAll && (
+            <button
+              type="button"
+              onClick={() => onApplyLayoutToAll(items)}
+              className="rounded-md px-2 py-1 font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {t("creative.desk.applyToAll")}
+            </button>
+          )}
+        </div>
       )}
-      <div className={cn("grid items-start gap-4", COLUMN_CLASS[columns])}>
+      <div ref={gridRef} className={cn("grid items-start gap-4", COLUMN_CLASS[columns])}>
         {shown.map(renderWidget)}
       </div>
       {editing && (

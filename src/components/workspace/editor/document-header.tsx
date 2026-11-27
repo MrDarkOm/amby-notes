@@ -1,6 +1,5 @@
 import { useMemo, type ComponentType, type ReactElement } from "react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
 import { Check, Database, FileText, LayoutGrid, PenLine } from "lucide-react"
 
 import {
@@ -22,7 +21,6 @@ import { useDocumentMenuGroups } from "./document-menu"
 import { LayerButton, type LayerKind } from "./document-actions"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import type { ContentWidth } from "../app-config"
-import { motionTransitions } from "@/lib/motion-config"
 import { cn } from "@/lib/utils"
 
 /**
@@ -86,6 +84,8 @@ export interface DocumentHeaderProps {
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  notePagesFlag?: boolean | null
+  onNotePagesFlagChange?: (flag: boolean | null) => void
   onRequestAttachLayer: (layer: EditorLayer) => void
   onRequestMove?: () => void
   onRequestMerge?: () => void
@@ -147,6 +147,8 @@ export function DocumentHeader({
   nestedNotes,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
+  notePagesFlag,
+  onNotePagesFlagChange,
   onRequestAttachLayer,
   onRequestMove,
   onRequestMerge,
@@ -268,6 +270,8 @@ export function DocumentHeader({
     nestedNotes,
     nestedNotesPlacement,
     onNestedNotesPlacementChange,
+    notePagesFlag,
+    onNotePagesFlagChange,
     linkedLayers,
     supernotesEnabled,
     canCreateDatabaseLayer,
@@ -301,7 +305,7 @@ export function DocumentHeader({
             data-help-target="layers"
             title={t("docEditor.layers")}
             aria-label={t("docEditor.layers")}
-            className="mr-1 flex size-7 items-center justify-center rounded-full bg-accent text-foreground shadow-sm hover:bg-accent/80"
+            className="amby-layer-switch-button mr-1"
           >
             {activeLayer === "database" ? (
               <Database className="size-3.5" />
@@ -372,34 +376,18 @@ export function DocumentHeader({
     ) : (
       <div
         data-help-target="layers"
-        className="mr-1 flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 shadow-2xs"
+        role="group"
+        aria-label={t("docEditor.layers")}
+        className="mr-1 flex items-center gap-0.5"
       >
         {showNoteButton && (
-          <motion.button
-            type="button"
+          <LayerButton
+            layer="note"
             title={t("docEditor.markdownEditor")}
-            onClick={() => onLayerChange?.("editor")}
-            className={cn(
-              "relative flex size-7 items-center justify-center rounded-md text-sm select-none cursor-pointer",
-              activeLayer === "editor"
-                ? "text-foreground font-medium"
-                : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-            )}
-            whileHover={activeLayer === "editor" ? undefined : { scale: 1.05 }}
-            whileTap={{ scale: 0.92 }}
-            transition={motionTransitions.fast}
-          >
-            {activeLayer === "editor" && (
-              <motion.div
-                layoutId="activeDocumentLayerPill"
-                className="absolute inset-0 rounded-md bg-[var(--note-surface)] shadow-xs border border-border/80"
-                transition={{ type: "spring", stiffness: 500, damping: 38 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center justify-center">
-              <FileText className="size-3.5" />
-            </span>
-          </motion.button>
+            icon={<FileText className="size-3.5" />}
+            active={activeLayer === "editor"}
+            onActivate={() => onLayerChange?.("editor")}
+          />
         )}
         {databasesEnabled && (linkedLayers?.database || activeLayer === "database") && (
           <LayerButton

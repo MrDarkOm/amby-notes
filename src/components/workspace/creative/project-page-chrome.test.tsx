@@ -46,6 +46,10 @@ const text = (databaseId: string): ProjectTextSummary => ({
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [{ id: "chapter", icon: null, name: "Глава", color: null, state: "ok" }],
   formats: [],
@@ -281,8 +285,8 @@ describe("the header menu of a page", () => {
     cleanup()
     mount("w", { section: "chars", onOpenDatabase })
     openMenu()
-    expect(menuRows()).toContain("Открыть как базу")
-    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть как базу" }))
+    expect(menuRows()).toContain("Открыть таблицей")
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть таблицей" }))
     expect(onOpenDatabase).toHaveBeenCalledWith("db_chars", "Персонажи")
   })
 
@@ -332,6 +336,14 @@ describe("the header menu of a page", () => {
     expect(pageHost.onShowInExplorer).toHaveBeenLastCalledWith("Мастерская")
   })
 
+  it("offers the workshop folder in the file tree", () => {
+    const pageHost = host({ onShowInTree: vi.fn() })
+    mount("w", { host: pageHost })
+    openMenu()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Показать в дереве" }))
+    expect(pageHost.onShowInTree).toHaveBeenCalledWith("Мастерская")
+  })
+
   it("opens the existing settings dialog", () => {
     mount("w")
     openMenu()
@@ -344,7 +356,7 @@ describe("the header menu of a page", () => {
     await screen.findByRole("region", { name: "Главы" })
     openMenu()
     fireEvent.click(screen.getByRole("menuitem", { name: "Настроить стол" }))
-    expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+    expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
     // The old header button is gone: the action has one place in the menu and one in the bar.
     expect(screen.queryByRole("button", { name: "Настроить стол" })).toBeNull()
     expect(screen.getByRole("button", { name: "Готово" }).getAttribute("aria-pressed")).toBe("true")
@@ -473,9 +485,9 @@ describe("the floating bar of a page", () => {
   it("turns the layout mode on from the bar's settings button", async () => {
     mount("hills")
     fireEvent.click(await screen.findByTitle("Настроить стол"))
-    expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+    expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
     fireEvent.click(screen.getByTitle("Готово"))
-    expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+    expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
   })
 
   it("has no layout button on a section tab", () => {
@@ -490,11 +502,13 @@ describe("read mode of a story's page", () => {
   it("lets the story be written, then stops every edit while locked and starts again after", async () => {
     mount("hills")
     const region = await chapters()
-    expect(within(region).getByRole("button", { name: "Глава" })).toBeTruthy()
+    expect(within(region).getByRole("button", { name: "Новая: Глава" })).toBeTruthy()
 
     fireEvent.click(screen.getByTitle("Режим просмотра"))
     expect(useViewStateStore.getState().lockedFileIds.has("creative:hills")).toBe(true)
-    await waitFor(() => expect(within(region).queryByRole("button", { name: "Глава" })).toBeNull())
+    await waitFor(() =>
+      expect(within(region).queryByRole("button", { name: "Новая: Глава" })).toBeNull(),
+    )
     // The layout of the desk cannot be changed either: no button, no menu row.
     expect(screen.queryByTitle("Настроить стол")).toBeNull()
     openMenu()
@@ -505,15 +519,15 @@ describe("read mode of a story's page", () => {
 
     fireEvent.click(screen.getByTitle("Режим редактирования"))
     expect(useViewStateStore.getState().lockedFileIds.has("creative:hills")).toBe(false)
-    expect(await within(region).findByRole("button", { name: "Глава" })).toBeTruthy()
+    expect(await within(region).findByRole("button", { name: "Новая: Глава" })).toBeTruthy()
   })
 
   it("leaves the layout mode when the page is locked", async () => {
     mount("hills")
     fireEvent.click(await screen.findByTitle("Настроить стол"))
-    expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+    expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
     fireEvent.click(screen.getByTitle("Режим просмотра"))
-    expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+    expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
   })
 
   it("keeps the lock of a story apart from the next one", async () => {

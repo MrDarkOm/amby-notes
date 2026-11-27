@@ -120,6 +120,17 @@ Keep the vault folder open in the file manager: some steps look at the disk.
 
 If any of this is wrong, write down the step number and what you saw; do not touch the vault storage contract itself.
 
+### Creative workshop UX wave 2 (macOS, November 2026)
+
+Checked in `npm run tauri dev` with a disposable vault and a separate app profile.
+
+- D: selected a story, opened the count of hidden entries and saw the missing character in the whole workshop.
+- G: checked the character’s writing prompts and confirmed that they were absent from the Markdown file. The near-empty gallery displayed its create action.
+- I: removed a deleted story link and verified that a second link stayed in the note. Renamed the workshop from the file tree and confirmed that the panel reopened with its entries and the saved folder path followed the rename.
+- J: opened the story at 320 px and inspected the text, anchors and empty-section actions. No horizontal scrollbar was visible. Used Shift+F10, arrow keys and Enter to move a scene below a book and confirmed the new order after relaunch. On the wide story desk, Chapters starts below Continue while Progress extends farther down. Opening the most recent page preserved the space of the Continue row. The format choice was hidden from the Properties panel and its value was still in the file. With the visibility setting off, the workshop page menu switched to Files and selected the hidden workshop folder. The menu also offered Finder.
+- November 24 follow-up, item 30: the 320 px panel still displayed the workshop without horizontal scrolling. In the disposable story "Harbor Test", dragging "First Light" or "Breakwater" onto "Harbor Book" delivered `dragstart` at the source and `pointerup` over the book. The native WebKit view emitted no `dragenter`, `dragover`, `drop` or `dragend` for either gesture. A temporary run with Tauri's window-level file-drop handling disabled produced the same trace. The page menu's indent command did write the book as the scene's parent in Markdown.
+- Pending native check: repeat both drops with a physical pointer and verify the resulting hierarchy and anchor link after relaunch. The traces leave open whether the automation reproduces a physical drag. Automated tests cover page drops, manual anchor order and anchor binding. Finder’s resulting selection was not confirmed. The notebook and arc hints have automated coverage.
+
 ### Pages and cards (16 October polish)
 
 15. Hover over the bottom «Вселенные» card: inside the frame a segment with a right arrow slides out behind a thin line; with

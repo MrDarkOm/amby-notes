@@ -501,12 +501,12 @@ pub fn with_text_status_property(raw: &Value, property_id: &str) -> Result<Value
     Ok(document)
 }
 
-/// Sets `text.properties.anchors` and `text.properties.arcs` (those given) in `raw`, keeping all
-/// other fields of `text` and `raw`.
+/// Sets the given link keys of `text.properties` (`anchors`, `arcs`, `characters`, `pov`,
+/// `places`, `storyTime`; a `None` is left as it is) in `raw`, keeping all other fields of `text`
+/// and `raw`.
 pub fn with_text_plot_properties(
     raw: &Value,
-    anchors_property_id: Option<&str>,
-    arcs_property_id: Option<&str>,
+    links: &[(&str, Option<&str>)],
 ) -> Result<Value, String> {
     let mut document = raw.clone();
     let object = document
@@ -521,11 +521,10 @@ pub fn with_text_plot_properties(
         .or_insert_with(|| json!({}))
         .as_object_mut()
         .ok_or_else(|| "text.properties is not an object".to_owned())?;
-    if let Some(id) = anchors_property_id {
-        properties.insert("anchors".to_owned(), json!(id));
-    }
-    if let Some(id) = arcs_property_id {
-        properties.insert("arcs".to_owned(), json!(id));
+    for (key, id) in links {
+        if let Some(id) = id {
+            properties.insert((*key).to_owned(), json!(id));
+        }
     }
     Ok(document)
 }

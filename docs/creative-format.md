@@ -17,8 +17,9 @@ The fields and keys below are checked against `crates/amby-core/src/project/` (`
    chapter, arc, anchor, note) is a plain Markdown file with metadata in its frontmatter.
    Every section is a standard Amby database ([database-format.md](database-format.md)).
    Without the creative module, the vault remains fully readable and structured.
-2. **The workshop folder is the portable unit (W1).** All workshop data lives inside
-   a single workshop root folder with the `amby-workshop.json` marker. A vault has one
+2. **The workshop folder is the portable unit (W1).** Workshop-owned data lives inside
+   a single workshop root folder with the `amby-workshop.json` marker. Imported references may
+   point to notes elsewhere in the same vault (§13). A vault has one
    workshop: the one whose folder is named in the module setting (§2.1). Other markers found are
    diagnostics — their data is neither read nor changed; links between workshops are not supported.
 3. **Flat organization of databases and membership through links (W2, W5).** The workshop has no
@@ -185,16 +186,16 @@ are preserved on every rewrite.
 All workshop sections are standard Amby databases. The role determines the specialized
 display in the module's interface (panel, galleries, dossiers, filters).
 
-| Role         | Default database | Creation                | Purpose and starting properties                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------ | ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stories`    | `Истории`        | At initialization       | The catalog of all works. Notes are story cards. Properties: «Статус» (Status), «Синопсис» (Text). The «Вселенная» (Universe) property (a Relation to `universes`, at most one target, with no reverse side) appears together with the «Вселенные» (Universes) database and is recorded as `universePropertyId`.                                                                                                                                                          |
-| `characters` | `Персонажи`      | At initialization       | Dossiers of the dramatis personae. The `characters` preset: «Истории» (Stories) (a Relation to `stories`, with no limit on count, no reverse side; ID — `storiesPropertyId`), «Значимость» (Importance) (Select: Главные / Второстепенные / Эпизодические — Main / Secondary / Episodic), «Портрет» (Portrait) (Files), a dossier template with the sections «Основное» (Basics), «Характеристика» (Characterization), «Внешность» (Appearance), «Биография» (Biography). |
-| `locations`  | `Локации`        | At initialization       | Settings of the action. The `locations` preset: «Истории» (Stories) (a Relation to `stories`, as for characters), «Тип» (Type) (Select: Город / Район / Место / Природа — City / District / Place / Nature), «Изображение» (Image) (Files), a description template.                                                                                                                                                                                                       |
-| `universes`  | `Вселенные`      | At initialization (W11) | Cards of fictional worlds/settings. Properties: «Описание» (Description) (Text), «Изображение» (Image) (Files).                                                                                                                                                                                                                                                                                                                                                           |
-| `arcs`       | `Арки`           | At initialization (W11) | Plot lines (W8). Properties: «Истории» (Stories) (a Relation to `stories`, multiple), «Персонажи» (Characters) (a Relation to `characters`, multiple, no reverse side; only if the characters database exists; ID — `charactersPropertyId`), «Тип» (Type) (Select: Линия персонажа / Сюжетная / Мини-арка — Character line / Plot / Mini-arc), «Статус» (Status) (Status). An arc's color is not stored: it is computed from its ID.                                      |
-| `anchors`    | `Якоря`          | At initialization (W11) | Pinned key events of the world and of stories (W8). Properties: «Истории» (Stories) (a Relation to `stories`, multiple), «Участники» (Participants) (a Relation to `characters`, multiple), «Арки» (Arcs) (a Relation to `arcs`, multiple; only if the arcs database already exists, otherwise added later), «Вселенная» (Universe) (a Relation to `universes`, at most one target; likewise), «Описание» (Description) (Text).                                           |
-| `notes`      | `Заметки`        | At initialization (W11) | The workshop author's notes (W7). Property: «Истории» (Stories) (a Relation to `stories`, multiple). Organized into notebooks via subfolders.                                                                                                                                                                                                                                                                                                                             |
-| `custom`     | Any name         | On the author's action  | Author-made sections («Организации» (Organizations), «Бестиарий» (Bestiary), «Артефакты» (Artifacts)). As in any world section, the database has «Истории» (Stories).                                                                                                                                                                                                                                                                                                     |
+| Role         | Default database | Creation                | Purpose and starting properties                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------ | ---------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stories`    | `Истории`        | At initialization       | The catalog of all works. Notes are story cards. Properties: «Статус» (Status), «Синопсис» (Text). The «Вселенная» (Universe) property (a Relation to `universes`, at most one target, with no reverse side) appears together with the «Вселенные» (Universes) database and is recorded as `universePropertyId`.                                                                                                                                                                                |
+| `characters` | `Персонажи`      | At initialization       | Dossiers of the dramatis personae. The `characters` preset: «Истории» (Stories) (a Relation to `stories`, with no limit on count, no reverse side; ID — `storiesPropertyId`), «Роль» (Role) (Text), «Значимость» (Importance) (Select: Главные / Второстепенные / Эпизодические — Main / Secondary / Episodic), «Портрет» (Portrait) (Files), a dossier template with the sections «Основное» (Basics), «Характеристика» (Characterization), «Внешность» (Appearance), «Биография» (Biography). |
+| `locations`  | `Локации`        | At initialization       | Settings of the action. The `locations` preset: «Истории» (Stories) (a Relation to `stories`, as for characters), «Тип» (Type) (Select: Город / Район / Место / Природа — City / District / Place / Nature), «Изображение» (Image) (Files), a description template.                                                                                                                                                                                                                             |
+| `universes`  | `Вселенные`      | At initialization (W11) | Cards of fictional worlds/settings. Properties: «Описание» (Description) (Text), «Изображение» (Image) (Files).                                                                                                                                                                                                                                                                                                                                                                                 |
+| `arcs`       | `Арки`           | At initialization (W11) | Plot lines (W8). Properties: «Истории» (Stories) (a Relation to `stories`, multiple), «Персонажи» (Characters) (a Relation to `characters`, multiple, no reverse side; only if the characters database exists; ID — `charactersPropertyId`), «Тип» (Type) (Select: Линия персонажа / Сюжетная / Мини-арка — Character line / Plot / Mini-arc), «Статус» (Status) (Status). An arc's color is not stored: it is computed from its ID.                                                            |
+| `anchors`    | `Якоря`          | At initialization (W11) | Pinned key events of the world and of stories (W8). Properties: «Истории» (Stories) (a Relation to `stories`, multiple), «Участники» (Participants) (a Relation to `characters`, multiple), «Арки» (Arcs) (a Relation to `arcs`, multiple; only if the arcs database already exists, otherwise added later), «Вселенная» (Universe) (a Relation to `universes`, at most one target; likewise), «Описание» (Description) (Text).                                                                 |
+| `notes`      | `Заметки`        | At initialization (W11) | The workshop author's notes (W7). Property: «Истории» (Stories) (a Relation to `stories`, multiple). Organized into notebooks via subfolders.                                                                                                                                                                                                                                                                                                                                                   |
+| `custom`     | Any name         | On the author's action  | Author-made sections («Организации» (Organizations), «Бестиарий» (Bestiary), «Артефакты» (Artifacts)). As in any world section, the database has «Истории» (Stories).                                                                                                                                                                                                                                                                                                                           |
 
 ### Creating the databases (W11, changed in stage 8)
 
@@ -284,7 +285,8 @@ and files in the «Истории» (Stories) folder (names starting with a dot)
 
 The identifiers in the example are illustrative; real ones are ULIDs. Levels are created without `icon` (the icon is set
 in the story settings, `update_text_levels`). The `status` property is written when the story is created; stories
-created before it do not have it, and `add_text_status` adds it later. `anchors` and `arcs` are
+created before it do not have it, and `add_text_status` adds it later. `anchors`, `arcs` and the scene links
+(`characters`, `pov`, `places`, `storyTime`) are
 written only if the properties exist (§6). Unknown fields of the file are preserved on any rewrite; so are the BOM and
 line endings. A file larger than 1 MiB is considered corrupted.
 
@@ -294,8 +296,12 @@ The author picks the level scheme when creating a story:
 
 1. **«Роман»** (Novel) (default): Book → Chapter → Scene (3 levels).
 2. **«Рассказ»** (Short story): Page (1 level).
-3. **«Комикс»** (Comic): Book → Volume → Chapter → Page (4 levels; the term "Arc" is excluded from the text scheme, since it is reserved for plot lines, W8).
+3. **«Комикс»** (Comic): Book → Arc → Chapter → Page (4 levels).
 4. **«Своя»** (Custom): A custom list of 1 to 6 levels.
+
+Authors can add an Arc level to any text scheme during creation or in an existing story's settings.
+Existing level IDs and names stay as saved. The creative UI calls the standard `arcs` section **Storylines**.
+A customized section name, the role, the existing folder path and relation property names are preserved.
 
 The level names are sent by the UI in the active language (`textLevels`, from 1 to 6 non-empty names, with no
 duplicates ignoring case; the request is validated before writing). Text levels are implemented through the
@@ -443,6 +449,25 @@ so the missing properties are added where it is a single operation, and on deman
   the revision is not checked (`changed: false`). The commit point is the structure file; a failure or crash before
   it returns both files byte for byte. The UI calls the operation on the first link (before writing
   the value) if the page's property does not exist yet.
+
+**Scene links of a text page (revision 3, additive).** A story's text may also hold four properties, each made only
+when the author first uses it, never in advance and never for every story at once:
+
+| Key in `text.properties` | Name (default label)          | Shape                                               |
+| ------------------------ | ----------------------------- | --------------------------------------------------- |
+| `characters`             | «Персонажи» (Characters)      | Relation to `characters`, many, no reverse side     |
+| `pov`                    | «Точка зрения» (POV)          | Relation to `characters`, `maxItems: 1`, no reverse |
+| `places`                 | «Места» (Places)              | Relation to `locations`, many, no reverse side      |
+| `storyTime`              | «Время действия» (Story time) | Text: when the page happens in the story's own time |
+
+They are made by `ensure_plot_links` with `target: "story"` and `parts` (`"anchors"`, `"arcs"`, `"characters"`, `"pov"`,
+`"places"`, `"storyTime"`): only the named parts are planned, the others are reported as they are (an ID that is still
+a property, else none). Without `parts` the operation makes the anchors and arcs only, as before, and its request
+revision is unchanged. `parts` with `target: "anchors"` is refused before any write. A relation of the right shape is
+adopted as for the anchors; a text property is adopted by its name (case-insensitive). A part whose database is
+missing is skipped. Like the other links, the value is written with `update_database_relation_value` (or the text
+value) and the module finds the property only by its recorded ID. Labels: `property:characters`, `property:pov`,
+`property:places`, `property:storyTime`.
 
 **Membership and order of a story's anchors.** An anchor and an arc belong to a story the same way as a world entity
 (§6): by the «Истории» link or by a link to a page of this story's text. The order of anchors in a
@@ -666,8 +691,11 @@ panel (under 640 pixels) they move below the text. The backend is queried only i
 workshops, and only a note of a workshop section gets the presentation.
 
 **A world-section page** (everything except text, notes and "Stories" («Истории»)): a header with the value of the key
-properties, blocks "Sections" («Разделы», the page headings), "Appears in" («Появляется в», text pages that link to it) and
-"Links" («Связи», the other links in both directions). Additionally, depending on the section's role:
+properties and blocks "Appears in" («Появляется в», text pages that link to it) and "Links" («Связи», the
+other links in both directions). The dossier uses the shared note tabs for its shallowest Markdown
+headings by default. "Sections" («Разделы») appears alongside the whole note as a table of contents.
+The editor-wide setting and the note's explicit `amby-pages: false` override the dossier default.
+Additionally, depending on the section's role:
 
 - **Character** — an "Arcs" («Арки») block: arcs whose "Characters" («Персонажи», `charactersPropertyId` of the `arcs` section)
   contains the character, with the arc colour (`arcColor`). These are incoming links through that property, so
@@ -725,3 +753,76 @@ event" («Новое событие»), "Add: …" («Добавить: …»)),
 - **Panel "open" buttons**: the universes card — the universe page or, for "Standalone stories",
   `standalone:<workshop>`; the stories card — the story page, with "All stories" («Все истории») the page of the scope's universe or
   of standalone stories. The workshop page is opened by the button next to the panel title (beside the module settings).
+
+## 13. Import of existing material (item 2)
+
+**Scope.** In one preview, select folders of Markdown notes and existing Amby databases in the same vault.
+Select the destination workshop section for each source and include or exclude individual notes. For example,
+a folder of characters can feed Characters while an existing Entities database supplies characters and locations
+through explicit assignments. A database source lists its existing rows and available fields. A folder source lists
+notes without treating nested databases as ordinary folders; nested databases can be added as their own sources.
+
+**Files and fields.** Link selected notes in place. Opening an imported entry opens its original note.
+Suggest compatible field matches by name and type, with examples in the preview. The author can change or omit
+each mapping. For example, a text field called Role can supply the character's Role. Unmapped source fields stay
+available on the original note. Retain the source database, notes, attachments, frontmatter IDs and existing
+relations. Notes without an unambiguous durable ID are listed for review and excluded from the first version.
+Deduplicate by note ID and destination section. Unlinking an import removes the workshop entry while the original
+note stays in its source.
+
+**Storage and rollback.** The workshop root holds `amby-imports.json` (version 1). Its rows contain the
+destination section ID, source note ID, optional source database ID, field mappings, the last known title and the
+operation ID. It keeps receipts keyed by operation ID. Copying only the workshop folder leaves external references
+unresolved unless the destination vault also contains the originals. Missing sources are visible in the destination
+section and keep their entries.
+
+The `workshop_import` command lists, previews, applies, unlinks or undoes imports. Preview is read-only.
+Apply rechecks the vault generation, section and database revisions, source note identities and bytes, and the preview
+revision. The registry and operation receipt publish together in a single revision-checked atomic replacement. A
+failure before publication leaves the previous bytes in place. If the replacement reached disk, the same operation
+replays from its receipt without adding rows. Undo removes links owned by the requested operation, preserving links
+from later operations. Source files are outside the write set.
+
+The first version supports folders and databases in one dialog, up to 24 sources and 500 candidates per preview.
+Targets are existing reference and notes sections. Compatible scalar fields and supported database choices are
+projected in the workshop gallery. They stay editable on the original note. The workshop page opens the dialog
+from its menu and shows linked entries on each destination section's tab.
+
+**Acceptance.** In a disposable vault, preview a folder and a database together, revise a proposed mapping and
+apply both. Open the original notes from the workshop, verify that the source bytes are identical, and rename a
+source path while keeping the reference working. Confirm re-import is idempotent, a changed source makes the
+preview stale, and undo removes only the imported references.
+
+## 14. Dossier layout of a section's template
+
+A world section's page template (an inline template of its database manifest, version 2) may hold
+one additive field, `ambyDossier`, that turns its pages into dossiers: the tabs (headings of the
+page), a hint shown under an empty one, and the properties shown in it as a card. Other apps and
+older Amby keep it as an unknown field of the template.
+
+```json
+"ambyDossier": {
+  "version": 1,
+  "sections": [
+    { "id": "look", "title": "Внешность", "hint": "Рост, глаза, приметы…", "fields": ["<propertyId>"] }
+  ]
+}
+```
+
+- `id` is stable within the layout; `title` is the heading (`## <title>`) a page uses; `hint` is one
+  line, never written to a page; `fields` are property IDs of the same database (a deleted one is
+  skipped when shown).
+- 1 to 30 sections, unique IDs and titles (case-insensitive), one-line titles without `#`, at most 30
+  fields each; anything else is `invalidName` before a write.
+- `get_dossier_template(databaseId)` reads the default template (`defaultTemplateId`, else the first)
+  from the manifest on disk. `update_dossier_template` writes the layout over
+  `expectedManifestRevision` (else `revisionConflict`), with a history snapshot and an atomic write,
+  and rewrites the template's `body` from the sections: each heading with the text the old body had
+  under it (by the section's old title through its ID, or by its own title); text under a heading
+  that is gone stays, at the end. Nothing else of the manifest changes. A locked or read-only
+  database is refused (`databaseLocked`); a template kept in a separate file (manifest version 1) is
+  not found (`templateNotFound`).
+- Saving a template leaves existing notes as written. In an editable dossier, **Add missing sections**
+  appends empty headings in template order using the open editor's current text. Titles are compared
+  case-insensitively at the shallowest top-level heading level, with H2 as the default for a note
+  without headings. The addition is one undo step and follows normal autosave.

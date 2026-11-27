@@ -682,6 +682,17 @@ async setNotePropertyValue(noteId: string, name: string, value: string) : Promis
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Writes the app-owned `amby-pages` flag, or removes it for `null` (note pages view).
+ */
+async setNotePagesFlag(noteId: string, flag: boolean | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_note_pages_flag", { noteId, flag }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setNotePropertyList(noteId: string, name: string, items: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_note_property_list", { noteId, name, items }) };
@@ -1467,6 +1478,14 @@ async listNotebooks(databaseId: string) : Promise<Result<NotebookCatalog, Projec
     else return { status: "error", error: e  as any };
 }
 },
+async workshopImport(request: WorkshopImportRequest) : Promise<Result<WorkshopImportResult, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workshop_import", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateWorkshop(request: UpdateWorkshopRequest) : Promise<Result<UpdatedWorkshop, ProjectError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_workshop", { request }) };
@@ -1518,6 +1537,28 @@ async addStoryLinks(request: AddStoryLinksRequest) : Promise<Result<AddedStoryLi
 async ensurePlotLinks(request: EnsurePlotLinksRequest) : Promise<Result<EnsuredPlotLinks, ProjectError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ensure_plot_links", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The page template of a section with its dossier layout, read from its manifest. Read-only.
+ */
+async getDossierTemplate(databaseId: string) : Promise<Result<DossierTemplate, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_dossier_template", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes the dossier layout (sections, hints, fields) of a section's template and its body.
+ */
+async updateDossierTemplate(request: UpdateDossierTemplateRequest) : Promise<Result<UpdatedDossierTemplate, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_dossier_template", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2904,6 +2945,32 @@ export type DictationError =
  * A record without a key: grey, «нет в шапке» (З3).
  */
 export type DormantView = { name: string; icon: string; propertyType: string; settings: string }
+/**
+ * The dossier layout of a section's page template (`ambyDossier` of the template object in the
+ * database manifest): the tabs of a dossier, a hint for each, and the properties shown in it.
+ */
+export type DossierLayout = { version: number; sections: DossierSection[] }
+export type DossierSection = { 
+/**
+ * Stable within the layout: a renamed section keeps its text by it.
+ */
+id: string; 
+/**
+ * The heading of the section in a page.
+ */
+title: string; 
+/**
+ * Shown under the heading while the section is empty; never written to a page.
+ */
+hint?: string; 
+/**
+ * Property IDs of the same database shown in this tab; a deleted one is skipped.
+ */
+fields?: string[] }
+/**
+ * The page template a section's new pages start from, with its dossier layout if it has one.
+ */
+export type DossierTemplate = { databaseId: string; templateId: string; name: string; body: string; dossier: DossierLayout | null; manifestRevision: string }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -2915,7 +2982,12 @@ title: string }
  * the result: `amby-story.json` for `Story` (`story_id` is required), `amby-workshop.json` for
  * `Anchors`.
  */
-export type EnsurePlotLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; target: PlotLinksTarget; storyId?: string | null; expectedRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type EnsurePlotLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; target: PlotLinksTarget; storyId?: string | null; expectedRevision: string; labels?: Partial<{ [key in string]: string }>; 
+/**
+ * `Story` only: which link properties of the text to make. `None` makes the anchors and the
+ * arcs, as before; the scene parts are made only when named here (on the author's first use).
+ */
+parts?: TextLinkPart[] | null }
 export type EnsuredPlotLinks = { operationId: string; workshopId: string; target: PlotLinksTarget; storyId: string | null; 
 /**
  * `Story`: the "Anchors" property of the text; `Anchors`: always `None`.
@@ -2929,6 +3001,10 @@ arcsPropertyId: string | null;
  * `Anchors`: the "Universe" property of the anchors; `Story`: always `None`.
  */
 universePropertyId: string | null; 
+/**
+ * `Story`: the scene links of the text as they are after the call; `Anchors`: `None`.
+ */
+charactersPropertyId?: string | null; povPropertyId?: string | null; placesPropertyId?: string | null; storyTimePropertyId?: string | null; 
 /**
  * The revision of the file that records the result, after the operation.
  */
@@ -3125,19 +3201,30 @@ export type IdMigrationRecovery = { journalPath: string; backupPath: string; sta
 export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
 export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
 export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
+export type ImportAction = { kind: "preview"; sources: ImportSource[] } | { kind: "apply"; sources: ImportSource[]; selection: ImportSelection[]; expectedPreview: string; operationId: string } | { kind: "list" } | { kind: "undo"; operationId: string } | { kind: "unlink"; sectionId: string; noteId: string }
+export type ImportCandidate = { noteId: string | null; path: string; title: string; alreadyLinked: boolean }
 export type ImportDatabaseAssetRequest = { expectedGeneration: number; databaseId: string; noteId: string; sourcePath: string }
+export type ImportField = { key: string; name: string; valueType: string; example: string | null }
 export type ImportFilesResult = { 
 /**
  * Absolute paths of the copies that were made (a folder counts once, as its own path).
  */
 imported: string[]; skipped: ImportSkipped[] }
+export type ImportMapping = { sourceKey: string; targetId: string }
+export type ImportPreview = { revision: string; writePath: string; sources: ImportSourcePreview[] }
+export type ImportSelection = { sourceIndex: number; noteIds: string[]; mappings: ImportMapping[] }
 export type ImportSkipped = { name: string; 
 /**
  * A machine code: `hidden`, `too_large`, `unreadable`, `link`, `into_itself`, `too_many`.
  */
 reason: string }
+export type ImportSource = { kind: ImportSourceKind; sourceId: string; sectionId: string }
+export type ImportSourceKind = "folder" | "database"
+export type ImportSourcePreview = { source: ImportSource; candidates: ImportCandidate[]; sourceFields: ImportField[]; targetFields: ImportField[]; suggested: ImportMapping[] }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
 export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetId: string; name: string; relativePath: string; mimeType: string; sizeBytes: number }
+export type ImportedField = { name: string; value: string }
+export type ImportedNote = { operationId: string; sectionId: string; noteId: string; title: string; available: boolean; fields: ImportedField[] }
 /**
  * Health of the rebuildable SQLite index. Markdown files remain authoritative
  * regardless of this state.
@@ -4155,6 +4242,10 @@ export type TextLevelSummary = {
  */
 id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
 export type TextLevelUpdateInput = { id?: string | null; name: string; icon?: string | null }
+/**
+ * A link property of a story's text that `ensure_plot_links` can make.
+ */
+export type TextLinkPart = "anchors" | "arcs" | "characters" | "pov" | "places" | "storyTime"
 export type TextPageStat = { noteId: string; 
 /**
  * Words of the note's body as the index counted them when it last read the file.
@@ -4171,7 +4262,23 @@ created: number | null }
 /**
  * The system properties of the text database; each is present only if it exists there.
  */
-export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null; anchors: string | null; arcs: string | null }
+export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null; anchors: string | null; arcs: string | null; 
+/**
+ * The characters of a page (relation to the characters, many); made on first use.
+ */
+characters: string | null; 
+/**
+ * The point of view of a page (relation to the characters, one); made on first use.
+ */
+pov: string | null; 
+/**
+ * The places of a page (relation to the locations, many); made on first use.
+ */
+places: string | null; 
+/**
+ * When the page happens in the story's own time (text); made on first use.
+ */
+storyTime: string | null }
 /**
  * An option of the optional `status` property of the text database.
  */
@@ -4313,6 +4420,7 @@ options: DatabaseOptionInput[] }
 export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
+export type UpdateDossierTemplateRequest = { expectedGeneration: number; databaseId: string; templateId: string; expectedManifestRevision: string; dossier: DossierLayout }
 export type UpdateTextLevelsRequest = { expectedGeneration: number; operationId: string; storyId: string; expectedStoryRevision: string; levels: TextLevelUpdateInput[] }
 export type UpdateWorkshopRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; name?: string | null; icon?: string | null; tags?: string[] | null }
 export type UpdatedDatabasePropertyConfig = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
@@ -4321,6 +4429,7 @@ export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: s
  * The saved list in order, with IDs assigned to the new options.
  */
 options: DatabaseOptionResult[]; warnings: string[] }
+export type UpdatedDossierTemplate = { template: DossierTemplate; warnings: string[] }
 export type UpdatedTextLevels = { operationId: string; storyId: string; storyRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
 export type UpdatedWorkshop = { operationId: string; workshopId: string; name: string; icon: string | null; tags: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
 /**
@@ -4440,6 +4549,8 @@ export type VersionDevice =
  * Made on another device.
  */
 "otherDevice"
+export type WorkshopImportRequest = { expectedGeneration: number; workshopId: string; action: ImportAction }
+export type WorkshopImportResult = { preview: ImportPreview | null; entries: ImportedNote[]; added: number }
 export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
 /**
  * The relative path recorded in the structure file (a hint).

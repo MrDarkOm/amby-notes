@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { writeWorkshopPrefs } from "./creative-scope-storage"
 import i18n from "@/lib/i18n"
 import type {
   DatabaseRow,
@@ -156,6 +157,7 @@ describe("CreativePanel: notebooks of the notes base", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
     localStorage.clear()
+    writeWorkshopPrefs("/v", { story: "hills" })
     resetData()
     queryDatabase.mockReset().mockImplementation(async ({ databaseId }: { databaseId: string }) => {
       const list = databaseId === "db_notes" ? rows : []
@@ -205,6 +207,9 @@ describe("CreativePanel: notebooks of the notes base", () => {
     expect(notebookRow("Архив").dataset.muted).toBe("true")
     expect(notebookRow("Идеи/Сюжеты").dataset.muted).toBe("true")
     expect(notebookRow("Идеи").dataset.muted).toBeUndefined()
+    const hint = "Заметки скрыты фильтром истории"
+    expect(within(notebookRow("Идеи/Сюжеты")).getByTitle(hint).textContent).toBe("0")
+    expect(within(notebookRow("Пустой")).queryByTitle(hint)).toBeNull()
     expect(screen.getByText("Зарисовка")).toBeTruthy()
     expect(screen.queryByText("Поворот")).toBeNull()
     expect(screen.queryByText("Ничья")).toBeNull()
@@ -536,6 +541,6 @@ describe("CreativePanel: notebooks of the notes base", () => {
     act(() => useProjectStore.getState().setCatalog(base))
     render(<CreativePanel {...props()} />)
     fireEvent.click(await screen.findByRole("button", { name: /Заметки/ }))
-    expect(await screen.findByRole("button", { name: "Связать с историями" })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: "Показывать в историях" })).toBeTruthy()
   })
 })

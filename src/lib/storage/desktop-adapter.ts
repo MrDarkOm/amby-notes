@@ -11,6 +11,9 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
   InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
@@ -30,6 +33,8 @@ import type {
   MovedTextPage,
   NoteReference,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -591,6 +596,16 @@ export class DesktopAdapter implements StoragePort {
     )
   }
 
+  async getDossierTemplate(databaseId: string): Promise<DossierTemplate> {
+    return unwrapProjectCommand(await commands.getDossierTemplate(databaseId))
+  }
+
+  async updateDossierTemplate(
+    request: UpdateDossierTemplateRequest,
+  ): Promise<UpdatedDossierTemplate> {
+    return unwrapProjectCommand(await commands.updateDossierTemplate(request))
+  }
+
   async ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {
     return unwrapProjectCommand(
       await commands.ensurePlotLinks({
@@ -628,6 +643,10 @@ export class DesktopAdapter implements StoragePort {
 
   async listTextStats(databaseId: string): Promise<TextPageStat[]> {
     return unwrapProjectCommand(await commands.listTextStats(databaseId))
+  }
+
+  async workshopImport(request: WorkshopImportRequest): Promise<WorkshopImportResult> {
+    return unwrapProjectCommand(await commands.workshopImport(request))
   }
 
   async listNotebooks(databaseId: string): Promise<NotebookCatalog> {
@@ -1020,6 +1039,10 @@ export class DesktopAdapter implements StoragePort {
 
   async getNoteProperties(_vaultPath: string, noteId: string): Promise<NoteProperties> {
     return unwrapCommand(commands.getNoteProperties(noteId))
+  }
+
+  async setNotePagesFlag(_vaultPath: string, noteId: string, flag: boolean | null): Promise<void> {
+    await unwrapCommand(commands.setNotePagesFlag(noteId, flag))
   }
 
   async upsertCustomProperty(

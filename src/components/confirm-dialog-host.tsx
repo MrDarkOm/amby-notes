@@ -97,6 +97,16 @@ function ConfirmDialog({ question }: { question: PendingConfirm }) {
           >
             {question.cancelLabel ?? t("common.cancel")}
           </Button>
+          {question.alternativeLabel ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => settle(question.id, "alternative")}
+            >
+              {question.alternativeLabel}
+            </Button>
+          ) : null}
           <Button
             ref={confirmRef}
             type="button"

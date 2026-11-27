@@ -49,6 +49,7 @@ import type {
 import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
+  UpdateDossierTemplateRequest,
   AddTextStatusRequest,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
@@ -61,6 +62,7 @@ import type {
   ReorderWorkshopSectionsRequest,
   UpdateWorkshopRequest,
   UpdateTextLevelsRequest,
+  WorkshopImportRequest,
 } from "./project-types"
 import type {
   CredentialInfo,
@@ -251,6 +253,11 @@ export const getNoteMetadata = (vaultPath: string, noteId: string): Promise<File
   notesRepository.getNoteMetadata(vaultPath, noteId)
 export const getNoteProperties = (vaultPath: string, noteId: string): Promise<NoteProperties> =>
   notesRepository.getNoteProperties(vaultPath, noteId)
+export const setNotePagesFlag = (
+  vaultPath: string,
+  noteId: string,
+  flag: boolean | null,
+): Promise<void> => getAdapter().setNotePagesFlag(vaultPath, noteId, flag)
 export const upsertCustomProperty = (
   vaultPath: string,
   noteId: string,
@@ -611,6 +618,15 @@ export const ensurePlotLinks = (request: EnsurePlotLinksRequest) => {
   })
   return getAdapter().ensurePlotLinks(request)
 }
+export const getDossierTemplate = (databaseId: string) =>
+  getAdapter().getDossierTemplate(databaseId)
+export const updateDossierTemplate = (request: UpdateDossierTemplateRequest) => {
+  logger.info("storage.update_dossier_template", {
+    databaseId: request.databaseId,
+    sections: request.dossier.sections.length,
+  })
+  return getAdapter().updateDossierTemplate(request)
+}
 export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {
     sectionId: request.sectionId,
@@ -638,6 +654,8 @@ export const moveTextPage = (request: MoveTextPageRequest) => {
 }
 export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
 export const listTextStats = (databaseId: string) => getAdapter().listTextStats(databaseId)
+export const workshopImport = (request: WorkshopImportRequest) =>
+  getAdapter().workshopImport(request)
 export const listNotebooks = (databaseId: string) => getAdapter().listNotebooks(databaseId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>

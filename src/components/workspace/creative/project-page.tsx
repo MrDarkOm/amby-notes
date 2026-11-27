@@ -15,7 +15,7 @@ import {
   Star,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import type { StorySummary } from "@/lib/storage"
+import { isTauri, type StorySummary, type WorkshopSectionSummary } from "@/lib/storage"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
@@ -38,7 +38,7 @@ import { WorkshopSection } from "./pages/workshop-section"
 import { useStoriesStats } from "./pages/use-stories-stats"
 import { creativeFileId } from "./creative-history"
 import { creativeCrumbs } from "./page-crumbs"
-import { creativeTitleLabels } from "./project-labels"
+import { creativeTitleLabels, sectionDisplayName } from "./project-labels"
 import { ProjectDesk } from "./project-desk"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { ScopeDesk } from "./scope-desk"
@@ -48,8 +48,8 @@ import { useScopeData } from "./workshop/use-scope-data"
 import { useUniverses } from "./workshop/use-universes"
 import { scopeSections, type PanelFilter } from "./workshop/workshop-model"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
-import { readWorkshopPrefs, writeWorkshopPrefs } from "./creative-scope-storage"
-import type { DeskItem } from "./desk/desk-layout-model"
+import { WorkshopImportDialog } from "./workshop-import-dialog"
+import { useDeskLayout } from "./desk/use-desk-layout"
 import { useProjectStore } from "./project-store"
 import {
   groupSections,
@@ -106,6 +106,7 @@ export interface CreativePageHost {
   onToggleFavorite?: (noteId: string) => void
   /** Shows a folder of the vault (vault-relative; empty is the vault itself) in the file manager. */
   onShowInExplorer?: (vaultPath: string) => void
+  onShowInTree?: (vaultPath: string) => void
 }
 
 const NO_STORIES: readonly StorySummary[] = []
@@ -134,6 +135,7 @@ export function ProjectPage({
   const status = useProjectStore((state) => state.status)
   const catalog = useProjectStore((state) => state.catalog)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
+  const databases = useDatabaseStore((state) => state.databases)
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const memorySection = useCreativeNavStore((state) => state.sectionByProject[projectId])
@@ -154,18 +156,11 @@ export function ProjectPage({
   const compileRef = React.useRef<(() => void) | null>(null)
   // A page of the workshop is a dashboard: unless the author chose a width, it uses the whole one.
   const contentWidth: ContentWidth = storedWidth ?? "full"
+  const [importing, setImporting] = React.useState(false)
   const [addingSection, setAddingSection] = React.useState(false)
   const [addingStory, setAddingStory] = React.useState(false)
   const [editingSettings, setEditingSettings] = React.useState(false)
   const [customizingDesk, setCustomizingDesk] = React.useState(false)
-  // One layout of the desk for every story, kept per vault.
-  const [deskLayout, setDeskLayout] = React.useState<DeskItem[] | undefined>(() =>
-    vaultPath ? readWorkshopPrefs(vaultPath).deskLayout : undefined,
-  )
-  const changeDeskLayout = (next: DeskItem[]) => {
-    setDeskLayout(next)
-    if (vaultPath) writeWorkshopPrefs(vaultPath, { deskLayout: next })
-  }
   // The anchors may need a relation to a base that was just made; a failure is shown, not lost.
   const { ensureAnchorLinks } = usePlotEnsurer(onChanged)
   const { putStoryInUniverse } = useStoryLinks(onChanged)
@@ -175,6 +170,7 @@ export function ProjectPage({
   const workshop = target?.workshop ?? null
   const scope = scopeOf(target)
   const story = target?.kind === "story" ? target.story : null
+  const desk = useDeskLayout(vaultPath, story?.storyId ?? null)
 
   // A universe is named by its card, which is a row of the universes section; the workshop's
   // page counts them and names them on its stories' cards.
@@ -199,19 +195,37 @@ export function ProjectPage({
   // the standalone stories only the lists that can hold their pages, each showing what belongs here.
   const groups = React.useMemo<SidebarGroup[]>(() => {
     if (!workshop) return []
-    if (target?.kind === "workshop") return groupSections(workshop)
+    const labelOf = (section: WorkshopSectionSummary) =>
+      sectionDisplayName(section, t("creative.sections.arcs")).trim() || section.id
+    if (target?.kind === "workshop") return groupSections(workshop, labelOf)
     return [
       {
         id: "custom",
-        sections: scopeSections(workshop).map((section) => toSidebarSection(workshop, section)),
+        sections: scopeSections(workshop).map((section) =>
+          toSidebarSection(workshop, section, labelOf(section)),
+        ),
       },
     ]
-  }, [target?.kind, workshop])
+  }, [target?.kind, workshop, t])
   const sections = groups.flatMap((group) => group.sections)
   const active =
     selected && sections.some((section) => section.id === selected) ? selected : OVERVIEW_SECTION
   const activeSection = sections.find((section) => section.id === active)
   const activeSource = workshop?.sections.find((section) => section.id === activeSection?.id)
+  const importSections = (workshop?.sections ?? [])
+    .filter(
+      (section) => section.state !== "missing" && !["stories", "universes"].includes(section.role),
+    )
+    .map((section) => ({
+      id: section.id,
+      name: sectionDisplayName(section, t("creative.sections.arcs")),
+    }))
+  const canImport =
+    isTauri() &&
+    target?.kind === "workshop" &&
+    !workshop?.readOnly &&
+    vaultGeneration !== null &&
+    importSections.length > 0
 
   // A story's overview reads its own rows; its section lists are read only when one is open.
   const scopeData = useScopeData(
@@ -415,6 +429,26 @@ export function ProjectPage({
         disabled: !host?.onShowInExplorer,
         onSelect: () => host?.onShowInExplorer?.(folderPath),
       },
+      ...(target.kind === "workshop" && host?.onShowInTree
+        ? [
+            {
+              id: "show-in-tree",
+              label: t("creative.page.showInTree"),
+              icon: icon16(FolderOpen),
+              onSelect: () => host.onShowInTree?.(folderPath),
+            },
+          ]
+        : []),
+      ...(canImport
+        ? [
+            {
+              id: "import-existing",
+              label: t("creative.import.title"),
+              icon: icon16(FolderOpen),
+              onSelect: () => setImporting(true),
+            },
+          ]
+        : []),
       ...(hasSettings
         ? [
             {
@@ -481,6 +515,20 @@ export function ProjectPage({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-[var(--note-surface)]">
+      {importing && canImport && vaultGeneration !== null && (
+        <WorkshopImportDialog
+          key={workshop.workshopId}
+          workshopId={workshop.workshopId}
+          generation={vaultGeneration}
+          sections={importSections}
+          databases={databases.map((database) => ({
+            id: database.databaseId,
+            name: database.title,
+          }))}
+          onClose={() => setImporting(false)}
+          onChanged={bumpData}
+        />
+      )}
       <PageHeaderBar
         crumbs={crumbs}
         showHistory
@@ -606,6 +654,7 @@ export function ProjectPage({
                   workshop={workshop}
                   section={activeSource}
                   onOpenNote={openNote}
+                  onOpenStory={openStory}
                 />
               ) : activeSource && scope ? (
                 <ScopedSection
@@ -619,24 +668,21 @@ export function ProjectPage({
                   locked={readMode}
                 />
               ) : target.kind === "story" ? (
-                textDatabaseId ? (
-                  <ProjectDesk
-                    story={target.story}
-                    workshop={workshop}
-                    vaultPath={vaultPath}
-                    onOpenNote={openNote}
-                    onOpenSection={(sectionId) => showSection(sectionId)}
-                    onChanged={onChanged}
-                    layout={deskLayout}
-                    editing={customizing}
-                    onLayoutChange={changeDeskLayout}
-                    stats={textStats}
-                    locked={readMode}
-                    compileRef={compileRef}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("creative.workshop.noText")}</p>
-                )
+                <ProjectDesk
+                  story={target.story}
+                  workshop={workshop}
+                  vaultPath={vaultPath}
+                  onOpenNote={openNote}
+                  onOpenSection={(sectionId) => showSection(sectionId)}
+                  onChanged={onChanged}
+                  layout={desk.layout}
+                  editing={customizing}
+                  onLayoutChange={desk.change}
+                  onApplyLayoutToAll={desk.applyToAll}
+                  stats={textStats}
+                  locked={readMode}
+                  compileRef={compileRef}
+                />
               ) : target.kind === "workshop" ? (
                 <WorkshopOverview
                   workshop={workshop}

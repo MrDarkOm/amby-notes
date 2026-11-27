@@ -161,9 +161,9 @@ describe("ProjectPage", () => {
     expect(onOpenNote).toHaveBeenCalledWith("gleb")
     expect(useCreativeNavStore.getState().sectionByProject.palooverse).toBe("characters")
     // The ordinary database is one row away, in the page's "⋯" menu: no button in the tabs row.
-    expect(within(nav).queryByRole("button", { name: "Открыть как базу" })).toBeNull()
+    expect(within(nav).queryByRole("button", { name: "Открыть таблицей" })).toBeNull()
     openPageMenu()
-    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть как базу" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть таблицей" }))
     expect(onOpenDatabase).toHaveBeenCalledWith("db_characters", "Персонажи")
   })
 
@@ -184,7 +184,7 @@ describe("ProjectPage", () => {
     mount("palooverse")
     expect(screen.getByRole("region", { name: "Истории" })).toBeTruthy()
     openPageMenu()
-    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "Открыть таблицей" })).toBeNull()
   })
 
   it("lists the stories of the workshop as cards and opens one", () => {
@@ -201,7 +201,7 @@ describe("ProjectPage", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     mount("palooverse")
     const numbers = screen.getByText("Историй").closest("dl") as HTMLElement
-    expect(within(numbers).getByText("Миров")).toBeTruthy()
+    expect(within(numbers).getByText("Вселенных")).toBeTruthy()
     expect(within(numbers).getByText("Написано слов")).toBeTruthy()
     expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("2")
   })
@@ -217,7 +217,7 @@ describe("ProjectPage", () => {
     mount("p")
     expect(screen.getByText("Раздел не найден")).toBeTruthy()
     openPageMenu()
-    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
+    expect(screen.queryByRole("menuitem", { name: "Открыть таблицей" })).toBeNull()
   })
 
   it("is read-only for a project of an unknown format", () => {
@@ -384,6 +384,10 @@ describe("ProjectSettingsDialog", () => {
           status: null,
           anchors: null,
           arcs: null,
+          characters: null,
+          pov: null,
+          places: null,
+          storyTime: null,
         },
         levels: [
           { id: "opt_ch", name: "Глава", icon: null, color: "gray", state: "ok" },
@@ -411,10 +415,8 @@ describe("ProjectSettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Уровни текста" }))
 
-    fireEvent.click(screen.getByRole("button", { name: "Добавить уровень" }))
-    fireEvent.change(screen.getByLabelText("Название уровня 3"), {
-      target: { value: "Эпизод" },
-    })
+    fireEvent.click(screen.getByRole("button", { name: "Добавить уровень «Арка»" }))
+    expect((screen.getByLabelText("Название уровня 3") as HTMLInputElement).value).toBe("Арка")
     fireEvent.click(screen.getByRole("button", { name: "Сохранить уровни" }))
 
     await waitFor(() => expect(updateTextLevels).toHaveBeenCalledTimes(1))
@@ -423,7 +425,7 @@ describe("ProjectSettingsDialog", () => {
       levels: [
         { id: "opt_ch", name: "Глава", icon: null },
         { id: "opt_sc", name: "Сцена", icon: null },
-        { id: null, name: "Эпизод", icon: null },
+        { id: null, name: "Арка", icon: null },
       ],
     })
 

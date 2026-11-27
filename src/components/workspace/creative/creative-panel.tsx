@@ -1,5 +1,14 @@
+import { sectionDisplayName } from "./project-labels"
 import * as React from "react"
-import { AlertTriangle, ExternalLink, Feather, Loader2, Settings } from "lucide-react"
+import {
+  AlertTriangle,
+  Anchor,
+  ExternalLink,
+  Feather,
+  Loader2,
+  Settings,
+  StickyNote,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -18,9 +27,16 @@ import {
 import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useCreativeSettingsStore } from "./creative-settings-store"
-import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
+import {
+  readWorkshopPrefs,
+  writeWorkshopPrefs,
+  WHOLE_WORKSHOP,
+  type WorkshopPrefs,
+} from "./creative-scope-storage"
 import { useProjectStore } from "./project-store"
 import { universeTargetId } from "./project-tree-model"
+import { sectionCreateLabel } from "./section-create-label"
+import { startLevelId } from "./workshop/text-tree-model"
 import { sectionRoleIcon } from "./section-icons"
 import { useCompleteWorkshop } from "./use-complete-workshop"
 import { useStoryLinks } from "./use-story-links"
@@ -109,7 +125,8 @@ export function CreativePanel({
     if (!vault) return
     const nav = useCreativeNavStore.getState()
     const prefs = readWorkshopPrefs(vault)
-    nav.setStoryFilter(prefs.story ?? null)
+    nav.setStoryFilter(prefs.story ?? "all")
+    if (prefs.story == null) writeWorkshopPrefs(vault, { story: "all" })
     nav.setUniverseFilter(prefs.universe && prefs.universe !== STANDALONE ? prefs.universe : null)
     const open = worksSectionsFromPrefs(prefs.works)
     nav.setWorksOpen({
@@ -130,7 +147,11 @@ export function CreativePanel({
       ),
     [rawCatalog, t, workshopSetting],
   )
-  const categories = React.useMemo(() => (workshop ? entityTabs(workshop) : []), [workshop])
+  const categories = React.useMemo(
+    () =>
+      entityTabs(workshop, (section) => sectionDisplayName(section, t("creative.sections.arcs"))),
+    [workshop, t],
+  )
   // A page is added to the story the lists show now; a universe or the standalone stories as a
   // whole have no story of their own.
   const shownStoryId = useCreativeNavStore((state) => state.shownStoryId)
@@ -140,9 +161,11 @@ export function CreativePanel({
   // The universe chosen stands until the list is read and shows it gone.
   const activeUniverseId =
     universeFilter !== null &&
+    universeFilter !== WHOLE_WORKSHOP &&
     (!universesKnown || universes.some((universe) => universe.noteId === universeFilter))
       ? universeFilter
       : null
+  const scopeId = universeFilter === WHOLE_WORKSHOP ? WHOLE_WORKSHOP : activeUniverseId
   // A universe made a moment ago is chosen before the list has read it: it is not "missing".
   const justCreatedUniverse = React.useRef<string | null>(null)
   const remember = React.useCallback(
@@ -153,7 +176,7 @@ export function CreativePanel({
   )
   // A remembered universe that is gone (deleted, or the base is) is dropped, not kept as a ghost.
   React.useEffect(() => {
-    if (universeFilter === null || !universesKnown) return
+    if (universeFilter === null || universeFilter === WHOLE_WORKSHOP || !universesKnown) return
     if (universes.some((universe) => universe.noteId === universeFilter)) {
       if (justCreatedUniverse.current === universeFilter) justCreatedUniverse.current = null
       return
@@ -168,8 +191,7 @@ export function CreativePanel({
     const nav = useCreativeNavStore.getState()
     nav.setUniverseFilter(universeId)
     const patch: WorkshopPrefs = { universe: universeId ?? STANDALONE }
-    // "No story chosen yet" meant the first story of the scope: choosing a scope shows it whole.
-    if (nav.storyFilter === null) {
+    if (universeId === WHOLE_WORKSHOP || nav.storyFilter === null) {
       nav.setStoryFilter("all")
       patch.story = "all"
     }
@@ -229,21 +251,41 @@ export function CreativePanel({
   }
 
   const extra: ChooserExtra[] = []
-  for (const category of categories) {
-    if (!workshop || workshop.readOnly) continue
-    extra.push({
-      value: `entity:${category.key}`,
-      title: t("creative.workshop.newEntity", { name: category.name }),
-      hint: t("creative.workshop.newEntityHint", { where: workshop.name }),
-      icon: sectionRoleIcon(category.role),
-    })
-  }
-  if (selectedStory && selectedStory.text?.databaseId && !workshop?.readOnly) {
-    extra.unshift({
-      value: "page",
-      title: t("creative.workshop.page.title"),
-      hint: t("creative.workshop.newPageHint", { name: selectedStory.name }),
-    })
+  if (workshop && !workshop.readOnly) {
+    if (selectedStory) {
+      const levels = selectedStory.text?.levels ?? []
+      const level = levels.find((candidate) => candidate.id === startLevelId(levels, null))
+      const hint = t("creative.workshop.newPageHint", { name: selectedStory.name })
+      if (selectedStory.text?.databaseId && level?.name) {
+        extra.push({
+          value: "page",
+          title: t("creative.workshop.newPageAtLevel", { level: level.name }),
+          hint,
+        })
+      }
+      for (const [role, value, icon] of [
+        ["anchors", "anchor", Anchor],
+        ["notes", "note", StickyNote],
+      ] as const) {
+        if (storySection(workshop, role)) {
+          extra.push({
+            value,
+            title: sectionCreateLabel(t, role, ""),
+            hint: selectedStory.name,
+            icon,
+          })
+        }
+      }
+    }
+    for (const category of categories) {
+      if (category.role === "universes") continue
+      extra.push({
+        value: `entity:${category.key}`,
+        title: sectionCreateLabel(t, category.role, category.name),
+        hint: t("creative.workshop.newEntityHint", { where: workshop.name }),
+        icon: sectionRoleIcon(category.role),
+      })
+    }
   }
 
   const chooserOptions = useChooserOptions(workshop, extra)
@@ -324,6 +366,8 @@ export function CreativePanel({
     setChooserOpen(false)
     if (choice.startsWith("entity:")) {
       useCreativeNavStore.getState().requestEntity(choice.slice("entity:".length))
+    } else if (choice === "anchor" || choice === "note") {
+      useCreativeNavStore.getState().requestEntity(choice === "anchor" ? "anchors" : "notes")
     } else if (choice === "page") {
       useCreativeNavStore.getState().requestPage(selectedStory?.storyId ?? null)
     } else if (choice === "section") {
@@ -450,7 +494,7 @@ export function CreativePanel({
           onOpenNote={openNote}
           activeNoteId={selectedId}
           onOpenProject={openProject}
-          universeId={activeUniverseId}
+          universeId={scopeId}
           onCreateEntity={createEntity}
           onLinkSection={linkSection}
           onEnsurePlot={ensurePlot}
@@ -466,7 +510,7 @@ export function CreativePanel({
           onOpenCreate={() => setChooserOpen(true)}
           universe={{
             universes,
-            selectedUniverseId: activeUniverseId,
+            selectedUniverseId: scopeId,
             onSelectUniverse: chooseUniverse,
             onNewUniverse: workshop.readOnly
               ? null

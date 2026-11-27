@@ -125,6 +125,9 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  DossierTemplate,
+  UpdateDossierTemplateRequest,
+  UpdatedDossierTemplate,
   InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
@@ -144,6 +147,8 @@ import type {
   MovedTextPage,
   NoteReference,
   NotebookCatalog,
+  WorkshopImportRequest,
+  WorkshopImportResult,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -655,6 +660,16 @@ export class WebAdapterCore implements StoragePort {
     throw new ProjectOperationError("failed", "Linking a section requires the desktop runtime")
   }
 
+  async getDossierTemplate(_databaseId: string): Promise<DossierTemplate> {
+    throw new ProjectOperationError("failed", "Dossier templates require the desktop runtime")
+  }
+
+  async updateDossierTemplate(
+    _request: UpdateDossierTemplateRequest,
+  ): Promise<UpdatedDossierTemplate> {
+    throw new ProjectOperationError("failed", "Dossier templates require the desktop runtime")
+  }
+
   async ensurePlotLinks(_request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {
     throw new ProjectOperationError(
       "failed",
@@ -678,6 +693,14 @@ export class WebAdapterCore implements StoragePort {
 
   async listTextStats(_databaseId: string): Promise<TextPageStat[]> {
     return []
+  }
+
+  async workshopImport(_request: WorkshopImportRequest): Promise<WorkshopImportResult> {
+    throw new ProjectOperationError("failed", "Workshop imports require the desktop runtime", {
+      kind: "failed",
+      code: "workshopImportDesktop",
+      message: "Desktop runtime required",
+    })
   }
 
   async listNotebooks(databaseId: string): Promise<NotebookCatalog> {
@@ -1515,6 +1538,16 @@ export class WebAdapterCore implements StoragePort {
   async getFileMetadata(path: string): Promise<FileMetadata> {
     const content = webGet(FILE_PREFIX + path) ?? ""
     return { word_count: content.split(/\s+/).filter(Boolean).length }
+  }
+
+  async setNotePagesFlag(_vaultPath: string, noteId: string, flag: boolean | null): Promise<void> {
+    const source = webGet(FILE_PREFIX + noteId)
+    if (source === null) throw new Error(`Note not found: ${noteId}`)
+    const updated =
+      flag === null
+        ? removeWebFrontmatterProperty(source, "amby-pages")
+        : upsertWebFrontmatterProperty(source, noteId, "amby-pages", String(flag), "checkbox")
+    if (updated !== source) webSet(FILE_PREFIX + noteId, updated)
   }
 
   async getNoteProperties(_vaultPath: string, noteId: string): Promise<NoteProperties> {

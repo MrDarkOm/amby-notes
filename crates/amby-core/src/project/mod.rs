@@ -5,6 +5,7 @@
 pub mod complete;
 pub mod create;
 pub mod discovery;
+pub mod dossier_template;
 pub mod events;
 pub mod format;
 pub mod index;
@@ -21,6 +22,7 @@ pub mod settings;
 pub mod text;
 mod text_schema;
 pub mod text_stats;
+pub mod workshop_import;
 
 #[cfg(test)]
 #[path = "contract_test.rs"]
@@ -35,6 +37,9 @@ mod create_test_support;
 #[path = "discovery_test.rs"]
 mod discovery_test;
 #[cfg(test)]
+#[path = "dossier_template_test.rs"]
+mod dossier_template_test;
+#[cfg(test)]
 #[path = "init_test.rs"]
 mod init_test;
 #[cfg(test)]
@@ -46,6 +51,9 @@ mod plot_links_test;
 #[cfg(test)]
 #[path = "preset_test.rs"]
 mod preset_test;
+#[cfg(test)]
+#[path = "scene_links_test.rs"]
+mod scene_links_test;
 #[cfg(test)]
 #[path = "text_test.rs"]
 mod text_test;
@@ -75,3 +83,6 @@ pub(crate) fn require_completed_or_new(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod workshop_import_test;

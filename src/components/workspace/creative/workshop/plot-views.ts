@@ -122,7 +122,9 @@ export function bucketAnchors<T extends AnchorLike>(input: {
   const result: AnchorBuckets<T> = { events: [], shown: [], withoutStory: [] }
   for (const row of ordered) {
     const stories = membership.storiesOf(row.noteId)
-    if (filter.kind === "standalone") {
+    if (filter.kind === "workshop") {
+      result.shown.push(row)
+    } else if (filter.kind === "standalone") {
       // The events of a universe are not shown here: an anchor is, when it stands in a standalone
       // story; one in no story, bound to no page and with no universe comes last.
       if (stories.some((storyId) => membership.universeOf(storyId) === null)) result.shown.push(row)

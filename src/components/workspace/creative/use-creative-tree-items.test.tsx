@@ -2,6 +2,7 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { TreeItem } from "../tree/tree-types"
+import { useCreativeNavStore } from "./creative-nav-store"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { catalog, project } from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
@@ -31,7 +32,10 @@ describe("useCreativeTreeItems", () => {
     useCreativeSettingsStore.setState({ showInTree: true })
     act(() => useProjectStore.getState().setCatalog(catalog([project("verse", { path: "Verse" })])))
   })
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    useCreativeNavStore.setState({ revealedWorkshop: null })
+    vi.restoreAllMocks()
+  })
 
   it("marks the project folder while the module is on", () => {
     const { result } = renderHook(() => useCreativeTreeItems(tree, VAULT, true))
@@ -44,6 +48,23 @@ describe("useCreativeTreeItems", () => {
     // The hidden-folders setting does not reach a module that is off either.
     act(() => useCreativeSettingsStore.setState({ showInTree: false }))
     expect(result.current).toBe(tree)
+  })
+
+  it("temporarily reveals a hidden workshop for its own vault", () => {
+    useCreativeSettingsStore.setState({ showInTree: false })
+    const { result } = renderHook(() => useCreativeTreeItems(tree, VAULT, true))
+    expect(result.current.map((item) => item.id)).toEqual(["b"])
+    act(() =>
+      useCreativeNavStore.setState({
+        revealedWorkshop: { vault: "/other", folderId: "folder:/other/Verse" },
+      }),
+    )
+    expect(result.current.map((item) => item.id)).toEqual(["b"])
+    act(() =>
+      useCreativeNavStore.setState({ revealedWorkshop: { vault: VAULT, folderId: tree[0].id } }),
+    )
+    expect(result.current.map((item) => item.id)).toEqual([tree[0].id, "b"])
+    expect(useCreativeSettingsStore.getState().showInTree).toBe(false)
   })
 
   it("follows the module being switched on and off", () => {

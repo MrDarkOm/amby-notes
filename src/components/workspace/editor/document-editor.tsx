@@ -26,6 +26,7 @@ import { NoteNotices } from "../note-notices/note-notices"
 import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { editorSurfaceLeases, type EditorSurface } from "../database/peek/editor-surface-lease"
 import type { ContentWidth } from "../app-config"
+import { readNotePagesFlag } from "../tiptap/note-pages"
 
 export interface Document {
   id: string
@@ -101,6 +102,8 @@ export interface DocumentEditorProps {
   nestedNotes?: TreeItem[]
   nestedNotesPlacement?: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  /** Writes the note's `amby-pages` flag; only the active note's pane can. */
+  onNotePagesFlagChange?: (flag: boolean | null) => void
   onOpenNestedNoteInNewTab?: (id: string) => void
   onMoveFile?: (targetFolderId: string | null) => void
   onCreateFolder?: (parentId: string | null, name: string) => void
@@ -188,6 +191,7 @@ export function DocumentEditor({
   nestedNotes = [],
   nestedNotesPlacement = "top",
   onNestedNotesPlacementChange,
+  onNotePagesFlagChange,
   onOpenNestedNoteInNewTab,
   onMoveFile,
   onCreateFolder,
@@ -425,6 +429,7 @@ export function DocumentEditor({
     [onViewModeChange, editingPolicy.sourceOnly, document?.noteProperties?.frontmatterStatus],
   )
 
+  const notePagesFlag = readNotePagesFlag(document?.noteProperties?.properties)
   const headerElement = (
     <DocumentHeader
       NoteTrail={noteTrail}
@@ -472,6 +477,8 @@ export function DocumentEditor({
       nestedNotes={nestedNotes}
       nestedNotesPlacement={nestedNotesPlacement}
       onNestedNotesPlacementChange={onNestedNotesPlacementChange}
+      notePagesFlag={notePagesFlag}
+      onNotePagesFlagChange={onNotePagesFlagChange}
       onRequestAttachLayer={setLayerConfirm}
       onRequestMove={
         onMoveFile
@@ -578,6 +585,7 @@ export function DocumentEditor({
           onEditingTitleChange={setEditingTitle}
           onRenameTitle={onRenameTitle}
           nestedNotes={nestedNotes}
+          notePagesFlag={notePagesFlag}
           nestedNotesPlacement={nestedNotesPlacement}
           onNestedNotesPlacementChange={onNestedNotesPlacementChange}
           onOpenItem={onOpenItem}
@@ -598,6 +606,7 @@ export function DocumentEditor({
           onEnableModule={onEnableModule}
           databaseBody={databaseBody}
           editorFrame={editorFrame}
+          hasUnterminatedFrontmatter={document.noteProperties?.frontmatterStatus === "unterminated"}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}

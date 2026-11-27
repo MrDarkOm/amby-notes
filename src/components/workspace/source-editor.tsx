@@ -19,6 +19,7 @@ import {
   historyKeymap,
   indentLess,
   insertTab,
+  isolateHistory,
   redo,
   undo,
 } from "@codemirror/commands"
@@ -32,6 +33,9 @@ import { tags } from "@lezer/highlight"
 import { INLINE_TOKEN_RE, getWikiLinkParts, type EditorHandle } from "./tiptap/constants"
 import { normalizeMarkdownSelection, type MarkdownSelection } from "./tiptap/markdown-selection"
 import { registerEditorSerialization } from "./tiptap/editor-serialization-lifecycle"
+import { docToNormalizedMarkdown } from "./tiptap/markdown-serializer"
+import { getMarkdownParser } from "./tiptap/markdown-parser"
+import { missingHeadingNodes } from "./tiptap/missing-headings"
 
 interface SourceEditorProps {
   value: string
@@ -422,6 +426,25 @@ export function SourceEditor({
   React.useEffect(() => {
     if (!editorRef) return
     ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
+      appendMissingHeadings: (titles) => {
+        const view = viewRef.current
+        if (!view || view.state.readOnly) return "blocked"
+        const current = view.state.doc.toString()
+        const parser = getMarkdownParser()
+        const doc = parser.parse(current)
+        const headings = missingHeadingNodes(doc, titles)
+        if (headings.length === 0) return "unchanged"
+        const gap =
+          current === "" || current.endsWith("\n\n") ? "" : current.endsWith("\n") ? "\n" : "\n\n"
+        const insert = gap + docToNormalizedMarkdown(doc.type.create(null, headings)) + "\n"
+        // A terminal unclosed fence or HTML block can consume appended Markdown.
+        if (missingHeadingNodes(parser.parse(current + insert), titles).length > 0) return "blocked"
+        view.dispatch({
+          changes: { from: view.state.doc.length, insert },
+          annotations: isolateHistory.of("full"),
+        })
+        return "added"
+      },
       undo: () => {
         const view = viewRef.current
         if (view) {

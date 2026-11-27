@@ -37,6 +37,12 @@ export const confirmations = {
   deleteOldBackup: (params: { date: string }) => ask("deleteOldBackup", params, true),
   // Layers, connections
   deleteLayer: (params: { layer: string; title: string }) => ask("deleteLayer", params, true),
+  // A page of a note: "Delete all" drops its text, "Move" keeps the text on the neighbouring page. Asked by
+  // the owner's decision (2026-11-24) although Undo brings the page back: deleting a page is easy to misclick.
+  deleteNotePage: (params: { name: string }): ConfirmOptions => ({
+    ...ask("deleteNotePage", params, true),
+    alternativeLabel: i18n.t("confirmations.deleteNotePage.alternative") as string,
+  }),
   // The AI panel's mode that applies every change at once
   aiTurbo: () => ask("aiTurbo", {}, true),
   removeAiConnection: (params: { name: string }) => ask("removeAiConnection", params, true),

@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import * as storage from "@/lib/storage"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { usePropertyActions } from "./use-property-actions"
@@ -169,6 +170,7 @@ describe("properties by name (З60)", () => {
       await hook.result.current.handleRenameProperty("Choice", "Pick").catch(() => undefined)
     })
     expect(visible().map((item) => item.name)).toEqual(["Choice"])
-    expect(hook.result.current.propertyError).not.toBeNull()
+    expect(hook.result.current.propertyError).toBeNull()
+    expect(Object.keys(useNoteNoticesStore.getState().propertyFailed)).toHaveLength(1)
   })
 })

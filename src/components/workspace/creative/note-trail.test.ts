@@ -8,7 +8,12 @@ import {
   workshopSummary,
 } from "./project-fixtures.test-support"
 
-const labels = { workshop: "Мастерская", standalone: "Отдельные истории", universe: "Вселенная" }
+const labels = {
+  workshop: "Мастерская",
+  standalone: "Отдельные истории",
+  universe: "Вселенная",
+  description: "Описание",
+}
 
 const text = (databaseId: string): ProjectTextSummary => ({
   databaseId,
@@ -20,6 +25,10 @@ const text = (databaseId: string): ProjectTextSummary => ({
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [{ id: "chapter", icon: null, name: "Глава", color: null, state: "ok" }],
   formats: [],
@@ -129,11 +138,12 @@ describe("the logical path of a note in the workshop", () => {
     ])
   })
 
-  it("ends a story's own card at the story", () => {
+  it("ends a story's card at the description with a link to the desk", () => {
     expect(shape(trail("db_stories", ROWS.db_stories![0]!))).toEqual([
       ["Мастерская", { kind: "page", projectId: "w" }],
       ["Палуверс", { kind: "page", projectId: "universe:u1" }],
-      ["Холмы", null],
+      ["Холмы", { kind: "page", projectId: "hills" }],
+      ["Описание", null],
     ])
     expect(shape(trail("db_stories", ROWS.db_stories![1]!))?.[1]).toEqual([
       "Отдельные истории",

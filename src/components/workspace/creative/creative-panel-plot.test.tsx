@@ -117,6 +117,10 @@ function text(withProperties: boolean) {
       status: null,
       anchors: withProperties ? "tanc" : null,
       arcs: withProperties ? "tarc" : null,
+      characters: null,
+      pov: null,
+      places: null,
+      storyTime: null,
     },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
@@ -246,7 +250,7 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
       sectionByProject: {},
       collapsed: {},
       worksOpen: { text: true, anchors: true, notes: false },
-      storyFilter: null,
+      storyFilter: "hills",
       universeFilter: null,
       dataNonce: 0,
       search: "",
@@ -517,7 +521,7 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
 
     it("binds an arc from the page's menu", async () => {
       await ready()
-      await openSubmenu(pageRow("c2"), "Арки")
+      await openSubmenu(pageRow("c2"), "Сюжетные линии")
       fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Тайна" }))
       await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
       expect(updateDatabaseRelationValue.mock.calls[0][0]).toMatchObject({

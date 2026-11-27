@@ -29,11 +29,12 @@ export function sectionName(section: WorkshopSectionSummary): string {
 export function toSidebarSection(
   workshop: WorkshopSummary,
   section: WorkshopSectionSummary,
+  name = sectionName(section),
 ): SidebarSection {
   return {
     id: section.id,
     workshopId: workshop.workshopId,
-    name: sectionName(section),
+    name,
     role: section.role,
     state: section.state,
     databaseId: section.databaseId,
@@ -48,13 +49,13 @@ const WORK_ROLES = new Set(["stories", "notes", "anchors"])
 /**
  * Sections of a workshop grouped into World, Work and Custom.
  */
-export function groupSections(workshop: WorkshopSummary): SidebarGroup[] {
+export function groupSections(workshop: WorkshopSummary, labelOf = sectionName): SidebarGroup[] {
   const worldSections: SidebarSection[] = []
   const workSections: SidebarSection[] = []
   const customSections: SidebarSection[] = []
 
   for (const section of workshop.sections) {
-    const item = toSidebarSection(workshop, section)
+    const item = toSidebarSection(workshop, section, labelOf(section))
     if (section.role && WORLD_ROLES.has(section.role)) {
       worldSections.push(item)
     } else if (section.role && WORK_ROLES.has(section.role)) {

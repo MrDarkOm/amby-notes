@@ -44,6 +44,10 @@ const text = (databaseId: string): ProjectTextSummary => ({
     status: null,
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [{ id: "chapter", icon: null, name: "Глава", color: null, state: "ok" }],
   formats: [],
@@ -127,12 +131,12 @@ describe("customizing a story's desk from the page", () => {
     mount("hills")
     const button = await screen.findByRole("button", { name: "Настроить стол" })
     expect(button.getAttribute("aria-pressed")).toBe("false")
-    expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+    expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
     fireEvent.click(button)
-    expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+    expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Готово" }).getAttribute("aria-pressed")).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: "Готово" }))
-    expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+    expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
     cleanup()
     mount("w")
     await screen.findByRole("heading", { level: 1 })
@@ -147,29 +151,37 @@ describe("customizing a story's desk from the page", () => {
     expect(screen.queryByRole("button", { name: "Настроить стол" })).toBeNull()
   })
 
-  it("keeps one layout for every story of the vault, and remembers it", async () => {
+  it("keeps a story layout private until applied to every story and preserves the legacy default", async () => {
+    localStorage.setItem(
+      "amby:creative-workshop",
+      JSON.stringify({
+        [VAULT]: {
+          deskLayout: [{ id: "chapters", span: 2, hidden: false }],
+        },
+      }),
+    )
     mount("hills")
     fireEvent.click(await screen.findByRole("button", { name: "Настроить стол" }))
-    await screen.findByRole("region", { name: "Главы" })
-    fireEvent.click(screen.getByRole("button", { name: "Скрыть виджет «Прогресс»" }))
-    fireEvent.click(screen.getByRole("button", { name: "Ниже: «Продолжить»" }))
-    expect(widgetNames()).toEqual(["Главы", "Продолжить", "Персонажи"])
-    const saved = readWorkshopPrefs(VAULT).deskLayout
-    expect(saved?.find((item) => item.id === "progress")?.hidden).toBe(true)
-    // The hidden widget keeps its own place in the list.
-    expect(saved?.map((item) => item.id)).toEqual([
-      "chapters",
-      "progress",
-      "continue",
-      "characters",
+    fireEvent.click(await screen.findByRole("button", { name: "Скрыть виджет «Прогресс»" }))
+    expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
+    expect(readWorkshopPrefs(VAULT).deskLayout).toEqual([
+      { id: "chapters", span: 2, hidden: false },
     ])
 
-    // Another story, opened later, is laid out the same way.
+    cleanup()
+    mount("tale")
+    expect(await screen.findByRole("region", { name: "Прогресс" })).toBeTruthy()
+    expect(widgetNames()[0]).toBe("Главы")
+
+    cleanup()
+    mount("hills")
+    fireEvent.click(await screen.findByRole("button", { name: "Настроить стол" }))
+    expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Применить ко всем историям" }))
     cleanup()
     mount("tale")
     await screen.findByRole("region", { name: "Главы" })
     expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
-    expect(widgetNames()[0]).toBe("Главы")
   })
 
   it("lets a read-only workshop's desk be arranged, since the layout is the interface's own", async () => {

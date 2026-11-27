@@ -1,11 +1,13 @@
 import * as React from "react"
 import { Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { NoticeLine } from "@/components/workspace/notices/notice-line"
 
 interface QuickCreateProps {
   /** The button that opens the field. */
   label: string
+  card?: boolean
   placeholder: string
   /** Shown under the field when `onCreate` rejects; gets the message. */
   failed: (message: string) => string
@@ -19,7 +21,14 @@ interface QuickCreateProps {
  * A button that opens one field: Enter makes the item, Escape closes. A failure is shown under the
  * field with the typed name kept, so nothing is lost and nothing is swallowed.
  */
-export function QuickCreate({ label, placeholder, failed, onCreate, describe }: QuickCreateProps) {
+export function QuickCreate({
+  label,
+  card = false,
+  placeholder,
+  failed,
+  onCreate,
+  describe,
+}: QuickCreateProps) {
   const [naming, setNaming] = React.useState(false)
   const [title, setTitle] = React.useState("")
   const [pending, setPending] = React.useState(false)
@@ -47,15 +56,31 @@ export function QuickCreate({ label, placeholder, failed, onCreate, describe }: 
       <button
         type="button"
         onClick={() => setNaming(true)}
-        className="flex w-fit items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        className={
+          card
+            ? "amby-creative-gallery-card amby-creative-gallery-create-card flex h-full w-full items-center justify-center gap-2 text-sm"
+            : "flex w-fit items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+        }
       >
-        <Plus className="size-3.5" />
-        {label}
+        <Plus aria-hidden="true" className={cn("shrink-0", card ? "size-4" : "size-3.5")} />
+        <span
+          className={
+            card ? "flex min-h-10 min-w-0 items-center break-words leading-snug" : undefined
+          }
+        >
+          {label}
+        </span>
       </button>
     )
   }
   return (
-    <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-1">
+    <form
+      onSubmit={(event) => void submit(event)}
+      className={cn(
+        "flex flex-col gap-1",
+        card && "amby-creative-gallery-card h-full justify-center",
+      )}
+    >
       <Input
         autoFocus
         value={title}
@@ -70,7 +95,7 @@ export function QuickCreate({ label, placeholder, failed, onCreate, describe }: 
             setError(null)
           }
         }}
-        className="h-7 max-w-xs text-xs"
+        className={card ? "h-10 text-sm" : "h-7 max-w-xs text-xs"}
       />
       {error && <NoticeLine role="alert" text={failed(error)} />}
     </form>

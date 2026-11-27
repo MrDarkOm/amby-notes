@@ -20,6 +20,8 @@ export type NotePlace =
   | { kind: "world"; dossier: NoteDossier }
   | { kind: "text"; text: TextPlace; context: DatabaseNoteContext }
 
+export const NotePlaceContext = React.createContext<NotePlace | null>(null)
+
 /**
  * Where the page stands in the creative workshop, or `null` when it is a plain note: outside the
  * workshops or in their notes. Nothing is asked of the backend while there are no projects, so an

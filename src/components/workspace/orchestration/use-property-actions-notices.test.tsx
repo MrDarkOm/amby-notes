@@ -83,7 +83,7 @@ describe("properties and the notices", () => {
     await act(async () => {
       await hook.result.current.handleRenameProperty("А", "Б").catch(() => undefined)
     })
-    expect(useNoteNoticesStore.getState().propertyFailed.note).toBe(true)
+    expect(useNoteNoticesStore.getState().propertyFailed.note).toEqual({ path: "/vault/Note.md" })
     vi.mocked(storage.renameProperty).mockResolvedValueOnce(undefined)
     await act(async () => {
       await hook.result.current.handleRenameProperty("А", "Б")
@@ -113,15 +113,27 @@ describe("properties and the notices", () => {
     )
   })
 
-  it("any other failure still says that the property was not saved", async () => {
+  it("any other failure is said by the card of the note only, not once more in the panel", async () => {
     await i18n.changeLanguage("ru")
     vi.mocked(storage.renameProperty).mockRejectedValueOnce(new Error("refused"))
     const hook = open()
     await act(async () => {
       await hook.result.current.handleRenameProperty("А", "Б").catch(() => undefined)
     })
-    expect(hook.result.current.propertyError).toBe(
-      "Не удалось сохранить свойство. Повторите попытку.",
-    )
+    expect(useNoteNoticesStore.getState().propertyFailed.note).toBeTruthy()
+    expect(hook.result.current.propertyError).toBeNull()
+  })
+})
+
+describe("the error a failed command throws", () => {
+  it("is marked as said by the card of the note, so the dialog does not say it again", async () => {
+    const { isSaidByNoteCard } = await import("../note-notices/use-note-notices-store")
+    const refused = new Error("refused")
+    vi.mocked(storage.renameProperty).mockRejectedValueOnce(refused)
+    const hook = open()
+    await act(async () => {
+      await hook.result.current.handleRenameProperty("А", "Б").catch(() => undefined)
+    })
+    expect(isSaidByNoteCard(refused)).toBe(true)
   })
 })

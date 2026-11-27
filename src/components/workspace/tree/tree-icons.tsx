@@ -1,27 +1,26 @@
 "use client"
 
-import {
-  BookOpenText,
-  Database,
-  FileText,
-  Folder,
-  LayoutGrid,
-  PanelsTopLeft,
-  PenLine,
-  Star,
-} from "lucide-react"
+import { Database, FileText, Folder, LayoutGrid, PanelsTopLeft, PenLine, Star } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { CompositeNoteIcon } from "@/themes/composite-note-icon"
 import { EmojiGlyph } from "@/components/ui/emoji-glyph"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
 import { isSuperCanvasItem, isSuperSketchItem } from "../workspace-tree-utils"
 
-function isExpandableSuperNote(item: TreeItem): boolean {
-  return item.type === "file" && Boolean(item.children?.length)
-}
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
 import { isEnterKey } from "@/lib/keyboard"
+
+function isBundleNote(item: TreeItem): boolean {
+  return (
+    item.type === "file" &&
+    !item.bundleMember &&
+    (item.icon === "supernote" ||
+      item.bundleMembers !== undefined ||
+      Boolean(item.children?.length))
+  )
+}
 
 export function BrainIcon({ className }: { className?: string }) {
   return (
@@ -56,7 +55,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
     case "folder":
       return <Folder className={cls} />
     case "supernote":
-      return <BookOpenText className={cls} />
+      return <CompositeNoteIcon className={cls} />
     case "supercanvas":
       return <LayoutGrid className={cls} />
     case "supersketch":
@@ -89,7 +88,7 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
     item.icon !== "sketch" &&
     item.icon !== "database"
       ? item.icon
-      : isExpandableSuperNote(item)
+      : isBundleNote(item)
         ? "supernote"
         : !item.bundleMember && isSuperCanvasItem(item)
           ? "supercanvas"
@@ -140,7 +139,6 @@ export function TreeItemStatusIcon({
 }) {
   const isFavoriteItem = isFavorite
   const isInteractive = !!onActivate
-  const isSuperNote = isExpandableSuperNote(item)
   const Icon =
     item.type === "folder"
       ? Folder
@@ -150,8 +148,8 @@ export function TreeItemStatusIcon({
           ? PenLine
           : item.type === "database"
             ? Database
-            : isSuperNote
-              ? BookOpenText
+            : isBundleNote(item)
+              ? CompositeNoteIcon
               : FileText
 
   return (

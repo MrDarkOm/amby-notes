@@ -10,9 +10,14 @@ export interface DraftOffer {
 interface NoteNoticesState {
   /** Notes (by document id) whose last save failed; cleared by the next successful save. */
   saveFailed: Record<string, true>
-  /** Notes (by document id) whose last change of a property failed. */
-  propertyFailed: Record<string, true>
-  setPropertyFailed: (fileId: string, failed: boolean) => void
+  /**
+   * Notes (by document id) whose last change of a property failed, with the path of the note so the
+   * notification centre can name it after its tab is gone. An event, not a state: the panel was read again,
+   * so nothing waits to be written. It ends with the next successful change of a property or when the
+   * person closes it (in the card or in the centre, which share the id).
+   */
+  propertyFailed: Record<string, { path: string }>
+  setPropertyFailed: (fileId: string, failure: { path: string } | null) => void
   /**
    * Notes (by document id) whose recovery draft could not be written (`write`) or read (`read`).
    * Written by the journal itself, see the subscription below the store.
@@ -47,11 +52,12 @@ interface NoteNoticesState {
 export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
   saveFailed: {},
   propertyFailed: {},
-  setPropertyFailed: (fileId, failed) =>
+  setPropertyFailed: (fileId, failure) =>
     set((state) => {
-      if (Boolean(state.propertyFailed[fileId]) === failed) return state
+      const current = state.propertyFailed[fileId]
+      if (failure === null ? !current : current?.path === failure.path) return state
       const { [fileId]: _gone, ...rest } = state.propertyFailed
-      return { propertyFailed: failed ? { ...rest, [fileId]: true } : rest }
+      return { propertyFailed: failure ? { ...rest, [fileId]: failure } : rest }
     }),
   recoveryProblems: {},
   setRecoveryProblem: (fileId, problem) =>
@@ -97,6 +103,18 @@ export const useNoteNoticesStore = create<NoteNoticesState>((set) => ({
   clearRestored: (path) =>
     set((state) => ({ restored: state.restored.filter((item) => item !== path) })),
 }))
+
+// Errors of a property change that the card of the note already says (docs/notices.md, section 4): whoever
+// catches one (the property dialog) does not say it a second time.
+const saidByNoteCard = new WeakSet<object>()
+
+export function markSaidByNoteCard(error: unknown): void {
+  if (typeof error === "object" && error !== null) saidByNoteCard.add(error)
+}
+
+export function isSaidByNoteCard(error: unknown): boolean {
+  return typeof error === "object" && error !== null && saidByNoteCard.has(error)
+}
 
 // The journal reports a change of its state; the card of the note shows it until the cause is gone.
 subscribeRecoveryProblems(({ id, kind, failed }) => {

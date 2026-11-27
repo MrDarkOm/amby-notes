@@ -107,7 +107,7 @@ describe("what needs a decision", () => {
 describe("the copies of the cards of the open notes", () => {
   it.each([
     ["save-failed", "danger", { saveFailed: { n: true } }],
-    ["property-failed", "danger", { propertyFailed: { n: true } }],
+    ["property-failed", "danger", { propertyFailed: { n: { path: "/vault/Заметки/n.md" } } }],
     ["external-change", "decision", { externalConflicts: { n: {} } }],
     ["draft", "decision", { draftOffers: { n: { accept() {}, reject() {} } } }],
   ])("has the %s of an open note as %s, with a way to the note", (card, level, patch) => {
@@ -120,6 +120,35 @@ describe("the copies of the cards of the open notes", () => {
       level,
       action: { kind: "note", id: "n" },
     })
+  })
+
+  it("keeps a failed property of a note without a tab, under the same id, named by its path", () => {
+    const centre = deriveCentre(
+      input({
+        openDocs: {},
+        propertyFailed: { gone: { path: "/vault/Заметки/Страницы.md" } },
+      }),
+    )
+    expect(centre.decision).toHaveLength(1)
+    expect(centre.decision[0]).toMatchObject({
+      id: noteNoticeId("gone", "property-failed"),
+      level: "danger",
+      kind: "note-card",
+      card: "property-failed",
+      name: "Страницы",
+      action: { kind: "note", id: "gone" },
+    })
+    expect(centreCounter(centre)).toEqual({ count: 1, level: "danger" })
+  })
+
+  it("says a failed property of an open note once", () => {
+    const { decision } = deriveCentre(
+      input({
+        openDocs: { n: doc("n") },
+        propertyFailed: { n: { path: "/vault/Заметки/n.md" } },
+      }),
+    )
+    expect(ids(decision)).toEqual([noteNoticeId("n", "property-failed")])
   })
 
   it("has a note whose file was deleted as a decision (К12)", () => {

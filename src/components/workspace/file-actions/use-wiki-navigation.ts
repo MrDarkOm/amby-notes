@@ -36,7 +36,7 @@ export function useWikiNavigation({
       const existing = findWikiLinkItem(treeItems, target, vault)
       if (existing) {
         await handleSelect(existing.id)
-        scrollEditorToAnchor(anchor)
+        scrollEditorToAnchor(anchor, existing.id)
         return
       }
       try {

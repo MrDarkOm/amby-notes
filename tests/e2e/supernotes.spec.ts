@@ -12,10 +12,12 @@ test("turning off Supernotes lets users delete a file without deleting its folde
     const root = "web-vault"
     const main = root + "/Project/Project.md"
     const child = root + "/Project/Child.md"
+    const layered = root + "/Layered/Layered.md"
     localStorage.setItem(
       "amby:tree",
       JSON.stringify([
         { id: root + "/Folder", path: root + "/Folder", name: "Folder", type: "folder" },
+        { id: layered, path: layered, name: "Layered", type: "file", icon: "file" },
         {
           id: main,
           path: main,
@@ -26,6 +28,11 @@ test("turning off Supernotes lets users delete a file without deleting its folde
       ]),
     )
     localStorage.setItem("amby:file:" + main, "# Project\n\nProject body.\n")
+    localStorage.setItem("amby:file:" + layered, "A bundle without children.\n")
+    localStorage.setItem(
+      "amby:file:" + root + "/Layered/Layered.canvas",
+      '{"nodes":[],"edges":[]}\n',
+    )
     localStorage.setItem("amby:file:" + child, "# Child\n\nChild body.\n")
     localStorage.setItem(
       "amby:file:" + root + "/Project/Project.canvas",
@@ -54,16 +61,21 @@ test("turning off Supernotes lets users delete a file without deleting its folde
   await page.goto("/")
   const folder = page.locator('[data-tree-item-id="web-vault/Folder"]')
   const project = page.locator('[data-tree-item-id="web-vault/Project/Project.md"]')
+  const layered = page.locator('[data-tree-item-id="web-vault/Layered/Layered.md"]')
+  await expect(layered.locator(".lucide-composite-note")).toHaveCount(2)
   const convert = page.getByRole("menuitem", { name: ru.tree.convertToNote })
   await folder.click({ button: "right" })
   await expect(convert).toBeVisible()
   await page.keyboard.press("Escape")
 
   await project.click()
-  await page
-    .locator('[data-help-target="layers"]')
-    .getByRole("button", { name: ru.docEditor.canvasLayer, exact: true })
-    .click()
+  const layers = page.getByRole("group", { name: ru.docEditor.layers })
+  const noteLayer = layers.getByRole("button", { name: ru.docEditor.markdownEditor, exact: true })
+  const canvasLayer = layers.getByRole("button", { name: ru.docEditor.canvasLayer, exact: true })
+  await expect(noteLayer).toHaveAttribute("aria-pressed", "true")
+  await canvasLayer.click()
+  await expect(canvasLayer).toHaveAttribute("aria-pressed", "true")
+  await expect(noteLayer).toHaveAttribute("aria-pressed", "false")
   await expect(page.locator(".react-flow")).toBeVisible()
 
   const openModules = async () => {

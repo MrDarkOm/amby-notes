@@ -67,6 +67,7 @@ fn for_story(
         story_id: Some(house.story_id.clone()),
         expected_revision: revision.to_owned(),
         labels: BTreeMap::new(),
+        parts: None,
     }
 }
 
@@ -79,6 +80,7 @@ fn for_anchors(created: &CreatedWorkshop, revision: &str) -> EnsurePlotLinksRequ
         story_id: None,
         expected_revision: revision.to_owned(),
         labels: BTreeMap::new(),
+        parts: None,
     }
 }
 

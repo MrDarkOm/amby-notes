@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import type { DatabaseRow } from "@/lib/storage"
+import type { DatabaseRow, StorySummary } from "@/lib/storage"
+import { useDocStore } from "../use-doc-store"
 import { useDatabaseStore } from "../database/database-store"
 import {
   storySummary,
@@ -16,9 +17,12 @@ const queryDatabase = vi.fn()
 const createWorkshopEntity = vi.fn()
 const listTextStats = vi.fn()
 const readNote = vi.fn()
+const getNoteProperties = vi.fn()
+const writeNote = vi.fn()
 const exportTextFile = vi.fn()
 const createTextPage = vi.fn()
 const moveTextPage = vi.fn()
+const applyDatabaseValueBatch = vi.fn()
 const listNotebooks = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
@@ -28,9 +32,12 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     queryDatabase: (...args: unknown[]) => queryDatabase(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
     readNote: (...args: unknown[]) => readNote(...args),
+    getNoteProperties: (...args: unknown[]) => getNoteProperties(...args),
+    writeNote: (...args: unknown[]) => writeNote(...args),
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
     createTextPage: (...args: unknown[]) => createTextPage(...args),
+    applyDatabaseValueBatch: (...args: unknown[]) => applyDatabaseValueBatch(...args),
     moveTextPage: (...args: unknown[]) => moveTextPage(...args),
     listNotebooks: (...args: unknown[]) => listNotebooks(...args),
     resolveDatabaseAssetPaths: async () => ({ paths: [] }),
@@ -64,6 +71,10 @@ const story = storySummary("hills", {
       status: null,
       anchors: null,
       arcs: null,
+      characters: null,
+      pov: null,
+      places: null,
+      storyTime: null,
     },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
@@ -116,9 +127,13 @@ const NOTES: Record<string, string> = {
   b2: "Эпилог.",
 }
 
-function renderDesk(onOpenNote = vi.fn(), vaultPath: string | null = "/vault") {
+function renderDesk(
+  onOpenNote = vi.fn(),
+  vaultPath: string | null = "/vault",
+  entry: StorySummary = { ...story, cardNoteId: null },
+) {
   render(
-    <ProjectDesk story={story} workshop={workshop} vaultPath={vaultPath} onOpenNote={onOpenNote} />,
+    <ProjectDesk story={entry} workshop={workshop} vaultPath={vaultPath} onOpenNote={onOpenNote} />,
   )
   return onOpenNote
 }
@@ -133,6 +148,9 @@ describe("ProjectDesk", () => {
       diagnostics: [],
     })
     listTextStats.mockReset().mockResolvedValue(STATS)
+    getNoteProperties
+      .mockReset()
+      .mockResolvedValue({ frontmatterStatus: "valid", bodyReadOnly: false })
     readNote.mockReset().mockImplementation(async (_vault: string, noteId: string) => ({
       content: NOTES[noteId] ?? "",
       revision: "r",
@@ -150,6 +168,57 @@ describe("ProjectDesk", () => {
     useDatabaseStore.setState({ vaultGeneration: 1, invalidationSeq: 0 })
   })
   afterEach(cleanup)
+
+  it("edits the story card body on the desk with its loaded revision", async () => {
+    readNote.mockResolvedValue({ content: "First draft", revision: "card-rev", source: "" })
+    writeNote.mockResolvedValue({ revision: "saved" })
+    const onOpenNote = renderDesk(vi.fn(), "/vault", { ...story, cardNoteId: "card" })
+    expect(await screen.findByText("First draft")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Редактировать описание" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Описание" }), {
+      target: { value: "New draft" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+    expect(await screen.findByText("New draft")).toBeTruthy()
+    expect(writeNote).toHaveBeenCalledWith(
+      "/vault",
+      "card",
+      "New draft",
+      1,
+      "card-rev",
+      "creative-description",
+    )
+    expect(onOpenNote).not.toHaveBeenCalled()
+  })
+
+  it("keeps a story's description available when its text database is missing", async () => {
+    readNote.mockResolvedValue({
+      content: "A story without pages",
+      revision: "card-rev",
+      source: "",
+    })
+    renderDesk(vi.fn(), "/vault", { ...story, text: null, cardNoteId: "card" })
+    expect(await screen.findByText("A story without pages")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Редактировать описание" })).toBeTruthy()
+  })
+
+  it("leaves the description draft in place when the ordinary note editor has unsaved changes", async () => {
+    readNote.mockResolvedValue({ content: "First draft", revision: "card-rev", source: "" })
+    writeNote.mockClear()
+    renderDesk(vi.fn(), "/vault", { ...story, cardNoteId: "card" })
+    fireEvent.click(await screen.findByRole("button", { name: "Редактировать описание" }))
+    const field = screen.getByRole("textbox", { name: "Описание" }) as HTMLTextAreaElement
+    fireEvent.change(field, { target: { value: "Draft on the desk" } })
+    try {
+      act(() => useDocStore.getState().markUnsaved("card"))
+      fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
+      expect(writeNote).not.toHaveBeenCalled()
+      expect(field.value).toBe("Draft on the desk")
+      expect(screen.getByRole("status").textContent).toContain("Сохраните правки")
+    } finally {
+      act(() => useDocStore.getState().markSaved("card"))
+    }
+  })
 
   it("offers the page changed last to continue with, and only that one", async () => {
     const onOpenNote = renderDesk()
@@ -192,7 +261,8 @@ describe("ProjectDesk", () => {
     const onOpenNote = renderDesk()
     const outline = await screen.findByRole("region", { name: "Главы" })
     await within(outline).findByRole("button", { name: "Книга первая" })
-    fireEvent.click(within(outline).getByRole("button", { name: "Книга" }))
+    fireEvent.click(within(outline).getByRole("button", { name: "Новая: Книга" }))
+    expect(within(outline).getByText("Новая: Книга")).toBeTruthy()
     const field = within(outline).getByPlaceholderText(/Название страницы/)
     fireEvent.change(field, { target: { value: "Книга третья" } })
     fireEvent.keyDown(field, { key: "Enter" })
@@ -206,6 +276,35 @@ describe("ProjectDesk", () => {
       }),
     )
     await waitFor(() => expect(onOpenNote).toHaveBeenCalledWith("new"))
+  })
+
+  it("writes only the new level from the desk page menu", async () => {
+    applyDatabaseValueBatch.mockResolvedValue({ revisions: [], warnings: [] })
+    renderDesk()
+    fireEvent.keyDown(
+      await screen.findByRole("button", {
+        name: "Действия со страницей «Книга вторая»",
+      }),
+      { key: "Enter" },
+    )
+    const levels = await screen.findByRole("menuitem", { name: "Изменить уровень" })
+    fireEvent.keyDown(levels, { key: "ArrowRight" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Глава" }))
+    await waitFor(() =>
+      expect(applyDatabaseValueBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: "db_text",
+          cells: [
+            {
+              noteId: "b2",
+              propertyId: "lvl",
+              valueJson: JSON.stringify({ type: "select", optionId: "chapter" }),
+              expectedRevision: "rev-b2",
+            },
+          ],
+        }),
+      ),
+    )
   })
 
   it("moves a page with the panel's own moves, from the page's menu", async () => {
@@ -310,7 +409,7 @@ describe("ProjectDesk", () => {
     it("explains the mode and gives every widget its controls, off outside the mode", async () => {
       mountEditing()
       await screen.findByRole("region", { name: "Главы" })
-      expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+      expect(screen.getByText(/Изменения сохраняются для этой истории/)).toBeTruthy()
       for (const name of ["Продолжить", "Прогресс", "Главы"]) {
         expect(screen.getByRole("button", { name: `Выше: «${name}»` })).toBeTruthy()
         expect(screen.getByRole("button", { name: `Ниже: «${name}»` })).toBeTruthy()
@@ -327,7 +426,7 @@ describe("ProjectDesk", () => {
       renderDesk()
       await screen.findByRole("region", { name: "Главы" })
       expect(screen.queryByRole("button", { name: /Скрыть виджет/ })).toBeNull()
-      expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+      expect(screen.queryByText(/Изменения сохраняются для этой истории/)).toBeNull()
     })
 
     it("moves a widget and changes its width, handing the whole layout on", async () => {
@@ -392,7 +491,7 @@ describe("ProjectDesk", () => {
     expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
     // What the layout does not know is added after the rest.
     const titles = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))
-    expect(titles).toEqual(["Главы", "Продолжить"])
+    expect(titles).toEqual(["Описание", "Главы", "Продолжить"])
   })
 
   it("offers to make the first page in a list the story has none in, linked to the story", async () => {
@@ -424,7 +523,7 @@ describe("ProjectDesk", () => {
     )
     const card = await screen.findByRole("region", { name: "Персонажи" })
     expect(await within(card).findByText("Пока пусто.")).toBeTruthy()
-    fireEvent.click(within(card).getByRole("button", { name: "Добавить: Персонажи" }))
+    fireEvent.click(within(card).getByRole("button", { name: "Персонаж" }))
     const field = within(card).getByLabelText("Название — Персонажи")
     fireEvent.change(field, { target: { value: "Анна" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
@@ -562,7 +661,7 @@ describe("ProjectDesk", () => {
       />,
     )
     await screen.findByRole("region", { name: "Прогресс" })
-    await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("Готово 2 из 3 стр.")).toBeTruthy())
     const bar = screen.getByRole("progressbar")
     expect(bar.getAttribute("aria-valuenow")).toBe("67")
   })

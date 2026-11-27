@@ -74,6 +74,10 @@ const text: ProjectTextSummary = {
     status: "pst",
     anchors: null,
     arcs: null,
+    characters: null,
+    pov: null,
+    places: null,
+    storyTime: null,
   },
   levels: [],
   formats: [],
@@ -115,7 +119,12 @@ const storiesSummary: DatabaseSummary = {
 const workshop = workshopSummary("verse", {
   name: "Verse",
   sections: [
-    section("stories", { role: "stories", databaseId: "db_stories", universePropertyId: "up" }),
+    section("stories", {
+      role: "stories",
+      name: "Истории",
+      databaseId: "db_stories",
+      universePropertyId: "up",
+    }),
     section("universes", { role: "universes", name: "Вселенные", databaseId: "db_univ" }),
     section("notes", {
       role: "notes",
@@ -214,15 +223,27 @@ describe("the page of the workshop", () => {
   })
   afterEach(cleanup)
 
+  it("opens the desk from the Stories gallery and offers the card in its context menu", async () => {
+    const { onOpenProject, onOpenNote } = mount()
+    fireEvent.click(screen.getByRole("button", { name: "Истории" }))
+    const card = await screen.findByRole("button", { name: "MoleHills" })
+    fireEvent.click(card)
+    expect(onOpenProject).toHaveBeenCalledWith("hills")
+    expect(onOpenNote).not.toHaveBeenCalled()
+    fireEvent.contextMenu(card)
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Открыть заметку" }))
+    expect(onOpenNote).toHaveBeenCalledWith("note_hills")
+  })
+
   it("counts worlds, stories and the words written under the name", async () => {
     mount()
-    const numbers = screen.getByText("Миров").closest("dl") as HTMLElement
+    const numbers = screen.getByText("Вселенных").closest("dl") as HTMLElement
     await waitFor(() =>
       expect(within(numbers).getByText("Написано слов").nextSibling?.textContent).toBe(
         (180).toLocaleString(),
       ),
     )
-    expect(within(numbers).getByText("Миров").nextSibling?.textContent).toBe("1")
+    expect(within(numbers).getByText("Вселенных").nextSibling?.textContent).toBe("1")
     expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("2")
   })
 
@@ -291,10 +312,10 @@ describe("the page of the workshop", () => {
   it("narrows the stories to a world", async () => {
     mount()
     await screen.findByRole("button", { name: /MoleHills/ })
-    await screen.findByRole("combobox", { name: "Мир" })
-    await chooseOption("Мир", "Отдельные истории")
+    await screen.findByRole("combobox", { name: "Вселенная" })
+    await chooseOption("Вселенная", "Отдельные истории")
     expect(storyNames()).toEqual(["Одиночка"])
-    await chooseOption("Мир", "Палуверс")
+    await chooseOption("Вселенная", "Палуверс")
     expect(storyNames()).toEqual(["MoleHills"])
   })
 

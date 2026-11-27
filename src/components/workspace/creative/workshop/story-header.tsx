@@ -1,6 +1,8 @@
 import { BookOpen, Globe2, Library, Play, Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { useTranslation } from "react-i18next"
 import type { StorySummary } from "@/lib/storage"
+import { WHOLE_WORKSHOP } from "../creative-scope-storage"
 import { ScopeBar, type ScopeSegment } from "./scope-bar"
 import type { UniverseItem } from "./workshop-model"
 
@@ -33,7 +35,7 @@ interface StoryHeaderProps {
   openTarget: "story" | "universe" | "standalone"
   onOpenTarget: () => void
   /** The page of the text changed last, offered as the place to go on from; none hides the row. */
-  resume?: { noteId: string; title: string; when: string } | null
+  resume?: { noteId: string; title: string; when: string; active: boolean } | null
   onOpenNote?: (noteId: string) => void
   /** The universe the stories are looked at in; none leaves the story alone in the bar. */
   universe?: UniverseSwitch | null
@@ -100,15 +102,17 @@ export function StoryHeader({
   const selectedUniverse = universe?.selectedUniverseId
     ? (universe.universes.find((item) => item.noteId === universe.selectedUniverseId) ?? null)
     : null
+  const wholeWorkshop = universe?.selectedUniverseId === WHOLE_WORKSHOP
   const universeSegment: ScopeSegment | null = universe
     ? {
         ariaLabel: t("creative.workshop.chooseUniverse"),
         icon: selectedUniverse ? <Globe2 /> : <Library />,
         name: selectedUniverse
           ? selectedUniverse.title || untitled
-          : t("creative.workshop.standalone"),
-        value: selectedUniverse ? selectedUniverse.noteId : STANDALONE,
+          : t(wholeWorkshop ? "creative.workshop.wholeWorkshop" : "creative.workshop.standalone"),
+        value: selectedUniverse?.noteId ?? (wholeWorkshop ? WHOLE_WORKSHOP : STANDALONE),
         options: [
+          { value: WHOLE_WORKSHOP, label: t("creative.workshop.wholeWorkshop") },
           { value: STANDALONE, label: t("creative.workshop.standalone") },
           ...universe.universes.map((item) => ({
             value: item.noteId,
@@ -127,7 +131,11 @@ export function StoryHeader({
           ? {
               label: selectedUniverse
                 ? t("creative.workshop.openUniverse")
-                : t("creative.workshop.openStandalone"),
+                : t(
+                    wholeWorkshop
+                      ? "creative.workshop.openWorkshop"
+                      : "creative.workshop.openStandalone",
+                  ),
               onOpen: onOpenScope,
             }
           : undefined,
@@ -152,9 +160,14 @@ export function StoryHeader({
       <button
         type="button"
         onClick={() => onOpenNote(resume.noteId)}
+        disabled={resume.active}
+        aria-hidden={resume.active || undefined}
         title={t("creative.workshop.resume", { name: resume.title })}
         aria-label={t("creative.workshop.resume", { name: resume.title })}
-        className="flex w-full items-center gap-2 px-2.5 py-1 text-left text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn(
+          "flex w-full items-center gap-2 px-2.5 py-1 text-left text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+          resume.active && "invisible",
+        )}
       >
         <Play aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
         <span className="min-w-0 flex-1 break-words">{resume.title}</span>

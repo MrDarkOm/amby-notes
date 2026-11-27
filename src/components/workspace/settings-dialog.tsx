@@ -67,6 +67,7 @@ import {
   type FontFamily,
   type Language,
   type ThemePref,
+  type NotePagesPref,
   type ViewModePref,
 } from "./app-config"
 import { SHORTCUT_DEFINITIONS } from "./keyboard-shortcuts"
@@ -426,7 +427,7 @@ export function SettingsDialog({
       {
         section: "editor",
         label: t("settings.tabs.editor"),
-        description: `${t("settings.editor.defaultViewMode")} · ${t("settings.editor.contentWidth")} · ${t("settings.editor.autosave")}`,
+        description: `${t("settings.editor.defaultViewMode")} · ${t("settings.editor.contentWidth")} · ${t("settings.editor.autosave")} · ${t("settings.editor.notePages")}`,
       },
       {
         section: "shortcuts",
@@ -893,6 +894,31 @@ export function SettingsDialog({
                       }}
                       className="h-8 w-24 rounded-md border border-border bg-card px-2 text-right text-[13px] text-foreground outline-none focus:border-border"
                     />
+                  </Row>
+
+                  <Row
+                    label={t("settings.editor.notePages")}
+                    hint={t("settings.editor.notePagesHint")}
+                  >
+                    <Select
+                      value={prefs.editor.notePages}
+                      onValueChange={(v) =>
+                        setPrefs({ editor: { ...prefs.editor, notePages: v as NotePagesPref } })
+                      }
+                    >
+                      <SelectTrigger className={selectTrigger}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="flagged">
+                          {t("settings.editor.notePagesFlagged")}
+                        </SelectItem>
+                        <SelectItem value="always">
+                          {t("settings.editor.notePagesAlways")}
+                        </SelectItem>
+                        <SelectItem value="off">{t("settings.editor.notePagesOff")}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </Row>
                 </SettingsGroup>
               </TabsContent>

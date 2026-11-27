@@ -17,6 +17,7 @@ import { ManualDownloadLink } from "../manual-download-link"
 import { OPEN_SETTINGS_REQUEST_EVENT } from "../settings-navigation"
 import { appDataConflictKind } from "../sync/app-data-conflict"
 import { AppDataConflictBody } from "../sync/sync-vault-parts"
+import { useNoteNoticesStore } from "../note-notices/use-note-notices-store"
 import { useSyncNoticesStore } from "../sync/use-sync-notices-store"
 import type { CentreEntry } from "./centre-entries"
 import { NoticeLevelIcon, NoticeShell } from "./notice-level"
@@ -131,6 +132,7 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
   const { t, i18n } = useTranslation()
   const hide = useNoticesCentreStore((state) => state.hide)
   const dismissAppNotice = useAppNoticesStore((state) => state.dismiss)
+  const setPropertyFailed = useNoteNoticesStore((state) => state.setPropertyFailed)
   const openCompare = useSyncNoticesStore((state) => state.openCompare)
   const conflict = entry.conflict
   const appData = conflict ? appDataConflictKind(conflict.originalPath) : null
@@ -177,7 +179,21 @@ function EntryCard({ entry, context }: { entry: CentreEntry; context: RowContext
             <p className="text-[12px] text-muted-foreground">{line}</p>
             <div className="flex flex-wrap gap-2 pt-1">
               {primary}
-              {entry.kind === "app-notice" && entry.appNotice ? (
+              {entry.kind === "note-card" &&
+              entry.card === "property-failed" &&
+              entry.action.kind === "note" ? (
+                // An event with nothing left to write: closing it is the decision, here or in the card.
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    entry.action.kind === "note" && setPropertyFailed(entry.action.id, null)
+                  }
+                >
+                  {t("notices.centre.close")}
+                </Button>
+              ) : entry.kind === "app-notice" && entry.appNotice ? (
                 <Button
                   type="button"
                   size="sm"

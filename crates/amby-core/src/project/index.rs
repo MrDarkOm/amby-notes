@@ -313,6 +313,10 @@ fn resolve_text(
     for (key, slot) in [
         ("anchors", &mut properties.anchors),
         ("arcs", &mut properties.arcs),
+        ("characters", &mut properties.characters),
+        ("pov", &mut properties.pov),
+        ("places", &mut properties.places),
+        ("storyTime", &mut properties.story_time),
     ] {
         if let Some(id) = declared(key) {
             if property_exists(conn, database_id, &id)? {
